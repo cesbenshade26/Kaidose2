@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-// UNCOMMENT TO ADD ASK FOR PERMISSION TO PHOTOS:
 // import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 
 class CamRoll {
   static final ImagePicker _picker = ImagePicker();
 
-  // UNCOMMENT TO ADD ASK FOR PERMISSION TO PHOTOS:
   /*
   static Future<bool> _checkAndRequestPermission() async {
-    // Check and request permission only when called
+    // Check and request camera permission only when called
     try {
-      PermissionStatus status = await Permission.photos.status;
+      PermissionStatus status = await Permission.camera.status;
 
       if (status.isGranted) {
         return true;
@@ -20,7 +18,7 @@ class CamRoll {
         return false; // Handle this in the calling function
       } else {
         // For any other status, request permission
-        PermissionStatus newStatus = await Permission.photos.request();
+        PermissionStatus newStatus = await Permission.camera.request();
 
         if (newStatus.isGranted) {
           return true;
@@ -32,7 +30,7 @@ class CamRoll {
     } catch (e) {
       // On simulator, permission might not be needed or might fail
       // Let's assume we have permission and try anyway
-      print('Permission check failed (likely simulator): $e');
+      print('Camera permission check failed (likely simulator): $e');
       return true;
     }
   }
@@ -43,7 +41,7 @@ class CamRoll {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Permission Required'),
-          content: const Text('Please enable photo access in Settings to select a profile picture.'),
+          content: const Text('Please enable camera access in Settings to take a photo.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -66,13 +64,12 @@ class CamRoll {
   static Future<XFile?> openCameraRoll(BuildContext context) async {
     print("Photos button tapped!");
 
-    // UNCOMMENT TO ADD ASK FOR PERMISSION TO PHOTOS:
     /*
     // Check permission when the button is tapped
     bool hasPermission = await _checkAndRequestPermission();
 
     if (!hasPermission) {
-      print('No permission to access photos');
+      print('No permission to access camera');
       _showSettingsDialog(context);
       return null;
     }

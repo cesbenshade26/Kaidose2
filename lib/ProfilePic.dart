@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:image_picker/image_picker.dart';
-// UNCOMMENT TO ADD ASK FOR PERMISSION TO PHOTOS:
-// import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
@@ -10,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'ProfilePicManager.dart'; // Import the separate manager file
 import 'DrawPad.dart';
 import 'CamRoll.dart'; // Import the new CamRoll file
+import 'UseCam.dart'; // Import the new UseCam file
 
 // ProfilePicEditor class (keeping this unchanged)
 class ProfilePicEditor extends StatefulWidget {
@@ -254,7 +253,7 @@ class _ProfilePicEditorState extends State<ProfilePicEditor> {
   }
 }
 
-// ProfilePicScreen class - Now using CamRoll for camera roll functionality
+// ProfilePicScreen class - Now with improved Camera functionality
 class ProfilePicScreen extends StatefulWidget {
   final Function(File?)? onProfilePicChanged;
 
@@ -278,41 +277,54 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
     final XFile? image = await CamRoll.openCameraRoll(context);
 
     if (image != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ProfilePicEditor(
-            imageFile: File(image.path),
-            onImageCropped: (File croppedFile) {
-              print('Image cropped! Path: ${croppedFile.path}');
-
-              // Update local state immediately
-              setState(() {
-                _selectedImage = croppedFile;
-              });
-
-              // Update global manager (this should trigger listeners)
-              ProfilePicManager.globalProfilePic = croppedFile;
-
-              print('ProfilePicManager.globalProfilePic set to: ${ProfilePicManager.globalProfilePic?.path}');
-
-              // Call the callback if provided
-              if (widget.onProfilePicChanged != null) {
-                widget.onProfilePicChanged!(croppedFile);
-              }
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Profile picture updated!'),
-                  duration: Duration(seconds: 2),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-          ),
-        ),
-      );
+      _navigateToEditor(image, 'Photos');
     }
+  }
+
+  Future<void> _openCamera() async {
+    // Use the new UseCam function
+    final XFile? image = await UseCam.openCamera(context);
+
+    if (image != null) {
+      _navigateToEditor(image, 'Camera');
+    }
+  }
+
+  void _navigateToEditor(XFile image, String source) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProfilePicEditor(
+          imageFile: File(image.path),
+          onImageCropped: (File croppedFile) {
+            print('Image from $source cropped! Path: ${croppedFile.path}');
+
+            // Update local state immediately
+            setState(() {
+              _selectedImage = croppedFile;
+            });
+
+            // Update global manager (this should trigger listeners)
+            ProfilePicManager.globalProfilePic = croppedFile;
+
+            print('ProfilePicManager.globalProfilePic set to: ${ProfilePicManager.globalProfilePic?.path}');
+
+            // Call the callback if provided
+            if (widget.onProfilePicChanged != null) {
+              widget.onProfilePicChanged!(croppedFile);
+            }
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Profile picture updated from $source!'),
+                duration: Duration(seconds: 2),
+                backgroundColor: Colors.green,
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _openDrawingPad() {
@@ -457,8 +469,14 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
                             _buildOptionButton(
                               icon: Platform.isIOS ? Icons.photo_library : Icons.photo,
                               label: 'Photos',
-                              onTap: _openCameraRoll, // Now calls the simplified function
-                              enabled: true, // Always enabled for testing
+                              onTap: _openCameraRoll,
+                              enabled: true,
+                            ),
+                            _buildOptionButton(
+                              icon: Icons.camera_alt,
+                              label: 'Camera',
+                              onTap: _openCamera,
+                              enabled: true,
                             ),
                             _buildOptionButton(
                               icon: Icons.edit,
@@ -470,7 +488,7 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
                         ),
                         const SizedBox(height: 20),
                         Text(
-                          'Tap Photos to select from your camera roll',
+                          'Tap Photos to select from camera roll, Camera to take a new photo, or Draw to create art',
                           style: TextStyle(
                             color: Colors.grey[600],
                             fontSize: 12,
