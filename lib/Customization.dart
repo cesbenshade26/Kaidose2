@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'ProfilePic.dart'; // Import the ProfilePic screen
 import 'BackgroundPic.dart'; // Import the BackgroundPic screen
+import 'Bio.dart'; // Import the Bio screen
 
 // Customization Screen
 class CustomizationScreen extends StatelessWidget {
@@ -65,7 +66,7 @@ class CustomizationScreen extends StatelessWidget {
               thickness: 0.5,
             ),
 
-            // Bio Option
+            // Bio Option - Updated to navigate to BioScreen
             ListTile(
               leading: const Icon(
                 Icons.edit_note,
@@ -84,11 +85,10 @@ class CustomizationScreen extends StatelessWidget {
                 color: Colors.grey,
               ),
               onTap: () {
-                // TODO: Implement bio editing functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Bio editing coming soon!'),
-                    duration: Duration(seconds: 2),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BioScreen(),
                   ),
                 );
               },

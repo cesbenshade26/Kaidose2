@@ -1,18 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
-import 'package:image_picker/image_picker.dart';
-// UNCOMMENT TO ADD ASK FOR PERMISSION TO PHOTOS:
-// import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:flutter/rendering.dart';
 import 'BackgroundPicManager.dart';
-import 'ProfilePicManager.dart'; // Import to access profile picture
-import 'CamRoll.dart'; // Import the CamRoll functionality
-import 'DrawPad.dart'; // Import the DrawPad functionality
+import 'ProfilePicManager.dart';
+import 'CamRoll.dart';
+import 'DrawPad.dart';
 
-// BackgroundPicEditor class - Custom rectangular editor for background
+// BackgroundPicEditor - Updated to show profile picture preview
 class BackgroundPicEditor extends StatefulWidget {
   final File imageFile;
   final Function(File) onImageCropped;
@@ -32,11 +28,12 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
   double _scale = 1.0;
   Offset _offset = Offset.zero;
   bool _imageLoaded = false;
+  File? _profilePic;
 
   @override
   void initState() {
     super.initState();
-    // Simple initialization - mark as loaded
+    _profilePic = ProfilePicManager.globalProfilePic;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       setState(() {
         _imageLoaded = true;
@@ -44,24 +41,13 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
     });
   }
 
-  void _onScaleStart(ScaleStartDetails details) {
-    // Reset any previous state if needed
-  }
-
   void _onScaleUpdate(ScaleUpdateDetails details) {
     setState(() {
-      // Handle scaling
       if (details.scale != 1.0) {
         _scale = (_scale * details.scale).clamp(0.5, 3.0);
       }
-
-      // Handle panning (both touch and mouse)
       _offset += details.focalPointDelta;
     });
-  }
-
-  void _onScaleEnd(ScaleEndDetails details) {
-    // Optional: Add any cleanup or final adjustments here
   }
 
   Future<void> _cropAndSave() async {
@@ -73,7 +59,6 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
       final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       final Uint8List pngBytes = byteData!.buffer.asUint8List();
 
-      // Create a temporary file in the system temp directory
       final String fileName = 'cropped_background_${DateTime.now().millisecondsSinceEpoch}.png';
       final Directory tempDir = Directory.systemTemp;
       final File croppedFile = File('${tempDir.path}/$fileName');
@@ -82,12 +67,8 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
       widget.onImageCropped(croppedFile);
       Navigator.pop(context);
     } catch (e) {
-      print('Error cropping background image: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error cropping image: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Error cropping image: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -97,201 +78,116 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
     if (!_imageLoaded) {
       return const Scaffold(
         backgroundColor: Colors.black54,
-        body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
-    // Get screen dimensions for proper sizing
     final screenSize = MediaQuery.of(context).size;
-    final cropWidth = screenSize.width; // Full screen width
-    // Height should match the background area: from top to midline of profile pic
-    // Profile pic starts at 80px from top, has 160px height, so midline is at 80 + 80 = 160px
-    const double cropHeight = 160.0; // Top padding + half profile pic height
+    const double cropHeight = 160.0;
+    const double profilePicSize = 160.0;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Full screen background image (static, shows original image layout)
+          // Background image
           Positioned.fill(
-            child: Image.file(
-              widget.imageFile,
-              fit: BoxFit.contain,
-            ),
+            child: Image.file(widget.imageFile, fit: BoxFit.contain),
           ),
-          // Dark translucent overlay over everything
+          // Dark overlay
           Positioned.fill(
-            child: Container(
-              color: Colors.black.withOpacity(0.7),
-            ),
+            child: Container(color: Colors.black.withOpacity(0.7)),
           ),
-          // Clear rectangular "hole" in the overlay to show the crop area
+          // Crop area with profile picture preview
           Positioned(
-            top: (MediaQuery.of(context).size.height - cropHeight) / 2,
-            left: (MediaQuery.of(context).size.width - cropWidth) / 2,
-            child: Container(
-              width: cropWidth,
-              height: cropHeight,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(0), // No border radius for full-width background
-                color: Colors.transparent,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(0),
-                child: Container(
-                  color: Colors.transparent,
-                  child: Stack(
-                    children: [
-                      // The actual interactive cropping area
-                      Listener(
-                        onPointerSignal: (event) {
-                          if (event.runtimeType.toString() == 'PointerScrollEvent') {
-                            setState(() {
-                              // Use reflection to get scroll delta
-                              final scrollDelta = (event as dynamic).scrollDelta.dy as double;
-                              final scaleDelta = scrollDelta > 0 ? 0.9 : 1.1;
-                              _scale = (_scale * scaleDelta).clamp(0.5, 3.0);
-                            });
-                          }
-                        },
-                        child: GestureDetector(
-                          onScaleStart: _onScaleStart,
-                          onScaleUpdate: _onScaleUpdate,
-                          onScaleEnd: _onScaleEnd,
-                          child: RepaintBoundary(
-                            key: _cropKey,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(0),
-                              child: Transform(
-                                alignment: Alignment.center,
-                                transform: Matrix4.identity()
-                                  ..translate(_offset.dx, _offset.dy)
-                                  ..scale(_scale),
-                                child: Image.file(
-                                  widget.imageFile,
-                                  fit: BoxFit.cover,
-                                  width: cropWidth,
-                                  height: cropHeight,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
+            top: (screenSize.height - cropHeight) / 2,
+            left: 0,
+            right: 0,
+            height: cropHeight,
+            child: Stack(
+              children: [
+                // Editable background crop area
+                GestureDetector(
+                  onScaleUpdate: _onScaleUpdate,
+                  child: RepaintBoundary(
+                    key: _cropKey,
+                    child: Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.identity()
+                        ..translate(_offset.dx, _offset.dy)
+                        ..scale(_scale),
+                      child: Image.file(
+                        widget.imageFile,
+                        fit: BoxFit.cover,
+                        width: screenSize.width,
+                        height: cropHeight,
                       ),
-                      // Profile picture placeholder overlay (to show where profile pic will be)
-                      Positioned(
-                        bottom: 0, // Position at bottom of background area (midline of profile pic)
-                        left: (cropWidth - 160) / 2, // Center horizontally
-                        child: Container(
-                          width: 160,
-                          height: 80, // Only show top half of profile pic (the part that overlaps background)
-                          decoration: BoxDecoration(
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(80),
-                              topRight: Radius.circular(80),
-                            ),
-                            color: Colors.black.withOpacity(0.3),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.5),
-                              width: 2,
-                            ),
-                          ),
-                          child: const Center(
-                            child: Padding(
-                              padding: EdgeInsets.only(bottom: 20),
-                              child: Text(
-                                'Profile Pic',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Settings icon placeholder
-                      Positioned(
-                        top: 30,
-                        right: 16,
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.3),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.5),
-                              width: 1,
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.settings,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          // Rectangular border
-          Positioned(
-            top: (MediaQuery.of(context).size.height - cropHeight) / 2,
-            left: (MediaQuery.of(context).size.width - cropWidth) / 2,
-            child: Container(
-              width: cropWidth,
-              height: cropHeight,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(0),
-                border: Border.all(
-                  color: Colors.white,
-                  width: 3,
+                // Profile picture preview overlay (non-interactive)
+                Positioned(
+                  top: cropHeight - (profilePicSize * 3/4), // Position so 3/4 overlaps background, 1/4 extends below
+                  left: (screenSize.width - profilePicSize) / 2, // Center horizontally
+                  child: Container(
+                    width: profilePicSize,
+                    height: profilePicSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.grey[300],
+                      border: Border.all(
+                        color: Colors.grey[400]!,
+                        width: 3,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: _profilePic != null && _profilePic!.existsSync()
+                          ? Image.file(
+                        _profilePic!,
+                        fit: BoxFit.cover,
+                        width: profilePicSize,
+                        height: profilePicSize,
+                      )
+                          : DefaultProfilePic(size: profilePicSize, borderWidth: 0),
+                    ),
+                  ),
                 ),
+              ],
+            ),
+          ),
+          // Border around crop area
+          Positioned(
+            top: (screenSize.height - cropHeight) / 2,
+            left: 0,
+            right: 0,
+            height: cropHeight,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 3),
               ),
             ),
           ),
-
+          // Instructions
           Positioned(
             top: 100,
             left: 0,
             right: 0,
             child: Text(
-              'Drag to move • Pinch/scroll to zoom',
+              'Drag to move • Pinch to zoom\nProfile picture preview shown',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
+              style: TextStyle(color: Colors.white, fontSize: 16),
             ),
           ),
-
+          // Back button
           Positioned(
             top: 50,
             left: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(
-                  Icons.arrow_back,
-                  color: Colors.white,
-                  size: 24,
-                ),
-                onPressed: () => Navigator.pop(context),
-              ),
+            child: IconButton(
+              icon: Icon(Icons.arrow_back, color: Colors.white, size: 24),
+              onPressed: () => Navigator.pop(context),
             ),
           ),
-
+          // Confirm button
           Positioned(
             bottom: 50,
             left: 0,
@@ -301,19 +197,10 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
                 onPressed: _cropAndSave,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(25),
-                  ),
+                  padding: EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
                 ),
-                child: const Text(
-                  'Confirm',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                child: Text('Confirm', style: TextStyle(fontSize: 18, color: Colors.white)),
               ),
             ),
           ),
@@ -323,7 +210,7 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
   }
 }
 
-// BackgroundPicScreen class - Updated to use CamRoll
+// BackgroundPicScreen - Fixed profile picture positioning
 class BackgroundPicScreen extends StatefulWidget {
   final Function(File?)? onBackgroundPicChanged;
 
@@ -336,93 +223,51 @@ class BackgroundPicScreen extends StatefulWidget {
 class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
   File? _selectedImage;
   File? _profilePic;
-  VoidCallback? _profilePicListener;
+  bool _showSeparator = false;
+  Color _separatorColor = Colors.black;
+
+  final List<Color> _colorOptions = [
+    Colors.black,
+    Colors.grey,
+    Colors.blue,
+    Colors.red,
+    Colors.green,
+    Colors.purple,
+    Colors.orange,
+  ];
 
   @override
   void initState() {
     super.initState();
     _selectedImage = BackgroundPicManager.globalBackgroundPic;
     _profilePic = ProfilePicManager.globalProfilePic;
-
-    // Load profile pic from storage
-    _loadProfilePicFromStorage();
-
-    // Create listener for profile pic changes
-    _profilePicListener = () {
-      print('BackgroundPicScreen: Profile pic changed!');
-      if (mounted) {
-        setState(() {
-          _profilePic = ProfilePicManager.globalProfilePic;
-        });
-      }
-    };
-
-    // Add the listener
-    ProfilePicManager.addListener(_profilePicListener!);
-  }
-
-  Future<void> _loadProfilePicFromStorage() async {
-    await ProfilePicManager.loadProfilePicFromStorage();
-    if (mounted) {
-      setState(() {
-        _profilePic = ProfilePicManager.globalProfilePic;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    if (_profilePicListener != null) {
-      ProfilePicManager.removeListener(_profilePicListener!);
-    }
-    super.dispose();
+    _showSeparator = BackgroundPicManager.showSeparator;
+    _separatorColor = BackgroundPicManager.separatorColor;
   }
 
   Future<void> _openCameraRoll() async {
-    print("Background Photos button tapped!");
-
-    // Use CamRoll to open camera roll
     final image = await CamRoll.openCameraRoll(context);
-
     if (image != null) {
-      print('Selected background image path: ${image.path}');
-
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => BackgroundPicEditor(
             imageFile: File(image.path),
             onImageCropped: (File croppedFile) {
-              print('Background image cropped! Path: ${croppedFile.path}');
-
-              // Update local state immediately
               setState(() {
                 _selectedImage = croppedFile;
               });
-
-              // Update global manager (this should trigger listeners)
               BackgroundPicManager.globalBackgroundPic = croppedFile;
-
-              print('BackgroundPicManager.globalBackgroundPic set to: ${BackgroundPicManager.globalBackgroundPic?.path}');
-
-              // Call the callback if provided
               if (widget.onBackgroundPicChanged != null) {
                 widget.onBackgroundPicChanged!(croppedFile);
               }
-
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Background picture updated!'),
-                  duration: Duration(seconds: 2),
-                  backgroundColor: Colors.green,
-                ),
+                SnackBar(content: Text('Background updated!'), backgroundColor: Colors.green),
               );
             },
           ),
         ),
       );
-    } else {
-      print('No background image selected - user cancelled');
     }
   }
 
@@ -432,36 +277,21 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
       MaterialPageRoute(
         builder: (context) => DrawingScreen(
           onDrawingComplete: (File drawingFile) {
-            print('Background drawing completed! File: ${drawingFile.path}');
-
-            // Navigate to BackgroundPicEditor with the drawing
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => BackgroundPicEditor(
                   imageFile: drawingFile,
                   onImageCropped: (File croppedFile) {
-                    print('Background drawing cropped! Path: ${croppedFile.path}');
-
-                    // Update local state immediately
                     setState(() {
                       _selectedImage = croppedFile;
                     });
-
-                    // Update global manager
                     BackgroundPicManager.globalBackgroundPic = croppedFile;
-
-                    // Call the callback if provided
                     if (widget.onBackgroundPicChanged != null) {
                       widget.onBackgroundPicChanged!(croppedFile);
                     }
-
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Background picture updated from drawing!'),
-                        duration: Duration(seconds: 2),
-                        backgroundColor: Colors.green,
-                      ),
+                      SnackBar(content: Text('Background updated from drawing!'), backgroundColor: Colors.green),
                     );
                   },
                 ),
@@ -473,196 +303,195 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
     );
   }
 
+  void _removeBackground() {
+    setState(() {
+      _selectedImage = null;
+      _showSeparator = false;
+    });
+    BackgroundPicManager.globalBackgroundPic = null;
+    if (widget.onBackgroundPicChanged != null) {
+      widget.onBackgroundPicChanged!(null);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Background removed!'), backgroundColor: Colors.orange),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // Background and content area
           Column(
             children: [
-              // Top portion - Background area (matching profile screen layout)
+              // Background area
               Container(
                 width: double.infinity,
-                height: 160, // Same height as profile screen background area
-                color: _selectedImage != null ? Colors.transparent : Colors.white,
-                child: _selectedImage != null
-                    ? Stack(
+                height: 160, // Background height
+                color: Colors.white,
+                child: Stack(
                   children: [
-                    // Background image - covers full area
-                    Positioned.fill(
-                      child: Image.file(
-                        _selectedImage!,
-                        fit: BoxFit.cover,
-                        // Add a unique key to force Flutter to reload the image
-                        key: ValueKey(_selectedImage!.path + _selectedImage!.lastModifiedSync().toString()),
-                        errorBuilder: (context, error, stackTrace) {
-                          print('Error loading background image: $error');
-                          return Container(
-                            color: Colors.grey[300],
-                            child: Center(
-                              child: Icon(
-                                Icons.error,
-                                size: 50,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          );
-                        },
+                    // Background image (if exists)
+                    if (_selectedImage != null)
+                      Image.file(_selectedImage!, fit: BoxFit.cover, width: double.infinity, height: 160),
+
+                    // Separator line at bottom of background (if enabled)
+                    if (_showSeparator && _selectedImage != null)
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(height: 3, color: _separatorColor),
                       ),
-                    ),
-                    // Settings icon placeholder
-                    Positioned(
-                      top: 50,
-                      right: 16,
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.8),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              spreadRadius: 1,
-                              blurRadius: 3,
-                              offset: const Offset(0, 2),
-                            ),
+
+                    // Settings gear icon preview
+                    if (_selectedImage != null)
+                      Positioned(
+                        top: 50,
+                        right: 16,
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.8),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.settings, size: 20),
+                        ),
+                      ),
+
+                    // No background state
+                    if (_selectedImage == null)
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.wallpaper, size: 50, color: Colors.grey[400]),
+                            SizedBox(height: 8),
+                            Text('No Background Set', style: TextStyle(color: Colors.grey[600])),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.settings,
-                          color: Colors.black,
-                          size: 20,
-                        ),
                       ),
-                    ),
                   ],
-                )
-                    : Container(
-                  color: Colors.white,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.wallpaper,
-                          size: 50,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'No Background Set',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ),
-              // Profile picture area - overlapping the background boundary
+
+              // Profile picture - Fixed positioning to match main profile screen
               Transform.translate(
-                offset: const Offset(0, -80), // Move up to overlap background area
+                offset: Offset(0, -120), // Position so only 1/4 (40px) extends below background
                 child: Container(
                   width: 160,
                   height: 160,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.grey[300],
-                    border: Border.all(
-                      color: Colors.grey[400]!,
-                      width: 3,
-                    ),
+                    border: Border.all(color: Colors.grey[400]!, width: 3),
                   ),
                   child: ClipOval(
-                    child: _profilePic != null && _profilePic!.existsSync()
-                        ? Image.file(
-                      _profilePic!,
-                      fit: BoxFit.cover,
-                      width: 160,
-                      height: 160,
-                      // Add a unique key to force Flutter to reload the image
-                      key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-                      errorBuilder: (context, error, stackTrace) {
-                        print('Error loading profile image: $error');
-                        return const DefaultProfilePic(size: 160, borderWidth: 0);
-                      },
-                    )
-                        : const DefaultProfilePic(size: 160, borderWidth: 0),
+                    child: _profilePic != null
+                        ? Image.file(_profilePic!, fit: BoxFit.cover)
+                        : DefaultProfilePic(size: 160, borderWidth: 0),
                   ),
                 ),
               ),
-              // Bottom area - Grey background with buttons (adjusted for overlapping profile pic)
+
+              // Content area - Adjusted spacing
               Expanded(
                 child: Transform.translate(
-                  offset: const Offset(0, -80), // Move up to account for overlapping profile pic
+                  offset: Offset(0, -120), // Adjusted to maintain proper spacing with new profile position
                   child: Container(
-                    width: double.infinity,
                     decoration: BoxDecoration(
                       color: Colors.grey[300],
-                      borderRadius: const BorderRadius.only(
+                      borderRadius: BorderRadius.only(
                         topLeft: Radius.circular(30),
                         topRight: Radius.circular(30),
                       ),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.only(top: 100, left: 20, right: 20, bottom: 20), // Extra top padding for profile pic
+                      padding: EdgeInsets.only(top: 100, left: 20, right: 20, bottom: 20),
                       child: Column(
                         children: [
+                          // Buttons
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              _buildOptionButton(
-                                icon: Platform.isIOS ? Icons.photo_library : Icons.photo,
-                                label: 'Photos',
-                                onTap: _openCameraRoll,
-                                enabled: true,
-                              ),
-                              _buildOptionButton(
-                                icon: Icons.edit,
-                                label: 'Draw',
-                                onTap: _openDrawingPad,
-                                enabled: true,
-                              ),
+                              _buildButton(Icons.photo, 'Photos', _openCameraRoll),
+                              _buildButton(Icons.edit, 'Draw', _openDrawingPad),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          SizedBox(height: 16),
                           if (_selectedImage != null)
                             ElevatedButton(
-                              onPressed: () {
-                                setState(() {
-                                  _selectedImage = null;
-                                  BackgroundPicManager.globalBackgroundPic = null;
-                                });
-                                if (widget.onBackgroundPicChanged != null) {
-                                  widget.onBackgroundPicChanged!(null);
-                                }
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Background picture removed!'),
-                                    duration: Duration(seconds: 2),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.grey[600],
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text('Remove Background'),
+                              onPressed: _removeBackground,
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[600]),
+                              child: Text('Remove Background', style: TextStyle(color: Colors.white)),
                             ),
-                          const SizedBox(height: 16),
+                          SizedBox(height: 16),
                           Text(
                             'Tap Photos to select a background image',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                            ),
+                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
                             textAlign: TextAlign.center,
+                          ),
+                          Spacer(),
+                          // Border options
+                          Container(
+                            padding: EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(15),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  spreadRadius: 1,
+                                  blurRadius: 3,
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Checkbox(
+                                      value: _showSeparator,
+                                      onChanged: (value) {
+                                        setState(() => _showSeparator = value ?? false);
+                                        BackgroundPicManager.setSeparatorSettings(_showSeparator, _separatorColor);
+                                      },
+                                    ),
+                                    Text('Add bottom border', style: TextStyle(fontSize: 16)),
+                                  ],
+                                ),
+                                if (_showSeparator) ...[
+                                  SizedBox(height: 12),
+                                  Text('Border color:', style: TextStyle(color: Colors.grey)),
+                                  SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    children: _colorOptions.map((color) {
+                                      return GestureDetector(
+                                        onTap: () {
+                                          setState(() => _separatorColor = color);
+                                          BackgroundPicManager.setSeparatorSettings(_showSeparator, color);
+                                        },
+                                        child: Container(
+                                          width: 36,
+                                          height: 36,
+                                          decoration: BoxDecoration(
+                                            color: color,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: _separatorColor == color ? Colors.blue : Colors.grey[300]!,
+                                              width: _separatorColor == color ? 3 : 1,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -676,19 +505,9 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
           Positioned(
             top: 50,
             left: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(
-                  Icons.arrow_back,
-                  color: Colors.black,
-                  size: 24,
-                ),
-                onPressed: () => Navigator.pop(context),
-              ),
+            child: IconButton(
+              icon: Icon(Icons.arrow_back, size: 24),
+              onPressed: () => Navigator.pop(context),
             ),
           ),
         ],
@@ -696,46 +515,29 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
     );
   }
 
-  Widget _buildOptionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    required bool enabled,
-  }) {
+  Widget _buildButton(IconData icon, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: enabled ? onTap : null,
+      onTap: onTap,
       child: Container(
         width: 80,
         height: 80,
         decoration: BoxDecoration(
-          color: enabled ? Colors.white : Colors.grey[400],
+          color: Colors.white,
           borderRadius: BorderRadius.circular(15),
-          boxShadow: enabled ? [
+          boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
               spreadRadius: 1,
               blurRadius: 3,
-              offset: const Offset(0, 2),
             ),
-          ] : null,
+          ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 32,
-              color: enabled ? Colors.grey[700] : Colors.grey[500],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: enabled ? Colors.grey[700] : Colors.grey[500],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            Icon(icon, size: 32, color: Colors.grey[700]),
+            SizedBox(height: 4),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
           ],
         ),
       ),

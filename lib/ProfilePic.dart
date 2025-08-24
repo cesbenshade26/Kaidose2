@@ -253,7 +253,7 @@ class _ProfilePicEditorState extends State<ProfilePicEditor> {
   }
 }
 
-// ProfilePicScreen class - Now with improved Camera functionality
+// ProfilePicScreen class - Updated to match main profile positioning
 class ProfilePicScreen extends StatefulWidget {
   final Function(File?)? onProfilePicChanged;
 
@@ -391,7 +391,7 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const SizedBox(height: 60),
+                        const SizedBox(height: 20), // Reduced from 60 to move profile pic up (matches main profile)
                         Container(
                           width: 200,
                           height: 200,

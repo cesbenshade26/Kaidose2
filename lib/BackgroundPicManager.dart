@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert';
 
 // BackgroundPicManager class with notification system and local storage
 class BackgroundPicManager {
   static File? _globalBackgroundPic;
+  static bool _showSeparator = false;
+  static Color _separatorColor = Colors.black;
   static final List<VoidCallback> _listeners = [];
   static const String _backgroundPicFileName = 'user_background_picture.png';
+  static const String _settingsFileName = 'background_settings.json';
 
   static File? get globalBackgroundPic => _globalBackgroundPic;
+  static bool get showSeparator => _showSeparator;
+  static Color get separatorColor => _separatorColor;
 
   static set globalBackgroundPic(File? file) {
     print('BackgroundPicManager: Setting globalBackgroundPic to: ${file?.path}');
@@ -31,6 +37,17 @@ class BackgroundPicManager {
     print('BackgroundPicManager: All listeners notified');
   }
 
+  static void setSeparatorSettings(bool show, Color color) {
+    _showSeparator = show;
+    _separatorColor = color;
+    _saveSettingsLocally();
+
+    // Notify listeners when separator settings change
+    for (var listener in _listeners) {
+      listener();
+    }
+  }
+
   static void addListener(VoidCallback listener) {
     _listeners.add(listener);
   }
@@ -51,7 +68,7 @@ class BackgroundPicManager {
     }
   }
 
-  // Load background picture from local storage on app start
+  // Load background picture and settings from local storage on app start
   static Future<void> loadBackgroundPicFromStorage() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
@@ -63,18 +80,63 @@ class BackgroundPicManager {
 
         _globalBackgroundPic = file;
         print('Background picture loaded from: ${file.path}');
-
-        // Notify listeners that we loaded a background pic
-        for (var listener in _listeners) {
-          listener();
-        }
       } else {
         print('No saved background picture found');
         _globalBackgroundPic = null;
       }
+
+      // Load separator settings
+      await _loadSettingsFromStorage();
+
+      // Notify listeners that we loaded everything
+      for (var listener in _listeners) {
+        listener();
+      }
     } catch (e) {
       print('Error loading background picture: $e');
       _globalBackgroundPic = null;
+    }
+  }
+
+  // Save separator settings to local storage
+  static Future<void> _saveSettingsLocally() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final settingsFile = File('${directory.path}/$_settingsFileName');
+
+      final settings = {
+        'showSeparator': _showSeparator,
+        'separatorColor': _separatorColor.value,
+      };
+
+      await settingsFile.writeAsString(json.encode(settings));
+      print('Background settings saved: $settings');
+    } catch (e) {
+      print('Error saving background settings: $e');
+    }
+  }
+
+  // Load separator settings from local storage
+  static Future<void> _loadSettingsFromStorage() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final settingsFile = File('${directory.path}/$_settingsFileName');
+
+      if (await settingsFile.exists()) {
+        final settingsString = await settingsFile.readAsString();
+        final settings = json.decode(settingsString);
+
+        _showSeparator = settings['showSeparator'] ?? false;
+        _separatorColor = Color(settings['separatorColor'] ?? Colors.black.value);
+
+        print('Background settings loaded: showSeparator=$_showSeparator, color=$_separatorColor');
+      } else {
+        print('No saved background settings found, using defaults');
+      }
+    } catch (e) {
+      print('Error loading background settings: $e');
+      _showSeparator = false;
+      _separatorColor = Colors.black;
     }
   }
 

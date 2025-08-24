@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'ProfilePicManager.dart'; // Import the separate manager file (includes DefaultProfilePic)
 import 'BackgroundPicManager.dart'; // Import the background manager
+import 'BioManager.dart'; // Import the reliable Bio manager
 import 'ProfilePic.dart'; // Import your ProfilePic screen
 import 'BackgroundPic.dart'; // Import your BackgroundPic screen
 import 'SettingBar.dart'; // Import the SettingBar screen
+import 'Bio.dart'; // Import the Bio screen
 
-// Profile Widget for the main Profile screen - UPDATED WITH BACKGROUND FUNCTIONALITY
+// Profile Widget for the main Profile screen - Updated with custom alignment behavior
 class ProfileWidget extends StatefulWidget {
   const ProfileWidget({Key? key}) : super(key: key);
 
@@ -14,19 +16,32 @@ class ProfileWidget extends StatefulWidget {
   State<ProfileWidget> createState() => _ProfileWidgetState();
 }
 
-class _ProfileWidgetState extends State<ProfileWidget> {
+class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserver {
   File? _profilePic;
   File? _backgroundPic;
+  bool _showSeparator = false;
+  Color _separatorColor = Colors.black;
+  String? _bio;
+  bool _isBold = false;
+  bool _isItalic = false;
+  bool _isUnderlined = false;
+  TextAlign _textAlign = TextAlign.center;
+  Color _textColor = Colors.black;
   VoidCallback? _profilePicListener;
   VoidCallback? _backgroundPicListener;
+  VoidCallback? _bioListener;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
-    // Get any existing pictures immediately
+    // Get any existing pictures and settings immediately
     _profilePic = ProfilePicManager.globalProfilePic;
     _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+    _showSeparator = BackgroundPicManager.showSeparator;
+    _separatorColor = BackgroundPicManager.separatorColor;
+    _loadBioData();
 
     // Load from storage
     _loadFromStorage();
@@ -43,10 +58,22 @@ class _ProfileWidgetState extends State<ProfileWidget> {
 
     // Create listener for background pic changes
     _backgroundPicListener = () {
-      print('ProfileWidget: Background pic changed!');
+      print('ProfileWidget: Background pic or settings changed!');
       if (mounted) {
         setState(() {
           _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+          _showSeparator = BackgroundPicManager.showSeparator;
+          _separatorColor = BackgroundPicManager.separatorColor;
+        });
+      }
+    };
+
+    // Create listener for bio changes - SIMPLIFIED to avoid infinite loop
+    _bioListener = () {
+      print('ProfileWidget: Bio listener triggered');
+      if (mounted) {
+        setState(() {
+          _loadBioData();
         });
       }
     };
@@ -54,50 +81,150 @@ class _ProfileWidgetState extends State<ProfileWidget> {
     // Add the listeners
     ProfilePicManager.addListener(_profilePicListener!);
     BackgroundPicManager.addListener(_backgroundPicListener!);
+    BioManager.addListener(_bioListener!);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App came back to foreground, refresh bio
+      _loadBioData();
+    }
+  }
+
+  void _loadBioData() {
+    _bio = BioManager.globalBioText;
+    _isBold = BioManager.globalBold;
+    _isItalic = BioManager.globalItalic;
+    _isUnderlined = BioManager.globalUnderlined;
+    _textAlign = BioManager.globalAlign;
+    _textColor = BioManager.globalColor;
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Force refresh when returning to this screen
-    setState(() {
-      _profilePic = ProfilePicManager.globalProfilePic;
-      _backgroundPic = BackgroundPicManager.globalBackgroundPic;
-    });
+    // Simple refresh when returning from another screen
+    if (mounted) {
+      _loadBioData();
+    }
   }
 
   Future<void> _loadFromStorage() async {
     await ProfilePicManager.loadProfilePicFromStorage();
     await BackgroundPicManager.loadBackgroundPicFromStorage();
+    await BioManager.loadBioFromStorage();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
         _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+        _showSeparator = BackgroundPicManager.showSeparator;
+        _separatorColor = BackgroundPicManager.separatorColor;
+        _loadBioData();
       });
+      print('Bio loaded in ProfileWidget: "$_bio"');
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_profilePicListener != null) {
       ProfilePicManager.removeListener(_profilePicListener!);
     }
     if (_backgroundPicListener != null) {
       BackgroundPicManager.removeListener(_backgroundPicListener!);
     }
+    if (_bioListener != null) {
+      BioManager.removeListener(_bioListener!);
+    }
     super.dispose();
+  }
+
+  Widget _buildBioText(double screenWidth) {
+    const double profilePicSize = 160.0;
+    final double profilePicStartX = (screenWidth - profilePicSize) / 2; // Left edge of profile pic
+
+    // If no bio, show "Tap to add bio" message
+    if (_bio == null || _bio!.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!, width: 1),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.grey[50],
+          ),
+          child: Text(
+            'Tap to add bio',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[600],
+              fontStyle: FontStyle.italic,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    Widget bioText = Text(
+      _bio!,
+      style: TextStyle(
+        fontSize: 16,
+        color: _textColor,
+        fontWeight: _isBold ? FontWeight.bold : FontWeight.normal,
+        fontStyle: _isItalic ? FontStyle.italic : FontStyle.normal,
+        decoration: _isUnderlined ? TextDecoration.underline : TextDecoration.none,
+      ),
+      textAlign: _textAlign,
+    );
+
+    // Handle custom alignment based on profile pic position
+    switch (_textAlign) {
+      case TextAlign.left:
+      // Text starts at the left edge of the profile pic
+        return Padding(
+          padding: EdgeInsets.only(left: profilePicStartX, right: 24),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: bioText,
+          ),
+        );
+
+      case TextAlign.right:
+      // Text ends at the right edge of the profile pic
+        return Padding(
+          padding: EdgeInsets.only(left: 24, right: profilePicStartX),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: bioText,
+          ),
+        );
+
+      case TextAlign.center:
+      default:
+      // Center the text normally
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            width: double.infinity,
+            child: bioText,
+          ),
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    print('ProfileWidget building... _profilePic: $_profilePic, _backgroundPic: $_backgroundPic');
-    print('ProfilePicManager.globalProfilePic: ${ProfilePicManager.globalProfilePic}');
-    print('BackgroundPicManager.globalBackgroundPic: ${BackgroundPicManager.globalBackgroundPic}');
+    final screenWidth = MediaQuery.of(context).size.width;
 
     return Center(
       child: Column(
         children: [
-          const SizedBox(height: 80),
+          const SizedBox(height: 40), // Changed from 80 to 40 (moved up by 40px = 1/4 of 160px height)
           // Profile picture with background functionality
           GestureDetector(
             onTap: () {
@@ -143,50 +270,30 @@ class _ProfileWidgetState extends State<ProfileWidget> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          // Background picture button
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
+
+          // Bio text display with custom alignment behavior OR tap to edit
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () async {
+              // Navigate to Bio screen and wait for result
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const BackgroundPicScreen(),
+                  builder: (context) => const BioScreen(),
                 ),
-              ).then((_) {
-                // Force refresh when returning from BackgroundPicScreen
-                print('Returned from BackgroundPicScreen, refreshing...');
-                setState(() {
-                  _backgroundPic = BackgroundPicManager.globalBackgroundPic;
-                });
+              );
+
+              // Always refresh bio when returning from Bio screen
+              print('Returned from BioScreen, refreshing bio data...');
+              await BioManager.loadBioFromStorage(); // Reload from storage to be sure
+              setState(() {
+                _loadBioData();
               });
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _backgroundPic != null ? Colors.blue : Colors.grey[600],
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _backgroundPic != null ? Icons.wallpaper : Icons.add_photo_alternate,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _backgroundPic != null ? 'Change Background' : 'Add Background',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+            child: _buildBioText(screenWidth),
           ),
-          const SizedBox(height: 12),
+
+          const SizedBox(height: 32),
         ],
       ),
     );
@@ -203,30 +310,55 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   File? _backgroundPic;
+  bool _showSeparator = false;
+  Color _separatorColor = Colors.black;
   VoidCallback? _backgroundPicListener;
 
   @override
   void initState() {
     super.initState();
 
-    // Get any existing background pic immediately
+    // Get any existing background pic and settings immediately
     _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+    _showSeparator = BackgroundPicManager.showSeparator;
+    _separatorColor = BackgroundPicManager.separatorColor;
 
     // Load from storage
     _loadBackgroundFromStorage();
 
     // Create listener for background pic changes
     _backgroundPicListener = () {
-      print('ProfilePage: Background pic changed!');
+      print('ProfilePage: Background pic or settings changed!');
       if (mounted) {
         setState(() {
           _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+          _showSeparator = BackgroundPicManager.showSeparator;
+          _separatorColor = BackgroundPicManager.separatorColor;
         });
       }
     };
 
     // Add the listener
     BackgroundPicManager.addListener(_backgroundPicListener!);
+
+    // IMPORTANT: Load bio data when the profile page initializes
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    await BioManager.loadBioFromStorage();
+    print('ProfilePage: Initial bio load complete');
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Force refresh when returning to this screen
+    setState(() {
+      _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+      _showSeparator = BackgroundPicManager.showSeparator;
+      _separatorColor = BackgroundPicManager.separatorColor;
+    });
   }
 
   Future<void> _loadBackgroundFromStorage() async {
@@ -234,6 +366,8 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) {
       setState(() {
         _backgroundPic = BackgroundPicManager.globalBackgroundPic;
+        _showSeparator = BackgroundPicManager.showSeparator;
+        _separatorColor = BackgroundPicManager.separatorColor;
       });
     }
   }
@@ -248,9 +382,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Calculate the background height: from top to midline of profile pic
-    // Profile pic starts at 80px from top, has 160px height, so midline is at 80 + 80 = 160px
-    const double backgroundHeight = 80 + 80; // Top padding + half profile pic height
+    // Background stays at 160px height, profile pic starts at 40px
+    const double backgroundHeight = 160.0;
 
     return Scaffold(
       body: Stack(
@@ -262,15 +395,32 @@ class _ProfilePageState extends State<ProfilePage> {
               left: 0,
               right: 0,
               height: backgroundHeight,
-              child: Image.file(
-                _backgroundPic!,
-                fit: BoxFit.cover,
-                // Add a unique key to force Flutter to reload the image
-                key: ValueKey(_backgroundPic!.path + _backgroundPic!.lastModifiedSync().toString()),
-                errorBuilder: (context, error, stackTrace) {
-                  print('Error loading background image: $error');
-                  return Container(color: Colors.white);
-                },
+              child: Stack(
+                children: [
+                  Image.file(
+                    _backgroundPic!,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: backgroundHeight,
+                    // Add a unique key to force Flutter to reload the image
+                    key: ValueKey(_backgroundPic!.path + _backgroundPic!.lastModifiedSync().toString()),
+                    errorBuilder: (context, error, stackTrace) {
+                      print('Error loading background image: $error');
+                      return Container(color: Colors.white);
+                    },
+                  ),
+                  // Separator line at bottom of background (if enabled)
+                  if (_showSeparator)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 3,
+                        color: _separatorColor,
+                      ),
+                    ),
+                ],
               ),
             ),
           // If no background, use white background for top portion
@@ -294,7 +444,7 @@ class _ProfilePageState extends State<ProfilePage> {
           SingleChildScrollView(
             child: Column(
               children: [
-                const ProfileWidget(), // Profile picture centered in top
+                const ProfileWidget(), // Profile picture and bio centered in top
                 const SizedBox(height: 32),
                 // Add more profile content here
               ],
