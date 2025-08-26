@@ -3,6 +3,7 @@ import 'dart:io';
 import 'ProfilePicManager.dart'; // Import the separate manager file (includes DefaultProfilePic)
 import 'BackgroundPicManager.dart'; // Import the background manager
 import 'BioManager.dart'; // Import the reliable Bio manager
+import 'UserManager.dart'; // Import the username manager
 import 'ProfilePic.dart'; // Import your ProfilePic screen
 import 'BackgroundPic.dart'; // Import your BackgroundPic screen
 import 'SettingBar.dart'; // Import the SettingBar screen
@@ -27,9 +28,11 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   bool _isUnderlined = false;
   TextAlign _textAlign = TextAlign.center;
   Color _textColor = Colors.black;
+  String? _username; // Add username variable
   VoidCallback? _profilePicListener;
   VoidCallback? _backgroundPicListener;
   VoidCallback? _bioListener;
+  VoidCallback? _usernameListener; // Add username listener
 
   @override
   void initState() {
@@ -42,6 +45,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     _showSeparator = BackgroundPicManager.showSeparator;
     _separatorColor = BackgroundPicManager.separatorColor;
     _loadBioData();
+    _loadUsernameData(); // Add username loading
 
     // Load from storage
     _loadFromStorage();
@@ -78,10 +82,21 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
+    // Create listener for username changes
+    _usernameListener = () {
+      print('ProfileWidget: Username listener triggered');
+      if (mounted) {
+        setState(() {
+          _loadUsernameData();
+        });
+      }
+    };
+
     // Add the listeners
     ProfilePicManager.addListener(_profilePicListener!);
     BackgroundPicManager.addListener(_backgroundPicListener!);
     BioManager.addListener(_bioListener!);
+    UserManager.addListener(_usernameListener!);
   }
 
   @override
@@ -101,6 +116,11 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     _textColor = BioManager.globalColor;
   }
 
+  void _loadUsernameData() {
+    _username = UserManager.globalUsername;
+    print('Username loaded in ProfileWidget: "$_username"');
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -114,6 +134,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     await ProfilePicManager.loadProfilePicFromStorage();
     await BackgroundPicManager.loadBackgroundPicFromStorage();
     await BioManager.loadBioFromStorage();
+    await UserManager.loadUsernameFromStorage(); // Add username loading
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
@@ -121,8 +142,10 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         _showSeparator = BackgroundPicManager.showSeparator;
         _separatorColor = BackgroundPicManager.separatorColor;
         _loadBioData();
+        _loadUsernameData(); // Add username loading
       });
       print('Bio loaded in ProfileWidget: "$_bio"');
+      print('Username loaded in ProfileWidget: "$_username"');
     }
   }
 
@@ -137,6 +160,9 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     }
     if (_bioListener != null) {
       BioManager.removeListener(_bioListener!);
+    }
+    if (_usernameListener != null) {
+      UserManager.removeListener(_usernameListener!);
     }
     super.dispose();
   }
@@ -271,6 +297,19 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
             ),
           ),
 
+          // Username display
+          const SizedBox(height: 12),
+          if (_username != null && _username!.isNotEmpty)
+            Text(
+              _username!,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
           // Bio text display with custom alignment behavior OR tap to edit
           const SizedBox(height: 16),
           GestureDetector(
@@ -347,7 +386,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadInitialData() async {
     await BioManager.loadBioFromStorage();
-    print('ProfilePage: Initial bio load complete');
+    await UserManager.loadUsernameFromStorage(); // Add username loading
+    print('ProfilePage: Initial bio and username load complete');
   }
 
   @override

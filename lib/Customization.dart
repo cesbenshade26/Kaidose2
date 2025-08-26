@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'ProfilePic.dart'; // Import the ProfilePic screen
 import 'BackgroundPic.dart'; // Import the BackgroundPic screen
 import 'Bio.dart'; // Import the Bio screen
+import 'EditUsername.dart'; // Import the EditUsername screen
 
 // Customization Screen
 class CustomizationScreen extends StatelessWidget {
@@ -130,7 +131,7 @@ class CustomizationScreen extends StatelessWidget {
               thickness: 0.5,
             ),
 
-            // Username Option
+            // Username Option - Updated to navigate to EditUsernameScreen
             ListTile(
               leading: const Icon(
                 Icons.person,
@@ -149,11 +150,10 @@ class CustomizationScreen extends StatelessWidget {
                 color: Colors.grey,
               ),
               onTap: () {
-                // TODO: Implement username editing functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Username editing coming soon!'),
-                    duration: Duration(seconds: 2),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const EditUsernameScreen(),
                   ),
                 );
               },
