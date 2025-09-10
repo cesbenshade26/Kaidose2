@@ -29,6 +29,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   TextAlign _textAlign = TextAlign.center;
   Color _textColor = Colors.black;
   String? _username; // Add username variable
+  int _selectedTabIndex = 0; // Add tab state management
   VoidCallback? _profilePicListener;
   VoidCallback? _backgroundPicListener;
   VoidCallback? _bioListener;
@@ -243,6 +244,33 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     }
   }
 
+  Widget _buildProfileTab({
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: isSelected ? Colors.black : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 24,
+          color: isSelected ? Colors.black : Colors.grey,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -311,7 +339,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
             ),
 
           // Bio text display with custom alignment behavior OR tap to edit
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           GestureDetector(
             onTap: () async {
               // Navigate to Bio screen and wait for result
@@ -330,6 +358,104 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
               });
             },
             child: _buildBioText(screenWidth),
+          ),
+
+          const SizedBox(height: 32),
+
+          // Profile tabs section - full width with animated indicator
+          Container(
+            width: double.infinity,
+            child: Column(
+              children: [
+                // Tab icons
+                Row(
+                  children: [
+                    // Your Posts tab
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedTabIndex = 0;
+                          });
+                          print('Your Posts tab tapped');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Icon(
+                            Icons.grid_on,
+                            size: 24,
+                            color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Clips tab
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedTabIndex = 1;
+                          });
+                          print('Clips tab tapped');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Icon(
+                            Icons.videocam_outlined,
+                            size: 24,
+                            color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Tagged tab
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedTabIndex = 2;
+                          });
+                          print('Tagged tab tapped');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Icon(
+                            Icons.person_outline,
+                            size: 24,
+                            color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // Animated sliding indicator
+                Container(
+                  height: 2,
+                  child: Stack(
+                    children: [
+                      // Background line (transparent)
+                      Container(
+                        width: double.infinity,
+                        height: 2,
+                        color: Colors.transparent,
+                      ),
+                      // Animated black line
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
+                        width: MediaQuery.of(context).size.width / 3,
+                        child: Container(
+                          height: 2,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 32),

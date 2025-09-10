@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'Customization.dart'; // Import the new Customization screen
+import 'SecurityInfo.dart'; // Import the Security Info screen
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -71,6 +72,37 @@ class ProfileSettingsSection extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (context) => const CustomizationScreen(),
+              ),
+            );
+          },
+        ),
+        const Divider(
+          color: Colors.grey,
+          thickness: 0.5,
+        ),
+        // Security Info Option - NEW
+        ListTile(
+          leading: const Icon(
+            Icons.security,
+            color: Colors.grey,
+            size: 28,
+          ),
+          title: const Text(
+            'Security Info',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right,
+            color: Colors.grey,
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SecurityInfoScreen(),
               ),
             );
           },

@@ -1,6 +1,8 @@
 // HomeScreen.dart
 import 'package:flutter/material.dart';
 import 'Profile.dart'; // Import the Profile.dart file
+import 'Dailies.dart'; // Import the Dailies.dart file
+import 'Add.dart'; // Import the Add.dart file
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -10,7 +12,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
+  int _selectedIndex = 4; // Start with Profile selected
 
   void _onItemTapped(int index) {
     setState(() {
@@ -22,9 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Center(
-        child: _getSelectedPage(),
-      ),
+      body: _getSelectedPage(),
       bottomNavigationBar: Container(
         height: 80,
         decoration: BoxDecoration(
@@ -54,60 +54,42 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _getSelectedPage() {
     switch (_selectedIndex) {
       case 0:
-        return _buildSunPage();
+        return const DailiesWidget();
       case 1:
         return _buildChatPage();
       case 2:
         return _buildCameraPage();
       case 3:
-        return _buildAddPage();
+        return const AddWidget();
       case 4:
-        return const ProfilePage(); // Use the actual ProfilePage widget
+        return const ProfilePage();
       default:
-        return _buildSunPage();
+        return const ProfilePage();
     }
   }
 
-  Widget _buildSunPage() {
-    return const Text(
-      'Sun Page',
-      style: TextStyle(
-        fontFamily: 'Slackey',
-        fontSize: 48,
-        color: Colors.black,
-      ),
-    );
-  }
-
   Widget _buildChatPage() {
-    return const Text(
-      'Chat Page',
-      style: TextStyle(
-        fontFamily: 'Slackey',
-        fontSize: 48,
-        color: Colors.black,
+    return const Center(
+      child: Text(
+        'Chat Page',
+        style: TextStyle(
+          fontFamily: 'Slackey',
+          fontSize: 48,
+          color: Colors.black,
+        ),
       ),
     );
   }
 
   Widget _buildCameraPage() {
-    return const Text(
-      'Camera Page',
-      style: TextStyle(
-        fontFamily: 'Slackey',
-        fontSize: 48,
-        color: Colors.black,
-      ),
-    );
-  }
-
-  Widget _buildAddPage() {
-    return const Text(
-      'Add Page',
-      style: TextStyle(
-        fontFamily: 'Slackey',
-        fontSize: 48,
-        color: Colors.black,
+    return const Center(
+      child: Text(
+        'Camera Page',
+        style: TextStyle(
+          fontFamily: 'Slackey',
+          fontSize: 48,
+          color: Colors.black,
+        ),
       ),
     );
   }

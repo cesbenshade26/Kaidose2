@@ -80,6 +80,14 @@ class _CreateAccountState extends State<CreateAccount> {
     await prefs.setString('kaidose_user', usernameController.text);
     await prefs.setString('kaidose_email', emailController.text);
     await prefs.setString('kaidose_pass', passwordController.text);
+
+    // Save birthday - same pattern as username/email/password
+    await prefs.setString('kaidose_birth_year', selectedYear ?? '');
+    await prefs.setString('kaidose_birth_month', selectedMonth ?? '');
+    await prefs.setString('kaidose_birth_day', selectedDay ?? '');
+
+    print('Saved credentials: user=${usernameController.text}, email=${emailController.text}');
+    print('Saved birthday: $selectedMonth/$selectedDay/$selectedYear');
   }
 
   void validateAndProceed() {
