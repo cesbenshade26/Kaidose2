@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'Customization.dart'; // Import the new Customization screen
 import 'SecurityInfo.dart'; // Import the Security Info screen
+import 'Archives.dart'; // Import the new Archives screen
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -21,6 +22,8 @@ class SettingsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ProfileSettingsSection(),
+            SizedBox(height: 24),
+            YourActivitySection(),
           ],
         ),
       ),
@@ -80,7 +83,7 @@ class ProfileSettingsSection extends StatelessWidget {
           color: Colors.grey,
           thickness: 0.5,
         ),
-        // Security Info Option - NEW
+        // Security Info Option
         ListTile(
           leading: const Icon(
             Icons.security,
@@ -103,6 +106,63 @@ class ProfileSettingsSection extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (context) => const SecurityInfoScreen(),
+              ),
+            );
+          },
+        ),
+        const Divider(
+          color: Colors.grey,
+          thickness: 0.5,
+        ),
+      ],
+    );
+  }
+}
+
+// Your Activity Section - NEW
+class YourActivitySection extends StatelessWidget {
+  const YourActivitySection({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Your Activity',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Archives Option
+        ListTile(
+          leading: const Icon(
+            Icons.archive,
+            color: Colors.grey,
+            size: 28,
+          ),
+          title: const Text(
+            'Archives',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right,
+            color: Colors.grey,
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ArchivesScreen(),
               ),
             );
           },
