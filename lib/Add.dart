@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'YourDaily.dart';
+import 'AddClip.dart';
 
 // Add Post Widget
 class AddWidget extends StatefulWidget {
@@ -167,18 +168,7 @@ class _AddWidgetState extends State<AddWidget> {
         );
       case 1:
       // Clip tab content
-        return Container(
-          color: Colors.white,
-          child: const Center(
-            child: Text(
-              'Clip Content',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-        );
+        return const AddClipWidget();
       case 2:
       // Your Daily tab content - show photos
         return const YourDailyWidget();

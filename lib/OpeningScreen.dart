@@ -22,8 +22,13 @@ class _OpeningScreenState extends State<OpeningScreen>
   late AnimationController _formController;
   late Animation<double> _formOpacity;
 
+  late AnimationController _fadeController;
+  late Animation<double> _fadeOpacity;
+
   bool moveToTop = false;
   bool showForm = false;
+  bool isCheckingLoginState = true;
+  bool shouldGoToHome = false;
 
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -55,25 +60,75 @@ class _OpeningScreenState extends State<OpeningScreen>
       CurvedAnimation(parent: _formController, curve: Curves.easeIn),
     );
 
-    _loadStoredCredentials();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _fadeOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
+    );
+
+    _checkLoginStateAndInitialize();
+  }
+
+  Future<void> _checkLoginStateAndInitialize() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Load stored credentials
+    storedUsername = prefs.getString('kaidose_user');
+    storedPassword = prefs.getString('kaidose_pass');
+
+    // Get today's date as a string
+    String today = DateTime.now().toString().substring(0, 10); // YYYY-MM-DD format
+    String? lastLoginDate = prefs.getString('kaidose_last_login_date');
+
+    // Check if user logged in today
+    bool loggedInToday = (lastLoginDate == today);
+
+    setState(() {
+      isCheckingLoginState = false;
+      shouldGoToHome = loggedInToday;
+    });
 
     if (widget.skipAnimation) {
-      moveToTop = true;
-      showForm = true;
-      _formController.forward();
+      if (shouldGoToHome) {
+        // Skip animation, go directly to UserAccount
+        Navigator.pushReplacementNamed(context, '/user-account');
+      } else {
+        // Skip animation, show login form
+        moveToTop = true;
+        showForm = true;
+        _drawController.forward();
+        _formController.forward();
+      }
     } else {
-      _drawController.forward().whenComplete(() async {
-        setState(() {
-          moveToTop = true;
-        });
+      // Show animation regardless
+      _startAnimation();
+    }
+  }
 
-        await Future.delayed(const Duration(milliseconds: 2000));
+  void _startAnimation() {
+    _drawController.forward().whenComplete(() async {
+      setState(() {
+        moveToTop = true;
+      });
+
+      await Future.delayed(const Duration(milliseconds: 2000));
+
+      if (shouldGoToHome) {
+        // Fade out the title and go to Home
+        _fadeController.forward().whenComplete(() {
+          Navigator.pushReplacementNamed(context, '/user-account');
+        });
+      } else {
+        // Show login form
         setState(() {
           showForm = true;
         });
         _formController.forward();
-      });
-    }
+      }
+    });
   }
 
   Future<void> _loadStoredCredentials() async {
@@ -88,12 +143,13 @@ class _OpeningScreenState extends State<OpeningScreen>
   void dispose() {
     _drawController.dispose();
     _formController.dispose();
+    _fadeController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _attemptLogin() {
+  void _attemptLogin() async {
     setState(() {
       loginError = '';
     });
@@ -115,6 +171,11 @@ class _OpeningScreenState extends State<OpeningScreen>
     }
 
     if (inputUser == storedUsername && inputPass == storedPassword) {
+      // Save today's date as login date
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String today = DateTime.now().toString().substring(0, 10); // YYYY-MM-DD format
+      await prefs.setString('kaidose_last_login_date', today);
+
       Navigator.pushReplacementNamed(context, '/user-account');
     } else {
       setState(() {
@@ -137,30 +198,44 @@ class _OpeningScreenState extends State<OpeningScreen>
       color: Colors.cyan,
     );
 
+    // Show loading while checking login state
+    if (isCheckingLoginState) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // Kaidose title that draws and then moves to top (or instantly shows if skipAnimation)
+          // Kaidose title that draws and then moves to top, with fade animation
           AnimatedPositioned(
             duration: const Duration(seconds: 2),
             curve: Curves.easeInOut,
             top: moveToTop ? 80 : MediaQuery.of(context).size.height / 2 - 32,
             left: 0,
             right: 0,
-            child: AnimatedBuilder(
-              animation: _drawProgress,
-              builder: (context, child) {
-                return Center(
-                  child: ClipRect(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: _drawProgress.value,
-                      child: Text(titleText, style: slackeyStyle),
+            child: FadeTransition(
+              opacity: _fadeOpacity,
+              child: AnimatedBuilder(
+                animation: _drawProgress,
+                builder: (context, child) {
+                  return Center(
+                    child: ClipRect(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: _drawProgress.value,
+                        child: Text(titleText, style: slackeyStyle),
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
 

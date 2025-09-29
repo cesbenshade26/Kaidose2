@@ -21,6 +21,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   bool _hasViewedAllPhotos = false;
   bool _isAnimating = false;
   File? _profilePic;
+  Set<String> _viewedPhotosPaths = {}; // Track which specific photos have been viewed
 
   late AnimationController _slideController;
   late Animation<double> _slideAnimation;
@@ -132,19 +133,39 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _isLoading = true;
     });
 
+    List<File> previousPhotos = List.from(_todaysPhotos);
     _todaysPhotos = DailyPhotoTracker.todaysPhotos;
 
     if (_todaysPhotos.isNotEmpty) {
       _currentPhotoIndex = 0;
     }
 
-    _hasViewedAllPhotos = false;
+    // Check if there are new photos since last load
+    if (_todaysPhotos.length != previousPhotos.length) {
+      // New photos added, need to check viewing status
+      _checkViewingStatus();
+    }
 
     setState(() {
       _isLoading = false;
     });
 
     print('Loaded ${_todaysPhotos.length} photos for Dailies display');
+  }
+
+  void _checkViewingStatus() {
+    // Count how many of today's photos have been viewed
+    int viewedCount = 0;
+    for (File photo in _todaysPhotos) {
+      if (_viewedPhotosPaths.contains(photo.path)) {
+        viewedCount++;
+      }
+    }
+
+    // Update hasViewedAllPhotos based on whether ALL photos have been viewed
+    _hasViewedAllPhotos = viewedCount == _todaysPhotos.length && _todaysPhotos.isNotEmpty;
+
+    print('Viewed $viewedCount of ${_todaysPhotos.length} photos. All viewed: $_hasViewedAllPhotos');
   }
 
   void _navigatePhoto(int direction) async {
@@ -173,8 +194,10 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _currentPhotoIndex = newIndex;
       _isAnimating = false;
 
-      if (_currentPhotoIndex == _todaysPhotos.length - 1) {
-        _hasViewedAllPhotos = true;
+      // Mark current photo as viewed
+      if (_todaysPhotos.isNotEmpty && _currentPhotoIndex < _todaysPhotos.length) {
+        _viewedPhotosPaths.add(_todaysPhotos[_currentPhotoIndex].path);
+        _checkViewingStatus();
       }
     });
 
@@ -186,6 +209,10 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       setState(() {
         _showPhotoCarousel = true;
         _currentPhotoIndex = 0;
+
+        // Mark the first photo as viewed when opening carousel
+        _viewedPhotosPaths.add(_todaysPhotos[0].path);
+        _checkViewingStatus();
       });
     }
   }
@@ -467,27 +494,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12.0),
-            child: IconButton(
-              icon: const Icon(Icons.search, color: Colors.black, size: 28),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SearchScreen(),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
       body: Stack(
         children: [
           Container(
@@ -501,10 +507,58 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               ),
             )
                 : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 40),
+                // Top section with title and search icon
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 16, top: 60, bottom: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Dailies',
+                        style: TextStyle(
+                          fontFamily: 'Slackey',
+                          fontSize: 32,
+                          color: Colors.cyan,
+                          fontWeight: FontWeight.normal,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.search, color: Colors.black, size: 28),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const SearchScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
 
-                _buildProfilePicButton(),
+                // Profile picture below title (left aligned like Instagram)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildProfilePicButton(),
+                      const SizedBox(height: 8),
+                      // "Your story" text below profile pic
+                      const Text(
+                        'Your story',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
                 const Expanded(child: SizedBox()),
               ],

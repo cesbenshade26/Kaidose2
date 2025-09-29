@@ -235,6 +235,27 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
     if (_selectedPhoto != null && _selectedPhoto!.existsSync()) {
       print('Valid photo found, proceeding with save...');
 
+      if (buttonType == "Share with Friends") {
+        // Show coming soon message for Share with Friends
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) => AlertDialog(
+              title: const Text('Coming Soon!'),
+              content: const Text('Share with friends settings coming soon.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Got it!'),
+                ),
+              ],
+            ),
+          );
+        }
+        return; // Don't save the photo
+      }
+
+      // Only save photo if "Daily Post!" was clicked
       try {
         await DailyPhotoTracker.addPhoto(_selectedPhoto!);
         await DailyPhotoManager.setDailyPhoto(_selectedPhoto!);
@@ -304,6 +325,7 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
 
     return Column(
       children: [
+        // Preview area
         Expanded(
           flex: 3,
           child: Padding(
@@ -516,6 +538,7 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
           ),
         ),
 
+        // Status text
         if (!_isInNewPhotoMode && _todaysPhotos.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -530,6 +553,7 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
             ),
           ),
 
+        // Confirm buttons (only in new photo mode with selected photo)
         if (_isInNewPhotoMode && _selectedPhoto != null) ...[
           const SizedBox(height: 10),
           Padding(
@@ -580,6 +604,7 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
           ),
         ],
 
+        // Bottom section - ONLY buttons that should appear based on mode
         Expanded(
           flex: 2,
           child: Container(
@@ -594,54 +619,56 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: _openCameraRoll,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  if (_isInNewPhotoMode) ...[
+                    // Camera Roll button - ONLY in new photo mode
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _openCameraRoll,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.photo_library, size: 24),
+                            SizedBox(width: 12),
+                            Text('Camera Roll', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          ],
                         ),
                       ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.photo_library, size: 24),
-                          SizedBox(width: 12),
-                          Text('Camera Roll', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: _openCamera,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt, size: 24),
-                          SizedBox(width: 12),
-                          Text('Camera', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  if (DailyPhotoTracker.hasPhotosToday && !_isInNewPhotoMode) ...[
                     const SizedBox(height: 12),
+                    // Camera button - ONLY in new photo mode
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _openCamera,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.camera_alt, size: 24),
+                            SizedBox(width: 12),
+                            Text('Camera', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ] else if (DailyPhotoTracker.hasPhotosToday) ...[
+                    // Add another daily button - ONLY when not in new photo mode and photos exist
                     SizedBox(
                       width: double.infinity,
                       height: 56,
