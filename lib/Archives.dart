@@ -9,7 +9,7 @@ class ArchivesScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Archives'),
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         foregroundColor: Colors.black,
         elevation: 1,
       ),

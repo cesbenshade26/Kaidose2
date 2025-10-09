@@ -236,7 +236,6 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
       print('Valid photo found, proceeding with save...');
 
       if (buttonType == "Share with Friends") {
-        // Show coming soon message for Share with Friends
         if (mounted) {
           showDialog(
             context: context,
@@ -252,10 +251,9 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
             ),
           );
         }
-        return; // Don't save the photo
+        return;
       }
 
-      // Only save photo if "Daily Post!" was clicked
       try {
         await DailyPhotoTracker.addPhoto(_selectedPhoto!);
         await DailyPhotoManager.setDailyPhoto(_selectedPhoto!);
@@ -325,7 +323,6 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
 
     return Column(
       children: [
-        // Preview area
         Expanded(
           flex: 3,
           child: Padding(
@@ -364,19 +361,9 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                                           child: Column(
                                             mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
-                                              Icon(
-                                                Icons.error_outline,
-                                                size: 48,
-                                                color: Colors.grey[400],
-                                              ),
+                                              Icon(Icons.error_outline, size: 48, color: Colors.grey[400]),
                                               const SizedBox(height: 8),
-                                              Text(
-                                                'Error loading image',
-                                                style: TextStyle(
-                                                  color: Colors.grey[600],
-                                                  fontSize: 14,
-                                                ),
-                                              ),
+                                              Text('Error loading image', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
                                             ],
                                           ),
                                         ),
@@ -389,88 +376,46 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                                       child: Column(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Icon(
-                                            Icons.photo_size_select_actual_outlined,
-                                            size: 64,
-                                            color: Colors.grey[400],
-                                          ),
+                                          Icon(Icons.photo_size_select_actual_outlined, size: 64, color: Colors.grey[400]),
                                           const SizedBox(height: 16),
-                                          Text(
-                                            'Photo Preview',
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              color: Colors.grey[600],
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
+                                          Text('Photo Preview', style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.w500)),
                                         ],
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-
                               if (_isAnimating && _slideAnimation.value > 0) ...[
                                 Transform.translate(
-                                  offset: Offset(
-                                    MediaQuery.of(context).size.width - (_slideAnimation.value * MediaQuery.of(context).size.width),
-                                    0,
-                                  ),
+                                  offset: Offset(MediaQuery.of(context).size.width - (_slideAnimation.value * MediaQuery.of(context).size.width), 0),
                                   child: Container(
                                     width: double.infinity,
                                     height: double.infinity,
                                     child: _currentPhotoIndex + 1 < _todaysPhotos.length && _currentPhotoIndex >= 0
-                                        ? Image.file(
-                                      _todaysPhotos[_currentPhotoIndex + 1],
-                                      fit: BoxFit.cover,
-                                      key: ValueKey('next_${_todaysPhotos[_currentPhotoIndex + 1].path}'),
-                                    )
+                                        ? Image.file(_todaysPhotos[_currentPhotoIndex + 1], fit: BoxFit.cover, key: ValueKey('next_${_todaysPhotos[_currentPhotoIndex + 1].path}'))
                                         : (_currentPhotoIndex == -1 && _todaysPhotos.isNotEmpty)
-                                        ? Image.file(
-                                      _todaysPhotos[0],
-                                      fit: BoxFit.cover,
-                                      key: ValueKey('first_${_todaysPhotos[0].path}'),
-                                    )
+                                        ? Image.file(_todaysPhotos[0], fit: BoxFit.cover, key: ValueKey('first_${_todaysPhotos[0].path}'))
                                         : Container(color: Colors.grey[50]),
                                   ),
                                 ),
                               ],
-
                               if (_isAnimating && _slideAnimation.value < 0) ...[
                                 Transform.translate(
-                                  offset: Offset(
-                                    -MediaQuery.of(context).size.width - (_slideAnimation.value * MediaQuery.of(context).size.width),
-                                    0,
-                                  ),
+                                  offset: Offset(-MediaQuery.of(context).size.width - (_slideAnimation.value * MediaQuery.of(context).size.width), 0),
                                   child: Container(
                                     width: double.infinity,
                                     height: double.infinity,
                                     child: _currentPhotoIndex - 1 >= 0
-                                        ? Image.file(
-                                      _todaysPhotos[_currentPhotoIndex - 1],
-                                      fit: BoxFit.cover,
-                                      key: ValueKey('prev_${_todaysPhotos[_currentPhotoIndex - 1].path}'),
-                                    )
+                                        ? Image.file(_todaysPhotos[_currentPhotoIndex - 1], fit: BoxFit.cover, key: ValueKey('prev_${_todaysPhotos[_currentPhotoIndex - 1].path}'))
                                         : Container(
                                       color: Colors.grey[50],
                                       child: Center(
                                         child: Column(
                                           mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
-                                            Icon(
-                                              Icons.photo_size_select_actual_outlined,
-                                              size: 64,
-                                              color: Colors.grey[400],
-                                            ),
+                                            Icon(Icons.photo_size_select_actual_outlined, size: 64, color: Colors.grey[400]),
                                             const SizedBox(height: 16),
-                                            Text(
-                                              'Photo Preview',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                color: Colors.grey[600],
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
+                                            Text('Photo Preview', style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.w500)),
                                           ],
                                         ),
                                       ),
@@ -485,7 +430,6 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                     ),
                   ),
                 ),
-
                 if (_canNavigateLeft && !_isAnimating)
                   Positioned(
                     left: 10,
@@ -496,20 +440,12 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                         onTap: () => _navigatePhotos(-1),
                         child: Container(
                           padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.arrow_back_ios,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), shape: BoxShape.circle),
+                          child: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
                         ),
                       ),
                     ),
                   ),
-
                 if (_canNavigateRight && !_isAnimating)
                   Positioned(
                     right: 10,
@@ -520,15 +456,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                         onTap: () => _navigatePhotos(1),
                         child: Container(
                           padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.arrow_forward_ios,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), shape: BoxShape.circle),
+                          child: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 20),
                         ),
                       ),
                     ),
@@ -537,23 +466,11 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
             ),
           ),
         ),
-
-        // Status text
         if (!_isInNewPhotoMode && _todaysPhotos.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Posted photo ${_currentPhotoIndex + 1} of ${_todaysPhotos.length}',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            child: Text('Posted photo ${_currentPhotoIndex + 1} of ${_todaysPhotos.length}', style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.w500), textAlign: TextAlign.center),
           ),
-
-        // Confirm buttons (only in new photo mode with selected photo)
         if (_isInNewPhotoMode && _selectedPhoto != null) ...[
           const SizedBox(height: 10),
           Padding(
@@ -565,17 +482,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                     height: 48,
                     child: ElevatedButton(
                       onPressed: () => _confirmPhoto("Share with Friends"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'Share with Friends!',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                      child: const Text('Share with Friends!', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ),
@@ -585,17 +493,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                     height: 48,
                     child: ElevatedButton(
                       onPressed: () => _confirmPhoto("Daily Post"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'Daily Post!',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                      child: const Text('Daily Post!', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ),
@@ -603,36 +502,21 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
             ),
           ),
         ],
-
-        // Bottom section - ONLY buttons that should appear based on mode
         Expanded(
           flex: 2,
           child: Container(
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
-              ),
-            ),
+            decoration: BoxDecoration(color: Colors.grey[200], borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24))),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
                   if (_isInNewPhotoMode) ...[
-                    // Camera Roll button - ONLY in new photo mode
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton(
                         onPressed: _openCameraRoll,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -644,19 +528,12 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                       ),
                     ),
                     const SizedBox(height: 12),
-                    // Camera button - ONLY in new photo mode
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton(
                         onPressed: _openCamera,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -668,28 +545,18 @@ class _YourDailyWidgetState extends State<YourDailyWidget> with TickerProviderSt
                       ),
                     ),
                   ] else if (DailyPhotoTracker.hasPhotosToday) ...[
-                    // Add another daily button - ONLY when not in new photo mode and photos exist
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton(
                         onPressed: _addAnotherDaily,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(Icons.add_photo_alternate, size: 24),
                             SizedBox(width: 12),
-                            Text(
-                              'Add another daily',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                            ),
+                            Text('Add another daily', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ),

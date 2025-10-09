@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'Profile.dart'; // Import the Profile.dart file
 import 'Dailies.dart'; // Import the Dailies.dart file
 import 'Add.dart'; // Import the Add.dart file
+import 'Clips.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool fadeInFromAnimation; // New parameter to control fade-in
@@ -191,16 +192,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildCameraPage() {
-    return const Center(
-      child: Text(
-        'Camera Page',
-        style: TextStyle(
-          fontFamily: 'Slackey',
-          fontSize: 48,
-          color: Colors.black,
-        ),
-      ),
-    );
+    return const ClipsWidget();
   }
 
   Widget _buildNavItem(int index, IconData icon, String label, Animation<double> animation) {

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'package:video_player/video_player.dart';
+import 'ClipManager.dart';
+import 'ClipTracker.dart';
 
 class VideoArchives {
   static final ImagePicker _picker = ImagePicker();
@@ -11,7 +14,7 @@ class VideoArchives {
     try {
       final XFile? video = await _picker.pickVideo(
         source: ImageSource.gallery,
-        maxDuration: const Duration(minutes: 5), // Optional: limit video duration
+        maxDuration: const Duration(minutes: 5),
       );
 
       if (video != null) {
@@ -57,11 +60,26 @@ class UseFilm {
       }
     } catch (e) {
       print('Error accessing camera for video: $e');
+
+      String errorMessage = 'Unable to access camera';
+      if (e.toString().contains('camera_access_denied')) {
+        errorMessage = 'Camera access denied. Please enable camera permission in settings.';
+      } else if (e.toString().contains('no_available_camera')) {
+        errorMessage = 'No camera available on this device.';
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error accessing camera: $e'),
+          content: Text(errorMessage),
           duration: const Duration(seconds: 3),
           backgroundColor: Colors.red,
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
         ),
       );
       return null;
@@ -79,10 +97,71 @@ class AddClipWidget extends StatefulWidget {
 class _AddClipWidgetState extends State<AddClipWidget> {
   File? _selectedVideo;
   String? _videoPath;
+  VideoPlayerController? _videoController;
+  bool _isInitializing = false;
+  String? _errorMessage;
 
   @override
   void dispose() {
+    _videoController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _initializeVideo(File videoFile) async {
+    print('========== VIDEO INITIALIZATION START ==========');
+    print('Video file path: ${videoFile.path}');
+    print('Video file exists: ${videoFile.existsSync()}');
+
+    setState(() {
+      _isInitializing = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Dispose of old controller if exists
+      await _videoController?.dispose();
+      _videoController = null;
+
+      print('Creating VideoPlayerController...');
+      _videoController = VideoPlayerController.file(videoFile);
+
+      print('Initializing controller...');
+      await _videoController!.initialize();
+
+      print('Controller initialized successfully!');
+      print('Video duration: ${_videoController!.value.duration}');
+      print('Video size: ${_videoController!.value.size}');
+
+      _videoController!.setLooping(true);
+      await _videoController!.play();
+
+      print('Video is now playing');
+
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+      }
+    } catch (e, stackTrace) {
+      print('ERROR initializing video: $e');
+      print('Stack trace: $stackTrace');
+
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _errorMessage = 'Failed to load video: $e';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading video: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+    print('========== VIDEO INITIALIZATION END ==========');
   }
 
   Future<void> _openVideoArchives() async {
@@ -97,6 +176,7 @@ class _AddClipWidgetState extends State<AddClipWidget> {
         _videoPath = pickedFile.path;
       });
 
+      await _initializeVideo(videoFile);
       print('Selected video set in state: ${_selectedVideo?.path}');
     } else {
       print('No video selected from archives');
@@ -104,22 +184,22 @@ class _AddClipWidgetState extends State<AddClipWidget> {
   }
 
   Future<void> _openFilm() async {
-    print("Opening film...");
+    print("Opening film camera...");
+    final XFile? pickedFile = await UseFilm.openFilm(context);
+    if (pickedFile != null) {
+      print('Video filmed: ${pickedFile.path}');
+      final File videoFile = File(pickedFile.path);
 
-    // Show coming soon dialog
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('Coming Soon!'),
-        content: const Text('Video recording feature coming soon.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Got it!'),
-          ),
-        ],
-      ),
-    );
+      setState(() {
+        _selectedVideo = videoFile;
+        _videoPath = pickedFile.path;
+      });
+
+      await _initializeVideo(videoFile);
+      print('Filmed video set in state: ${_selectedVideo?.path}');
+    } else {
+      print('No video filmed from camera');
+    }
   }
 
   Future<void> _confirmVideo(String buttonType) async {
@@ -130,44 +210,45 @@ class _AddClipWidgetState extends State<AddClipWidget> {
     if (_selectedVideo != null && _selectedVideo!.existsSync()) {
       print('Valid video found, proceeding with save...');
 
-      if (buttonType == "Share with Friends") {
-        // Show coming soon message for Share with Friends
+      try {
+        await ClipTracker.addClip(_selectedVideo!);
+        await ClipManager.setClip(_selectedVideo!);
+
+        print('Clip saved via both systems');
+
         if (mounted) {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) => AlertDialog(
-              title: const Text('Coming Soon!'),
-              content: const Text('Share with friends feature coming soon.'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Got it!'),
-                ),
-              ],
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Clip posted successfully!'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
-        return;
+
+        // Dispose video controller and reset state
+        await _videoController?.dispose();
+        _videoController = null;
+
+        setState(() {
+          _selectedVideo = null;
+          _videoPath = null;
+          _errorMessage = null;
+        });
+
+        print('Clip confirmed and saved successfully');
+      } catch (e) {
+        print('ERROR in _confirmVideo: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error saving clip: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
-
-      // TODO: Implement actual video saving logic
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Clip saved as $buttonType!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-
-      // Reset after saving
-      setState(() {
-        _selectedVideo = null;
-        _videoPath = null;
-      });
-
-      print('Clip confirmed and saved successfully as $buttonType');
     } else {
       print('NO VALID VIDEO - showing dialog');
       if (mounted) {
@@ -193,7 +274,6 @@ class _AddClipWidgetState extends State<AddClipWidget> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Preview area
         Expanded(
           flex: 3,
           child: Padding(
@@ -207,154 +287,45 @@ class _AddClipWidgetState extends State<AddClipWidget> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: _selectedVideo != null
-                      ? Container(
-                    color: Colors.grey[200],
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.video_file,
-                            size: 64,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Video Selected',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Text(
-                              _videoPath?.split('/').last ?? '',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[500],
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                      : Container(
-                    color: Colors.grey[50],
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.videocam_outlined,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Video Preview',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: _buildVideoPreview(),
                 ),
               ),
             ),
           ),
         ),
-
-        // Confirm buttons (only when video is selected)
         if (_selectedVideo != null) ...[
           const SizedBox(height: 10),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: () => _confirmVideo("Share with Friends"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'Share with Friends!',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => _confirmVideo("Clip Post"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: () => _confirmVideo("Clip Post"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'Clip Post!',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                child: const Text('Post Clip!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
             ),
           ),
         ],
-
-        // Bottom section with buttons
         Expanded(
           flex: 2,
           child: Container(
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
-              ),
-            ),
+            decoration: BoxDecoration(color: Colors.grey[200], borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24))),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  // Video Archives button
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
                       onPressed: _openVideoArchives,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -366,19 +337,12 @@ class _AddClipWidgetState extends State<AddClipWidget> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // Film button
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
                       onPressed: _openFilm,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -395,6 +359,94 @@ class _AddClipWidgetState extends State<AddClipWidget> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildVideoPreview() {
+    if (_errorMessage != null) {
+      return Container(
+        color: Colors.red[50],
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 64, color: Colors.red[400]),
+                const SizedBox(height: 16),
+                Text(
+                  'Video Error',
+                  style: TextStyle(fontSize: 18, color: Colors.red[700], fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(fontSize: 12, color: Colors.red[600]),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_selectedVideo != null) {
+      if (_isInitializing) {
+        return Container(
+          color: Colors.grey[200],
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading video...',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      if (_videoController != null && _videoController!.value.isInitialized) {
+        return FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: _videoController!.value.size.width,
+            height: _videoController!.value.size.height,
+            child: VideoPlayer(_videoController!),
+          ),
+        );
+      }
+
+      // Fallback state
+      return Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: Text(
+            'Video not ready',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+        ),
+      );
+    }
+
+    // No video selected
+    return Container(
+      color: Colors.grey[50],
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.videocam_outlined, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text('Video Preview', style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'ProfilePicManager.dart'; // Import the separate manager file (includes DefaultProfilePic)
-import 'BackgroundPicManager.dart'; // Import the background manager
-import 'BioManager.dart'; // Import the reliable Bio manager
-import 'UserManager.dart'; // Import the username manager
-import 'ProfilePic.dart'; // Import your ProfilePic screen
-import 'BackgroundPic.dart'; // Import your BackgroundPic screen
-import 'SettingBar.dart'; // Import the SettingBar screen
-import 'Bio.dart'; // Import the Bio screen
+import 'ProfilePicManager.dart';
+import 'BackgroundPicManager.dart';
+import 'BioManager.dart';
+import 'UserManager.dart';
+import 'UserFollowers.dart';
+import 'UserFollowing.dart';
+import 'ProfilePic.dart';
+import 'BackgroundPic.dart';
+import 'SettingBar.dart';
+import 'Bio.dart';
 
-// Profile Widget for the main Profile screen - Updated with custom alignment behavior
 class ProfileWidget extends StatefulWidget {
   const ProfileWidget({Key? key}) : super(key: key);
 
@@ -28,30 +29,33 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   bool _isUnderlined = false;
   TextAlign _textAlign = TextAlign.center;
   Color _textColor = Colors.black;
-  String? _username; // Add username variable
-  int _selectedTabIndex = 0; // Add tab state management
+  String? _username;
+  int _followersCount = 0;
+  int _followingCount = 0;
+  int _selectedTabIndex = 0;
   VoidCallback? _profilePicListener;
   VoidCallback? _backgroundPicListener;
   VoidCallback? _bioListener;
-  VoidCallback? _usernameListener; // Add username listener
+  VoidCallback? _usernameListener;
+  VoidCallback? _followersListener;
+  VoidCallback? _followingListener;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // Get any existing pictures and settings immediately
     _profilePic = ProfilePicManager.globalProfilePic;
     _backgroundPic = BackgroundPicManager.globalBackgroundPic;
     _showSeparator = BackgroundPicManager.showSeparator;
     _separatorColor = BackgroundPicManager.separatorColor;
     _loadBioData();
-    _loadUsernameData(); // Add username loading
+    _loadUsernameData();
+    _loadFollowersData();
+    _loadFollowingData();
 
-    // Load from storage
     _loadFromStorage();
 
-    // Create listener for profile pic changes
     _profilePicListener = () {
       print('ProfileWidget: Profile pic changed!');
       if (mounted) {
@@ -61,7 +65,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
-    // Create listener for background pic changes
     _backgroundPicListener = () {
       print('ProfileWidget: Background pic or settings changed!');
       if (mounted) {
@@ -73,7 +76,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
-    // Create listener for bio changes - SIMPLIFIED to avoid infinite loop
     _bioListener = () {
       print('ProfileWidget: Bio listener triggered');
       if (mounted) {
@@ -83,7 +85,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
-    // Create listener for username changes
     _usernameListener = () {
       print('ProfileWidget: Username listener triggered');
       if (mounted) {
@@ -93,17 +94,35 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
-    // Add the listeners
+    _followersListener = () {
+      print('ProfileWidget: Followers listener triggered');
+      if (mounted) {
+        setState(() {
+          _loadFollowersData();
+        });
+      }
+    };
+
+    _followingListener = () {
+      print('ProfileWidget: Following listener triggered');
+      if (mounted) {
+        setState(() {
+          _loadFollowingData();
+        });
+      }
+    };
+
     ProfilePicManager.addListener(_profilePicListener!);
     BackgroundPicManager.addListener(_backgroundPicListener!);
     BioManager.addListener(_bioListener!);
     UserManager.addListener(_usernameListener!);
+    UserFollowers.addListener(_followersListener!);
+    UserFollowing.addListener(_followingListener!);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App came back to foreground, refresh bio
       _loadBioData();
     }
   }
@@ -122,10 +141,19 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     print('Username loaded in ProfileWidget: "$_username"');
   }
 
+  void _loadFollowersData() {
+    _followersCount = UserFollowers.followersCount;
+    print('Followers count loaded in ProfileWidget: $_followersCount');
+  }
+
+  void _loadFollowingData() {
+    _followingCount = UserFollowing.followingCount;
+    print('Following count loaded in ProfileWidget: $_followingCount');
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Simple refresh when returning from another screen
     if (mounted) {
       _loadBioData();
     }
@@ -135,7 +163,9 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     await ProfilePicManager.loadProfilePicFromStorage();
     await BackgroundPicManager.loadBackgroundPicFromStorage();
     await BioManager.loadBioFromStorage();
-    await UserManager.loadUsernameFromStorage(); // Add username loading
+    await UserManager.loadUsernameFromStorage();
+    await UserFollowers.loadFollowersCountFromStorage();
+    await UserFollowing.loadFollowingCountFromStorage();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
@@ -143,10 +173,10 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         _showSeparator = BackgroundPicManager.showSeparator;
         _separatorColor = BackgroundPicManager.separatorColor;
         _loadBioData();
-        _loadUsernameData(); // Add username loading
+        _loadUsernameData();
+        _loadFollowersData();
+        _loadFollowingData();
       });
-      print('Bio loaded in ProfileWidget: "$_bio"');
-      print('Username loaded in ProfileWidget: "$_username"');
     }
   }
 
@@ -165,14 +195,19 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     if (_usernameListener != null) {
       UserManager.removeListener(_usernameListener!);
     }
+    if (_followersListener != null) {
+      UserFollowers.removeListener(_followersListener!);
+    }
+    if (_followingListener != null) {
+      UserFollowing.removeListener(_followingListener!);
+    }
     super.dispose();
   }
 
   Widget _buildBioText(double screenWidth) {
     const double profilePicSize = 160.0;
-    final double profilePicStartX = (screenWidth - profilePicSize) / 2; // Left edge of profile pic
+    final double profilePicStartX = (screenWidth - profilePicSize) / 2;
 
-    // If no bio, show "Tap to add bio" message
     if (_bio == null || _bio!.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -186,11 +221,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           ),
           child: Text(
             'Tap to add bio',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-              fontStyle: FontStyle.italic,
-            ),
+            style: TextStyle(fontSize: 16, color: Colors.grey[600], fontStyle: FontStyle.italic),
             textAlign: TextAlign.center,
           ),
         ),
@@ -209,66 +240,24 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       textAlign: _textAlign,
     );
 
-    // Handle custom alignment based on profile pic position
     switch (_textAlign) {
       case TextAlign.left:
-      // Text starts at the left edge of the profile pic
         return Padding(
           padding: EdgeInsets.only(left: profilePicStartX, right: 24),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: bioText,
-          ),
+          child: Align(alignment: Alignment.centerLeft, child: bioText),
         );
-
       case TextAlign.right:
-      // Text ends at the right edge of the profile pic
         return Padding(
           padding: EdgeInsets.only(left: 24, right: profilePicStartX),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: bioText,
-          ),
+          child: Align(alignment: Alignment.centerRight, child: bioText),
         );
-
       case TextAlign.center:
       default:
-      // Center the text normally
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            width: double.infinity,
-            child: bioText,
-          ),
+          child: Container(width: double.infinity, child: bioText),
         );
     }
-  }
-
-  Widget _buildProfileTab({
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isSelected ? Colors.black : Colors.transparent,
-              width: 2,
-            ),
-          ),
-        ),
-        child: Icon(
-          icon,
-          size: 24,
-          color: isSelected ? Colors.black : Colors.grey,
-        ),
-      ),
-    );
   }
 
   @override
@@ -278,18 +267,13 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     return Center(
       child: Column(
         children: [
-          const SizedBox(height: 40), // Changed from 80 to 40 (moved up by 40px = 1/4 of 160px height)
-          // Profile picture with background functionality
+          const SizedBox(height: 40),
           GestureDetector(
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const ProfilePicScreen(),
-                ),
+                MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
               ).then((_) {
-                // Force refresh when returning from ProfilePicScreen
-                print('Returned from ProfilePicScreen, refreshing...');
                 setState(() {
                   _profilePic = ProfilePicManager.globalProfilePic;
                 });
@@ -301,10 +285,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.grey[300],
-                border: Border.all(
-                  color: Colors.grey[400]!,
-                  width: 3,
-                ),
+                border: Border.all(color: Colors.grey[400]!, width: 3),
               ),
               child: ClipOval(
                 child: _profilePic != null && _profilePic!.existsSync()
@@ -313,10 +294,8 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                   fit: BoxFit.cover,
                   width: 160,
                   height: 160,
-                  // Add a unique key to force Flutter to reload the image
                   key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
                   errorBuilder: (context, error, stackTrace) {
-                    print('Error loading profile image: $error');
                     return const DefaultProfilePic(size: 160, borderWidth: 0);
                   },
                 )
@@ -324,132 +303,121 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
               ),
             ),
           ),
-
-          // Username display
           const SizedBox(height: 12),
-          if (_username != null && _username!.isNotEmpty)
-            Text(
-              _username!,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
-              textAlign: TextAlign.center,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Column(
+                  children: [
+                    Text(
+                      '$_followersCount',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Followers',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
+                    ),
+                  ],
+                ),
+                if (_username != null && _username!.isNotEmpty)
+                  Text(
+                    _username!,
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+                    textAlign: TextAlign.center,
+                  ),
+                Column(
+                  children: [
+                    Text(
+                      '$_followingCount',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Following',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
+                    ),
+                  ],
+                ),
+              ],
             ),
-
-          // Bio text display with custom alignment behavior OR tap to edit
+          ),
           const SizedBox(height: 8),
           GestureDetector(
             onTap: () async {
-              // Navigate to Bio screen and wait for result
               await Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const BioScreen(),
-                ),
+                MaterialPageRoute(builder: (context) => const BioScreen()),
               );
-
-              // Always refresh bio when returning from Bio screen
-              print('Returned from BioScreen, refreshing bio data...');
-              await BioManager.loadBioFromStorage(); // Reload from storage to be sure
+              await BioManager.loadBioFromStorage();
               setState(() {
                 _loadBioData();
               });
             },
             child: _buildBioText(screenWidth),
           ),
-
-          const SizedBox(height: 32),
-
-          // Profile tabs section - full width with animated indicator
+          const SizedBox(height: 16),
           Container(
             width: double.infinity,
             child: Column(
               children: [
-                // Tab icons
                 Row(
                   children: [
-                    // Your Posts tab
                     Expanded(
                       child: GestureDetector(
                         onTap: () {
                           setState(() {
                             _selectedTabIndex = 0;
                           });
-                          print('Your Posts tab tapped');
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Icon(
-                            Icons.grid_on,
-                            size: 24,
-                            color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
-                          ),
+                          child: Icon(Icons.grid_on, size: 24, color: _selectedTabIndex == 0 ? Colors.black : Colors.grey),
                         ),
                       ),
                     ),
-                    // Clips tab
                     Expanded(
                       child: GestureDetector(
                         onTap: () {
                           setState(() {
                             _selectedTabIndex = 1;
                           });
-                          print('Clips tab tapped');
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Icon(
-                            Icons.videocam_outlined,
-                            size: 24,
-                            color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
-                          ),
+                          child: Icon(Icons.videocam_outlined, size: 24, color: _selectedTabIndex == 1 ? Colors.black : Colors.grey),
                         ),
                       ),
                     ),
-                    // Tagged tab
                     Expanded(
                       child: GestureDetector(
                         onTap: () {
                           setState(() {
                             _selectedTabIndex = 2;
                           });
-                          print('Tagged tab tapped');
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Icon(
-                            Icons.person_outline,
-                            size: 24,
-                            color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
-                          ),
+                          child: Icon(Icons.person_outline, size: 24, color: _selectedTabIndex == 2 ? Colors.black : Colors.grey),
                         ),
                       ),
                     ),
                   ],
                 ),
-                // Animated sliding indicator
                 Container(
                   height: 2,
                   child: Stack(
                     children: [
-                      // Background line (transparent)
-                      Container(
-                        width: double.infinity,
-                        height: 2,
-                        color: Colors.transparent,
-                      ),
-                      // Animated black line
+                      Container(width: double.infinity, height: 2, color: Colors.transparent),
                       AnimatedPositioned(
                         duration: const Duration(milliseconds: 300),
                         curve: Curves.easeInOut,
                         left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
                         width: MediaQuery.of(context).size.width / 3,
-                        child: Container(
-                          height: 2,
-                          color: Colors.black,
-                        ),
+                        child: Container(height: 2, color: Colors.black),
                       ),
                     ],
                   ),
@@ -457,7 +425,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
               ],
             ),
           ),
-
           const SizedBox(height: 32),
         ],
       ),
@@ -465,7 +432,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   }
 }
 
-// Main Profile Page - UPDATED WITH BACKGROUND INTEGRATION
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
 
@@ -483,17 +449,13 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
 
-    // Get any existing background pic and settings immediately
     _backgroundPic = BackgroundPicManager.globalBackgroundPic;
     _showSeparator = BackgroundPicManager.showSeparator;
     _separatorColor = BackgroundPicManager.separatorColor;
 
-    // Load from storage
     _loadBackgroundFromStorage();
 
-    // Create listener for background pic changes
     _backgroundPicListener = () {
-      print('ProfilePage: Background pic or settings changed!');
       if (mounted) {
         setState(() {
           _backgroundPic = BackgroundPicManager.globalBackgroundPic;
@@ -503,23 +465,21 @@ class _ProfilePageState extends State<ProfilePage> {
       }
     };
 
-    // Add the listener
     BackgroundPicManager.addListener(_backgroundPicListener!);
 
-    // IMPORTANT: Load bio data when the profile page initializes
     _loadInitialData();
   }
 
   Future<void> _loadInitialData() async {
     await BioManager.loadBioFromStorage();
-    await UserManager.loadUsernameFromStorage(); // Add username loading
-    print('ProfilePage: Initial bio and username load complete');
+    await UserManager.loadUsernameFromStorage();
+    await UserFollowers.loadFollowersCountFromStorage();
+    await UserFollowing.loadFollowingCountFromStorage();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Force refresh when returning to this screen
     setState(() {
       _backgroundPic = BackgroundPicManager.globalBackgroundPic;
       _showSeparator = BackgroundPicManager.showSeparator;
@@ -548,13 +508,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Background stays at 160px height, profile pic starts at 40px
     const double backgroundHeight = 160.0;
 
     return Scaffold(
       body: Stack(
         children: [
-          // Background image (if exists) - only covers top portion
           if (_backgroundPic != null && _backgroundPic!.existsSync())
             Positioned(
               top: 0,
@@ -568,28 +526,21 @@ class _ProfilePageState extends State<ProfilePage> {
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: backgroundHeight,
-                    // Add a unique key to force Flutter to reload the image
                     key: ValueKey(_backgroundPic!.path + _backgroundPic!.lastModifiedSync().toString()),
                     errorBuilder: (context, error, stackTrace) {
-                      print('Error loading background image: $error');
                       return Container(color: Colors.white);
                     },
                   ),
-                  // Separator line at bottom of background (if enabled)
                   if (_showSeparator)
                     Positioned(
                       bottom: 0,
                       left: 0,
                       right: 0,
-                      child: Container(
-                        height: 3,
-                        color: _separatorColor,
-                      ),
+                      child: Container(height: 3, color: _separatorColor),
                     ),
                 ],
               ),
             ),
-          // If no background, use white background for top portion
           if (_backgroundPic == null || !_backgroundPic!.existsSync())
             Positioned(
               top: 0,
@@ -598,7 +549,6 @@ class _ProfilePageState extends State<ProfilePage> {
               height: backgroundHeight,
               child: Container(color: Colors.white),
             ),
-          // White background for bottom portion (always present)
           Positioned(
             top: backgroundHeight,
             left: 0,
@@ -606,17 +556,14 @@ class _ProfilePageState extends State<ProfilePage> {
             bottom: 0,
             child: Container(color: Colors.white),
           ),
-          // Content overlay
           SingleChildScrollView(
             child: Column(
               children: [
-                const ProfileWidget(), // Profile picture and bio centered in top
+                const ProfileWidget(),
                 const SizedBox(height: 32),
-                // Add more profile content here
               ],
             ),
           ),
-          // Settings icon positioned in top right
           Positioned(
             top: 50,
             right: 16,
@@ -638,9 +585,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => const SettingsScreen(),
-                    ),
+                    MaterialPageRoute(builder: (context) => const SettingsScreen()),
                   );
                 },
               ),
