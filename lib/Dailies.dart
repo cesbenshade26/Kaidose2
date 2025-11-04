@@ -7,7 +7,9 @@ import 'dart:io';
 
 // Dailies Widget
 class DailiesWidget extends StatefulWidget {
-  const DailiesWidget({Key? key}) : super(key: key);
+  final Function(int)? onNavigateToTab; // Add callback for navigation
+
+  const DailiesWidget({Key? key, this.onNavigateToTab}) : super(key: key);
 
   @override
   State<DailiesWidget> createState() => _DailiesWidgetState();
@@ -221,6 +223,13 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     setState(() {
       _showPhotoCarousel = false;
     });
+  }
+
+  void _navigateToAddDaily() {
+    // Navigate to Add tab (index 3) in Home
+    if (widget.onNavigateToTab != null) {
+      widget.onNavigateToTab!(3);
+    }
   }
 
   Widget _buildProfilePicButton() {
@@ -560,7 +569,76 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                   ),
                 ),
 
-                const Expanded(child: SizedBox()),
+                // Empty state with Add Daily button
+                if (_todaysPhotos.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.photo_camera_outlined,
+                            size: 80,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No Dailies Yet!',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Start your day by posting your first daily photo',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 24),
+                          GestureDetector(
+                            onTap: _navigateToAddDaily,
+                            child: Container(
+                              width: 70,
+                              height: 70,
+                              decoration: BoxDecoration(
+                                color: Colors.cyan,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.cyan.withOpacity(0.4),
+                                    spreadRadius: 2,
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.add,
+                                color: Colors.white,
+                                size: 40,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Add a Daily!',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  const Expanded(child: SizedBox()),
               ],
             ),
           ),

@@ -4,11 +4,17 @@ import 'Profile.dart'; // Import the Profile.dart file
 import 'Dailies.dart'; // Import the Dailies.dart file
 import 'Add.dart'; // Import the Add.dart file
 import 'Clips.dart';
+import 'Chat.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool fadeInFromAnimation; // New parameter to control fade-in
+  final int? initialTabIndex; // Add parameter for initial tab selection
 
-  const HomeScreen({Key? key, this.fadeInFromAnimation = false}) : super(key: key);
+  const HomeScreen({
+    Key? key,
+    this.fadeInFromAnimation = false,
+    this.initialTabIndex,
+  }) : super(key: key);
 
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -30,8 +36,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
-    // Always start on Dailies (index 0) when coming from animation, otherwise Profile (index 4)
-    _selectedIndex = widget.fadeInFromAnimation ? 0 : 4;
+    // Use initialTabIndex if provided, otherwise use default logic
+    if (widget.initialTabIndex != null) {
+      _selectedIndex = widget.initialTabIndex!;
+    } else {
+      // Always start on Dailies (index 0) when coming from animation, otherwise Profile (index 4)
+      _selectedIndex = widget.fadeInFromAnimation ? 0 : 4;
+    }
 
     // Initialize content fade controller
     _contentFadeController = AnimationController(
@@ -164,35 +175,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _getSelectedPage() {
     switch (_selectedIndex) {
       case 0:
-        return const DailiesWidget();
+        return DailiesWidget(
+          onNavigateToTab: (index) {
+            _onItemTapped(index);
+          },
+        );
       case 1:
-        return _buildChatPage();
+        return const ChatWidget();
       case 2:
-        return _buildCameraPage();
+        return const ClipsWidget();
       case 3:
         return const AddWidget();
       case 4:
         return const ProfilePage();
       default:
-        return const DailiesWidget(); // Default to Dailies when coming from animation
+        return DailiesWidget(
+          onNavigateToTab: (index) {
+            _onItemTapped(index);
+          },
+        );
     }
-  }
-
-  Widget _buildChatPage() {
-    return const Center(
-      child: Text(
-        'Chat Page',
-        style: TextStyle(
-          fontFamily: 'Slackey',
-          fontSize: 48,
-          color: Colors.black,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCameraPage() {
-    return const ClipsWidget();
   }
 
   Widget _buildNavItem(int index, IconData icon, String label, Animation<double> animation) {

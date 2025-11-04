@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'YourDailyArchives.dart'; // Import the YourDailyArchives screen
+import 'YourDailyArchives.dart';
+import 'ClipsArchives.dart';
 
 class ArchivesScreen extends StatelessWidget {
   const ArchivesScreen({Key? key}) : super(key: key);
@@ -46,6 +47,7 @@ class ArchivesSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
+
         // Your Daily Posts Option
         ListTile(
           leading: const Icon(
@@ -76,6 +78,45 @@ class ArchivesSection extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (context) => const YourDailyArchivesScreen(),
+              ),
+            );
+          },
+        ),
+        const Divider(
+          color: Colors.grey,
+          thickness: 0.5,
+        ),
+
+        // Clips Posts Option
+        ListTile(
+          leading: const Icon(
+            Icons.videocam,
+            color: Colors.purple,
+            size: 28,
+          ),
+          title: const Text(
+            'Clips',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          subtitle: const Text(
+            'View all your posted clips by date',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right,
+            color: Colors.grey,
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ClipsArchivesScreen(),
               ),
             );
           },

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'YourDaily.dart';
 import 'AddClip.dart';
+import 'AddDailies.dart';
 
 // Add Post Widget
 class AddWidget extends StatefulWidget {
@@ -154,18 +155,7 @@ class _AddWidgetState extends State<AddWidget> {
     switch (_selectedTabIndex) {
       case 0:
       // Daily tab content
-        return Container(
-          color: Colors.white,
-          child: const Center(
-            child: Text(
-              'Daily Content',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-        );
+        return const AddDailiesWidget();
       case 1:
       // Clip tab content
         return const AddClipWidget();

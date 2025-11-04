@@ -132,16 +132,19 @@ class _AddClipWidgetState extends State<AddClipWidget> {
       print('Video duration: ${_videoController!.value.duration}');
       print('Video size: ${_videoController!.value.size}');
 
-      _videoController!.setLooping(true);
-      await _videoController!.play();
-
-      print('Video is now playing');
-
       if (mounted) {
         setState(() {
           _isInitializing = false;
         });
       }
+
+      // Small delay before playing
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      _videoController!.setLooping(true);
+      _videoController!.play();
+
+      print('Video is now playing');
     } catch (e, stackTrace) {
       print('ERROR initializing video: $e');
       print('Stack trace: $stackTrace');

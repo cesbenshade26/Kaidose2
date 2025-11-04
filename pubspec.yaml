@@ -36,6 +36,7 @@ dependencies:
   permission_handler: ^11.0.1
   path_provider: ^2.0.15
   video_player: ^2.8.1
+  contacts_service: ^0.6.3
 
 dev_dependencies:
   flutter_test:

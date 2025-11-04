@@ -22,6 +22,7 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   VideoPlayerController? _videoController;
   bool _isInitializing = false;
   String? _errorMessage;
+  bool _isLiked = false;
 
   @override
   void initState() {
@@ -72,6 +73,13 @@ class _ClipsWidgetState extends State<ClipsWidget> {
       print('Creating VideoPlayerController...');
       _videoController = VideoPlayerController.file(videoFile);
 
+      // Add listener to detect when video is ready
+      _videoController!.addListener(() {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+
       print('Initializing controller...');
       await _videoController!.initialize();
 
@@ -79,16 +87,24 @@ class _ClipsWidgetState extends State<ClipsWidget> {
       print('Video duration: ${_videoController!.value.duration}');
       print('Video size: ${_videoController!.value.size}');
 
+      // Set looping BEFORE setState
       _videoController!.setLooping(true);
-      await _videoController!.play();
-
-      print('Video is now playing');
 
       if (mounted) {
         setState(() {
           _isInitializing = false;
         });
+
+        // Play after setState completes
+        await Future.delayed(const Duration(milliseconds: 50));
+        _videoController!.play();
+
+        // Force another setState to ensure playing state is reflected
+        await Future.delayed(const Duration(milliseconds: 50));
+        setState(() {});
       }
+
+      print('Video is now playing: ${_videoController!.value.isPlaying}');
     } catch (e, stackTrace) {
       print('ERROR initializing video: $e');
       print('Stack trace: $stackTrace');
@@ -136,9 +152,16 @@ class _ClipsWidgetState extends State<ClipsWidget> {
         _currentVideoIndex = newIndex;
         _currentDisplayVideo = _todaysVideos[_currentVideoIndex];
         _selectedVideo = null;
+        _isLiked = false; // Reset like state when changing videos
       });
       _initializeVideo(_currentDisplayVideo!);
     }
+  }
+
+  void _toggleLike() {
+    setState(() {
+      _isLiked = !_isLiked;
+    });
   }
 
   bool get _canNavigateLeft => _todaysVideos.isNotEmpty && _currentVideoIndex > 0;
@@ -148,10 +171,14 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
+      extendBody: true,
       body: Stack(
         children: [
           // Full screen video display
-          Center(
+          Positioned.fill(
+            top: 0,
+            bottom: 0,
             child: _buildVideoDisplay(),
           ),
 
@@ -216,6 +243,77 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                 ),
               ),
             ),
+
+          // Social interaction buttons (Like, Comment, Share)
+          if (_todaysVideos.isNotEmpty && _currentVideoIndex >= 0)
+            Positioned(
+              right: 16,
+              bottom: 120,
+              child: Column(
+                children: [
+                  // Like button
+                  GestureDetector(
+                    onTap: _toggleLike,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _isLiked ? Icons.favorite : Icons.favorite_border,
+                        color: _isLiked ? Colors.red : Colors.white,
+                        size: 30,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Comment button
+                  GestureDetector(
+                    onTap: () {
+                      print('Comment button tapped');
+                      // TODO: Implement comment functionality
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.mode_comment_outlined,
+                        color: Colors.white,
+                        size: 30,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Share button
+                  GestureDetector(
+                    onTap: () {
+                      print('Share button tapped');
+                      // TODO: Implement share functionality
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.send_outlined,
+                        color: Colors.white,
+                        size: 30,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -273,12 +371,14 @@ class _ClipsWidgetState extends State<ClipsWidget> {
       }
 
       if (_videoController != null && _videoController!.value.isInitialized) {
-        return FittedBox(
-          fit: BoxFit.contain,
-          child: SizedBox(
-            width: _videoController!.value.size.width,
-            height: _videoController!.value.size.height,
-            child: VideoPlayer(_videoController!),
+        return SizedBox.expand(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _videoController!.value.size.width,
+              height: _videoController!.value.size.height,
+              child: VideoPlayer(_videoController!),
+            ),
           ),
         );
       }
