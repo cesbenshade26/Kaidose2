@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'Search.dart'; // Import the Search screen
-import 'DailyPhotoManager.dart'; // Import the DailyPhotoManager
-import 'DailyPhotoTracker.dart'; // Import the new DailyPhotoTracker
-import 'ProfilePicManager.dart'; // Import ProfilePicManager
+import 'Search.dart';
+import 'DailyPhotoManager.dart';
+import 'DailyPhotoTracker.dart';
+import 'ProfilePicManager.dart';
+import 'DailyList.dart';
+import 'DailyData.dart';
 import 'dart:io';
 
-// Dailies Widget
 class DailiesWidget extends StatefulWidget {
-  final Function(int)? onNavigateToTab; // Add callback for navigation
+  final Function(int)? onNavigateToTab;
 
   const DailiesWidget({Key? key, this.onNavigateToTab}) : super(key: key);
 
@@ -23,7 +24,8 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   bool _hasViewedAllPhotos = false;
   bool _isAnimating = false;
   File? _profilePic;
-  Set<String> _viewedPhotosPaths = {}; // Track which specific photos have been viewed
+  Set<String> _viewedPhotosPaths = {};
+  List<DailyData> _publishedDailies = [];
 
   late AnimationController _slideController;
   late Animation<double> _slideAnimation;
@@ -31,6 +33,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   VoidCallback? _dailyPhotoListener;
   VoidCallback? _trackerListener;
   VoidCallback? _profilePicListener;
+  VoidCallback? _dailyListListener;
 
   @override
   void initState() {
@@ -50,26 +53,23 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       curve: Curves.easeInOut,
     ));
 
-    _initializeBothSystems();
+    _initializeSystems();
 
     _profilePic = ProfilePicManager.globalProfilePic;
 
     _dailyPhotoListener = () {
-      print('DailiesWidget: Daily photo changed!');
       if (mounted) {
         _loadPhotos();
       }
     };
 
     _trackerListener = () {
-      print('DailiesWidget: Photo tracker changed!');
       if (mounted) {
         _loadPhotos();
       }
     };
 
     _profilePicListener = () {
-      print('DailiesWidget: Profile pic changed!');
       if (mounted) {
         setState(() {
           _profilePic = ProfilePicManager.globalProfilePic;
@@ -77,9 +77,16 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       }
     };
 
+    _dailyListListener = () {
+      if (mounted) {
+        _loadDailies();
+      }
+    };
+
     DailyPhotoManager.addListener(_dailyPhotoListener!);
     DailyPhotoTracker.addListener(_trackerListener!);
     ProfilePicManager.addListener(_profilePicListener!);
+    DailyList.addListener(_dailyListListener!);
   }
 
   @override
@@ -94,6 +101,9 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     }
     if (_profilePicListener != null) {
       ProfilePicManager.removeListener(_profilePicListener!);
+    }
+    if (_dailyListListener != null) {
+      DailyList.removeListener(_dailyListListener!);
     }
     super.dispose();
   }
@@ -111,16 +121,18 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     _loadPhotos();
   }
 
-  Future<void> _initializeBothSystems() async {
+  Future<void> _initializeSystems() async {
     await DailyPhotoTracker.initialize();
     await DailyPhotoManager.loadDailyPhotoFromStorage();
     await ProfilePicManager.loadProfilePicFromStorage();
+    await DailyList.loadFromStorage();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
       });
     }
     _loadPhotos();
+    _loadDailies();
   }
 
   Future<void> _checkForNewDay() async {
@@ -129,8 +141,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   }
 
   void _loadPhotos() {
-    print('Loading photos for Dailies...');
-
     setState(() {
       _isLoading = true;
     });
@@ -142,32 +152,29 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _currentPhotoIndex = 0;
     }
 
-    // Check if there are new photos since last load
     if (_todaysPhotos.length != previousPhotos.length) {
-      // New photos added, need to check viewing status
       _checkViewingStatus();
     }
 
     setState(() {
       _isLoading = false;
     });
+  }
 
-    print('Loaded ${_todaysPhotos.length} photos for Dailies display');
+  void _loadDailies() {
+    setState(() {
+      _publishedDailies = DailyList.dailies;
+    });
   }
 
   void _checkViewingStatus() {
-    // Count how many of today's photos have been viewed
     int viewedCount = 0;
     for (File photo in _todaysPhotos) {
       if (_viewedPhotosPaths.contains(photo.path)) {
         viewedCount++;
       }
     }
-
-    // Update hasViewedAllPhotos based on whether ALL photos have been viewed
     _hasViewedAllPhotos = viewedCount == _todaysPhotos.length && _todaysPhotos.isNotEmpty;
-
-    print('Viewed $viewedCount of ${_todaysPhotos.length} photos. All viewed: $_hasViewedAllPhotos');
   }
 
   void _navigatePhoto(int direction) async {
@@ -196,7 +203,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _currentPhotoIndex = newIndex;
       _isAnimating = false;
 
-      // Mark current photo as viewed
       if (_todaysPhotos.isNotEmpty && _currentPhotoIndex < _todaysPhotos.length) {
         _viewedPhotosPaths.add(_todaysPhotos[_currentPhotoIndex].path);
         _checkViewingStatus();
@@ -211,8 +217,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       setState(() {
         _showPhotoCarousel = true;
         _currentPhotoIndex = 0;
-
-        // Mark the first photo as viewed when opening carousel
         _viewedPhotosPaths.add(_todaysPhotos[0].path);
         _checkViewingStatus();
       });
@@ -226,7 +230,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   }
 
   void _navigateToAddDaily() {
-    // Navigate to Add tab (index 3) in Home
     if (widget.onNavigateToTab != null) {
       widget.onNavigateToTab!(3);
     }
@@ -263,7 +266,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               height: 112,
               key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
               errorBuilder: (context, error, stackTrace) {
-                print('Error loading profile image: $error');
                 return const DefaultProfilePic(size: 112, borderWidth: 0);
               },
             )
@@ -272,6 +274,275 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
         ),
       ),
     );
+  }
+
+  Widget _buildDailyCard(DailyData daily) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: daily.isPinned ? Colors.cyan : Colors.grey[300]!,
+          width: daily.isPinned ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 3,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Icon on the left
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: Color(daily.iconColor ?? 0xFF00BCD4).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: daily.customIconPath != null && File(daily.customIconPath!).existsSync()
+                ? ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                File(daily.customIconPath!),
+                fit: BoxFit.cover,
+              ),
+            )
+                : Icon(
+              daily.icon,
+              color: Color(daily.iconColor ?? 0xFF00BCD4),
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Title and info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        daily.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                    if (daily.isPinned)
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.cyan,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.push_pin,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  daily.description,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      'Active Friends: ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '', // Empty for now - will show friend list later
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatDate(daily.createdAt),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Three dots menu
+          PopupMenuButton<String>(
+            icon: Icon(
+              Icons.more_vert,
+              color: Colors.grey[600],
+              size: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            onSelected: (value) {
+              if (value == 'pin') {
+                DailyList.togglePin(daily.id);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      daily.isPinned ? '${daily.title} unpinned!' : '${daily.title} pinned!',
+                    ),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              } else if (value == 'delete') {
+                _showDeleteConfirmation(daily);
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              PopupMenuItem<String>(
+                value: 'pin',
+                child: Row(
+                  children: [
+                    Icon(
+                      daily.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                      size: 20,
+                      color: Colors.black87,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      daily.isPinned ? 'Unpin' : 'Pin',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                    SizedBox(width: 12),
+                    Text(
+                      'Delete',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteConfirmation(DailyData daily) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          'Delete Daily?',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          'Are you sure you want to delete "${daily.title}"? This action cannot be undone.',
+          style: const TextStyle(
+            fontSize: 16,
+            color: Colors.black87,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              DailyList.deleteDaily(daily.id);
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${daily.title} deleted'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            child: const Text(
+              'Delete',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.red,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'today';
+    } else if (difference.inDays == 1) {
+      return 'yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return weeks == 1 ? '1 week ago' : '$weeks weeks ago';
+    } else {
+      final months = (difference.inDays / 30).floor();
+      return months == 1 ? '1 month ago' : '$months months ago';
+    }
   }
 
   Widget _buildPhotoCarousel() {
@@ -305,7 +576,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                               fit: BoxFit.cover,
                               key: ValueKey('current_${_todaysPhotos[_currentPhotoIndex].path}'),
                               errorBuilder: (context, error, stackTrace) {
-                                print('Error displaying daily photo: $error');
                                 return Container(
                                   color: Colors.grey[800],
                                   child: Center(
@@ -333,7 +603,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                             ),
                           ),
                         ),
-
                         if (_isAnimating && _slideAnimation.value > 0) ...[
                           Transform.translate(
                             offset: Offset(
@@ -353,7 +622,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                             ),
                           ),
                         ],
-
                         if (_isAnimating && _slideAnimation.value < 0) ...[
                           Transform.translate(
                             offset: Offset(
@@ -380,7 +648,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               ),
             ),
           ),
-
           if (_currentPhotoIndex > 0 && !_isAnimating)
             Positioned(
               left: 10,
@@ -404,7 +671,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                 ),
               ),
             ),
-
           if (_currentPhotoIndex < _todaysPhotos.length - 1 && !_isAnimating)
             Positioned(
               right: 10,
@@ -428,7 +694,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                 ),
               ),
             ),
-
           Positioned(
             top: 60,
             right: 20,
@@ -448,7 +713,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               ),
             ),
           ),
-
           Positioned(
             bottom: 100,
             left: 0,
@@ -471,7 +735,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               ),
             ),
           ),
-
           if (_todaysPhotos.length > 1)
             Positioned(
               bottom: 60,
@@ -512,13 +775,12 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
             child: _isLoading
                 ? const Center(
               child: CircularProgressIndicator(
-                color: Colors.blue,
+                color: Colors.cyan,
               ),
             )
                 : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top section with title and search icon
                 Padding(
                   padding: const EdgeInsets.only(left: 16, right: 16, top: 60, bottom: 8),
                   child: Row(
@@ -547,8 +809,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                     ],
                   ),
                 ),
-
-                // Profile picture below title (left aligned like Instagram)
                 Padding(
                   padding: const EdgeInsets.only(left: 16),
                   child: Column(
@@ -556,7 +816,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                     children: [
                       _buildProfilePicButton(),
                       const SizedBox(height: 8),
-                      // "Your story" text below profile pic
                       const Text(
                         'Your story',
                         style: TextStyle(
@@ -568,9 +827,8 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                     ],
                   ),
                 ),
-
-                // Empty state with Add Daily button
-                if (_todaysPhotos.isEmpty)
+                const SizedBox(height: 24),
+                if (_publishedDailies.isEmpty && _todaysPhotos.isEmpty)
                   Expanded(
                     child: Center(
                       child: Column(
@@ -592,7 +850,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Start your day by posting your first daily photo',
+                            'Start your day by posting your first daily',
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey[600],
@@ -638,11 +896,18 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                     ),
                   )
                 else
-                  const Expanded(child: SizedBox()),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _publishedDailies.length,
+                      itemBuilder: (context, index) {
+                        return _buildDailyCard(_publishedDailies[index]);
+                      },
+                    ),
+                  ),
               ],
             ),
           ),
-
           if (_showPhotoCarousel && _todaysPhotos.isNotEmpty)
             _buildPhotoCarousel(),
         ],

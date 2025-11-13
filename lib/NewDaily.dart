@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'DailyData.dart';
+import 'DailyList.dart';
 
 class NewDailyScreen extends StatefulWidget {
   const NewDailyScreen({Key? key}) : super(key: key);
@@ -34,10 +38,20 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
   }
 
   void _goToNextScreen() {
+    List<String> keywords = _keywordControllers
+        .map((controller) => controller.text.trim())
+        .where((text) => text.isNotEmpty)
+        .toList();
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const NewDailyNextScreen(),
+        builder: (context) => NewDailyNextScreen(
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          privacy: _selectedPrivacy,
+          keywords: keywords,
+        ),
       ),
     );
   }
@@ -74,7 +88,6 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Daily Title
                     const Text(
                       'Daily Title',
                       style: TextStyle(
@@ -125,10 +138,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         );
                       },
                     ),
-
                     const SizedBox(height: 24),
-
-                    // Privacy Selection
                     const Text(
                       'Privacy',
                       style: TextStyle(
@@ -138,8 +148,6 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
-                    // Public checkbox
                     GestureDetector(
                       onTap: () {
                         setState(() {
@@ -178,10 +186,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 12),
-
-                    // Private checkbox
                     GestureDetector(
                       onTap: () {
                         setState(() {
@@ -220,10 +225,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 24),
-
-                    // Description
                     const Text(
                       'Add Description!',
                       style: TextStyle(
@@ -275,10 +277,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         );
                       },
                     ),
-
                     const SizedBox(height: 24),
-
-                    // Keywords Section
                     const Text(
                       'Add some Keywords',
                       style: TextStyle(
@@ -296,8 +295,6 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
-                    // Keywords container with scroll
                     Container(
                       height: _keywordControllers.length > 3 ? 200 : null,
                       decoration: _keywordControllers.length > 3
@@ -330,10 +327,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 8),
-
-                    // Add Another button
                     GestureDetector(
                       onTap: _addKeywordField,
                       child: Container(
@@ -363,15 +357,12 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 20),
                   ],
                 ),
               ),
             ),
           ),
-
-          // Next button at bottom
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -445,24 +436,34 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
       ),
       maxLength: 20,
       buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
-        return const SizedBox.shrink(); // Hide counter for keyword fields
+        return const SizedBox.shrink();
       },
     );
   }
 }
 
-// Next screen placeholder
 class NewDailyNextScreen extends StatefulWidget {
-  const NewDailyNextScreen({Key? key}) : super(key: key);
+  final String title;
+  final String description;
+  final String privacy;
+  final List<String> keywords;
+
+  const NewDailyNextScreen({
+    Key? key,
+    required this.title,
+    required this.description,
+    required this.privacy,
+    required this.keywords,
+  }) : super(key: key);
 
   @override
   State<NewDailyNextScreen> createState() => _NewDailyNextScreenState();
 }
 
 class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
-  List<dynamic> _friends = []; // Will be filled with FriendData later
+  List<dynamic> _friends = [];
   bool _isLoading = true;
-  Set<String> _selectedFriendIds = {}; // Track selected friends
+  Set<String> _selectedFriendIds = {};
 
   @override
   void initState() {
@@ -471,14 +472,6 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
   }
 
   Future<void> _loadFriends() async {
-    // TODO: Uncomment when UserFriends.dart is imported
-    // await UserFriends.initializeFriends();
-    // setState(() {
-    //   _friends = UserFriends.friends;
-    //   _isLoading = false;
-    // });
-
-    // For now, simulate loading with empty list
     await Future.delayed(const Duration(milliseconds: 500));
     setState(() {
       _friends = [];
@@ -498,15 +491,14 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
 
   bool _canProceed() {
     if (_friends.length < 3) {
-      return true; // Can proceed with any selection if less than 3 friends
+      return true;
     } else {
-      return _selectedFriendIds.length >= 2; // Must select at least 2 if 3+ friends
+      return _selectedFriendIds.length >= 2;
     }
   }
 
   void _handleNext() {
     if (!_canProceed()) {
-      // Show error popup
       showDialog(
         context: context,
         builder: (BuildContext context) => AlertDialog(
@@ -543,11 +535,16 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
         ),
       );
     } else {
-      // Proceed to next screen
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const NewDailyFinalScreen(),
+          builder: (context) => NewDailyFinalScreen(
+            title: widget.title,
+            description: widget.description,
+            privacy: widget.privacy,
+            keywords: widget.keywords,
+            selectedFriendIds: _selectedFriendIds.toList(),
+          ),
         ),
       );
     }
@@ -569,7 +566,6 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
       ),
       body: Column(
         children: [
-          // Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             child: Column(
@@ -596,8 +592,6 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
               ],
             ),
           ),
-
-          // Friends List
           Expanded(
             child: _isLoading
                 ? const Center(
@@ -643,9 +637,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               itemCount: _friends.length,
               itemBuilder: (context, index) {
-                // TODO: Replace with actual friend data
-                // final friend = _friends[index];
-                final friendId = 'friend_$index'; // TODO: friend.userId
+                final friendId = 'friend_$index';
                 final isSelected = _selectedFriendIds.contains(friendId);
 
                 return GestureDetector(
@@ -663,7 +655,6 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
                     ),
                     child: Row(
                       children: [
-                        // Checkbox
                         Container(
                           width: 24,
                           height: 24,
@@ -684,7 +675,6 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
                               : null,
                         ),
                         const SizedBox(width: 12),
-                        // Profile picture placeholder
                         Container(
                           width: 50,
                           height: 50,
@@ -699,13 +689,12 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        // Username
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Friend ${index + 1}', // TODO: friend.username
+                                'Friend ${index + 1}',
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
@@ -714,7 +703,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Mutual friend', // TODO: friend.isMutual ? 'Mutual friend' : 'Friend'
+                                'Mutual friend',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey[600],
@@ -730,8 +719,6 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
               },
             ),
           ),
-
-          // Next button at bottom
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -772,9 +759,101 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
   }
 }
 
-// Final screen placeholder
-class NewDailyFinalScreen extends StatelessWidget {
-  const NewDailyFinalScreen({Key? key}) : super(key: key);
+class NewDailyFinalScreen extends StatefulWidget {
+  final String title;
+  final String description;
+  final String privacy;
+  final List<String> keywords;
+  final List<String> selectedFriendIds;
+
+  const NewDailyFinalScreen({
+    Key? key,
+    required this.title,
+    required this.description,
+    required this.privacy,
+    required this.keywords,
+    required this.selectedFriendIds,
+  }) : super(key: key);
+
+  @override
+  State<NewDailyFinalScreen> createState() => _NewDailyFinalScreenState();
+}
+
+class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
+  IconData _selectedIcon = Icons.star;
+  File? _customIcon;
+  Color _selectedColor = Colors.cyan;
+  final ImagePicker _picker = ImagePicker();
+
+  final List<IconData> _presetIcons = [
+    Icons.star,
+    Icons.favorite,
+    Icons.camera_alt,
+    Icons.music_note,
+    Icons.sports_basketball,
+    Icons.restaurant,
+    Icons.local_cafe,
+    Icons.airplane_ticket,
+    Icons.beach_access,
+    Icons.fitness_center,
+    Icons.book,
+    Icons.palette,
+    Icons.code,
+    Icons.science,
+    Icons.pets,
+    Icons.games,
+  ];
+
+  final List<Color> _colorOptions = [
+    Colors.cyan,
+    Colors.blue,
+    Colors.purple,
+    Colors.pink,
+    Colors.red,
+    Colors.orange,
+    Colors.amber,
+    Colors.green,
+    Colors.teal,
+    Colors.indigo,
+  ];
+
+  Future<void> _pickCustomIcon() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        _customIcon = File(image.path);
+      });
+    }
+  }
+
+  Future<void> _publishDaily() async {
+    final daily = DailyData(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: widget.title,
+      description: widget.description,
+      privacy: widget.privacy,
+      keywords: widget.keywords,
+      icon: _selectedIcon,
+      iconColor: _selectedColor.value,
+      customIconPath: _customIcon?.path,
+      invitedFriendIds: widget.selectedFriendIds,
+      createdAt: DateTime.now(),
+    );
+
+    await DailyList.addDaily(daily);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Daily published successfully!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -789,15 +868,209 @@ class NewDailyFinalScreen extends StatelessWidget {
             Navigator.pop(context);
           },
         ),
-      ),
-      body: const Center(
-        child: Text(
-          'Final Screen',
+        title: const Text(
+          'Choose Icon',
           style: TextStyle(
-            fontSize: 24,
-            color: Colors.grey,
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
           ),
         ),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Select an Icon',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 4,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemCount: _presetIcons.length,
+                      itemBuilder: (context, index) {
+                        final icon = _presetIcons[index];
+                        final isSelected = _selectedIcon == icon && _customIcon == null;
+
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedIcon = icon;
+                              _customIcon = null;
+                            });
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isSelected ? _selectedColor.withOpacity(0.1) : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? _selectedColor : Colors.grey[300]!,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Icon(
+                              icon,
+                              color: isSelected ? _selectedColor : Colors.grey[700],
+                              size: 32,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Icon Color',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: _colorOptions.map((color) {
+                        final isSelected = _selectedColor == color;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedColor = color;
+                            });
+                          },
+                          child: Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected ? Colors.black : Colors.grey[300]!,
+                                width: isSelected ? 3 : 1,
+                              ),
+                            ),
+                            child: isSelected
+                                ? const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 24,
+                            )
+                                : null,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Or Upload Custom Icon',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    GestureDetector(
+                      onTap: _pickCustomIcon,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: _customIcon != null ? Colors.cyan.withOpacity(0.1) : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _customIcon != null ? Colors.cyan : Colors.grey[300]!,
+                            width: _customIcon != null ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            if (_customIcon != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.file(
+                                  _customIcon!,
+                                  width: 80,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            else
+                              Icon(
+                                Icons.cloud_upload_outlined,
+                                size: 48,
+                                color: Colors.grey[600],
+                              ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _customIcon != null ? 'Custom icon selected' : 'Upload Icon',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.2),
+                  spreadRadius: 1,
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: ElevatedButton(
+              onPressed: _publishDaily,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.cyan,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Publish Daily',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

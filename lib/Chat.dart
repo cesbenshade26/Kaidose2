@@ -10,7 +10,11 @@ class ChatWidget extends StatefulWidget {
 
 class _ChatWidgetState extends State<ChatWidget> {
   List<LinkedFriend> _linkedFriends = [];
+  List<LinkedFriend> _filteredFriends = [];
+  Set<String> _pinnedFriends = {}; // Track pinned friends by name
   VoidCallback? _linkedFriendsListener;
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -20,16 +24,22 @@ class _ChatWidgetState extends State<ChatWidget> {
     _linkedFriendsListener = () {
       if (mounted) {
         setState(() {
-          _linkedFriends = LinkedFriends.linkedFriends;
+          // Only show accepted friends in chat
+          _linkedFriends = LinkedFriends.acceptedFriends;
+          _sortAndFilterFriends();
         });
       }
     };
 
     LinkedFriends.addListener(_linkedFriendsListener!);
+
+    // Listen to search input
+    _searchController.addListener(_filterFriends);
   }
 
   @override
   void dispose() {
+    _searchController.dispose();
     if (_linkedFriendsListener != null) {
       LinkedFriends.removeListener(_linkedFriendsListener!);
     }
@@ -38,11 +48,69 @@ class _ChatWidgetState extends State<ChatWidget> {
 
   Future<void> _loadLinkedFriends() async {
     await LinkedFriends.loadFromStorage();
+
+    // Auto-accept all pending friends (temporary fix for existing data)
+    // TODO: Remove this once you have proper acceptance flow with database
+    final pendingFriends = LinkedFriends.pendingRequests;
+    for (var friend in pendingFriends) {
+      await LinkedFriends.acceptLinkRequest(friend.name);
+    }
+
     if (mounted) {
       setState(() {
-        _linkedFriends = LinkedFriends.linkedFriends;
+        // Only show accepted friends
+        _linkedFriends = LinkedFriends.acceptedFriends;
+        _sortAndFilterFriends();
       });
     }
+  }
+
+  void _sortAndFilterFriends() {
+    // Sort friends: pinned ones first, then others
+    final pinnedList = _linkedFriends.where((f) => _pinnedFriends.contains(f.name)).toList();
+    final unpinnedList = _linkedFriends.where((f) => !_pinnedFriends.contains(f.name)).toList();
+
+    _filteredFriends = [...pinnedList, ...unpinnedList];
+  }
+
+  void _filterFriends() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      if (query.isEmpty) {
+        _sortAndFilterFriends();
+      } else {
+        // Filter and maintain pin order
+        final filtered = _linkedFriends.where((friend) {
+          return friend.name.toLowerCase().contains(query);
+        }).toList();
+
+        final pinnedFiltered = filtered.where((f) => _pinnedFriends.contains(f.name)).toList();
+        final unpinnedFiltered = filtered.where((f) => !_pinnedFriends.contains(f.name)).toList();
+
+        _filteredFriends = [...pinnedFiltered, ...unpinnedFiltered];
+      }
+    });
+  }
+
+  void _togglePin(String friendName) {
+    setState(() {
+      if (_pinnedFriends.contains(friendName)) {
+        _pinnedFriends.remove(friendName);
+      } else {
+        _pinnedFriends.add(friendName);
+      }
+      _sortAndFilterFriends();
+    });
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) {
+        _searchController.clear();
+        _sortAndFilterFriends();
+      }
+    });
   }
 
   @override
@@ -53,7 +121,24 @@ class _ChatWidgetState extends State<ChatWidget> {
         backgroundColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
+        title: _isSearching
+            ? TextField(
+          controller: _searchController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Search chats...',
+            hintStyle: TextStyle(
+              color: Colors.grey,
+              fontSize: 18,
+            ),
+            border: InputBorder.none,
+          ),
+          style: const TextStyle(
+            fontSize: 18,
+            color: Colors.black,
+          ),
+        )
+            : const Text(
           'Chats',
           style: TextStyle(
             fontFamily: 'Slackey',
@@ -63,20 +148,30 @@ class _ChatWidgetState extends State<ChatWidget> {
           ),
         ),
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isSearching ? Icons.close : Icons.search,
+              color: Colors.black,
+              size: 28,
+            ),
+            onPressed: _toggleSearch,
+          ),
+        ],
       ),
-      body: _linkedFriends.isEmpty
+      body: _filteredFriends.isEmpty
           ? Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.chat_bubble_outline,
+              _isSearching ? Icons.search_off : Icons.chat_bubble_outline,
               size: 80,
               color: Colors.grey[400],
             ),
             const SizedBox(height: 16),
             Text(
-              'No Linked Friends Yet',
+              _isSearching ? 'No Results Found' : 'No Linked Friends Yet',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
@@ -87,7 +182,9 @@ class _ChatWidgetState extends State<ChatWidget> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40),
               child: Text(
-                'Link friends from Search to start chatting',
+                _isSearching
+                    ? 'Try searching for a different name'
+                    : 'Link friends from Search to start chatting',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey[600],
@@ -100,58 +197,84 @@ class _ChatWidgetState extends State<ChatWidget> {
       )
           : ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _linkedFriends.length,
+        itemCount: _filteredFriends.length,
         itemBuilder: (context, index) {
-          final friend = _linkedFriends[index];
+          final friend = _filteredFriends[index];
+          final isPinned = _pinnedFriends.contains(friend.name);
+
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             child: ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey[300]!, width: 1),
-              ),
-              leading: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  shape: BoxShape.circle,
+                side: BorderSide(
+                  color: isPinned ? Colors.cyan : Colors.grey[300]!,
+                  width: isPinned ? 2 : 1,
                 ),
-                child: ClipOval(
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Head circle
-                      Positioned(
-                        top: 12,
-                        child: Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ),
-                      // Body/shoulders
-                      Positioned(
-                        bottom: -6,
-                        child: Container(
-                          width: 44,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[600],
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(22),
-                              topRight: Radius.circular(22),
+              ),
+              leading: Stack(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      shape: BoxShape.circle,
+                    ),
+                    child: ClipOval(
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Head circle
+                          Positioned(
+                            top: 12,
+                            child: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey[600],
+                              ),
                             ),
                           ),
+                          // Body/shoulders
+                          Positioned(
+                            bottom: -6,
+                            child: Container(
+                              width: 44,
+                              height: 26,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[600],
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(22),
+                                  topRight: Radius.circular(22),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (isPinned)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Colors.cyan,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.push_pin,
+                          size: 12,
+                          color: Colors.white,
                         ),
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                ],
               ),
               title: Text(
                 friend.name,
@@ -167,6 +290,78 @@ class _ChatWidgetState extends State<ChatWidget> {
                   fontSize: 13,
                   color: Colors.grey[600],
                 ),
+              ),
+              trailing: PopupMenuButton<String>(
+                icon: Icon(
+                  Icons.more_vert,
+                  color: Colors.grey[600],
+                  size: 24,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onSelected: (value) {
+                  if (value == 'pin') {
+                    _togglePin(friend.name);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          isPinned
+                              ? '${friend.name} unpinned!'
+                              : '${friend.name} pinned!',
+                        ),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  } else if (value == 'invite') {
+                    print('Invite ${friend.name}');
+                    // TODO: Implement invite functionality
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Invitation sent to ${friend.name}!'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                itemBuilder: (BuildContext context) => [
+                  PopupMenuItem<String>(
+                    value: 'pin',
+                    child: Row(
+                      children: [
+                        Icon(
+                          isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                          size: 20,
+                          color: Colors.black87,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          isPinned ? 'Unpin' : 'Pin',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'invite',
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_add_outlined, size: 20, color: Colors.black87),
+                        SizedBox(width: 12),
+                        Text(
+                          'Invite',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               onTap: () {
                 // TODO: Open chat with this friend
