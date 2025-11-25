@@ -6,6 +6,7 @@ class DailyData {
   final String description;
   final String privacy;
   final List<String> keywords;
+  final List<String> managementTiers;
   final IconData icon;
   final int? iconColor; // Store color as int value (nullable for backward compatibility)
   final String? customIconPath; // For uploaded icons
@@ -19,6 +20,7 @@ class DailyData {
     required this.description,
     required this.privacy,
     required this.keywords,
+    this.managementTiers = const [],
     required this.icon,
     this.iconColor, // Optional parameter
     this.customIconPath,
@@ -34,6 +36,7 @@ class DailyData {
       'description': description,
       'privacy': privacy,
       'keywords': keywords,
+      'managementTiers': managementTiers,
       'iconCodePoint': icon.codePoint,
       'iconColor': iconColor,
       'customIconPath': customIconPath,
@@ -50,6 +53,9 @@ class DailyData {
       description: json['description'],
       privacy: json['privacy'],
       keywords: List<String>.from(json['keywords']),
+      managementTiers: json['managementTiers'] != null
+          ? List<String>.from(json['managementTiers'])
+          : [],
       icon: IconData(json['iconCodePoint'], fontFamily: 'MaterialIcons'),
       iconColor: json['iconColor'],
       customIconPath: json['customIconPath'],

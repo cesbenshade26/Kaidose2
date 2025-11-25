@@ -20,12 +20,20 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
     TextEditingController(),
     TextEditingController(),
   ];
+  List<TextEditingController> _tierControllers = [
+    TextEditingController(),
+    TextEditingController(),
+    TextEditingController(),
+  ];
 
   @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
     for (var controller in _keywordControllers) {
+      controller.dispose();
+    }
+    for (var controller in _tierControllers) {
       controller.dispose();
     }
     super.dispose();
@@ -37,8 +45,19 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
     });
   }
 
+  void _addTierField() {
+    setState(() {
+      _tierControllers.add(TextEditingController());
+    });
+  }
+
   void _goToNextScreen() {
     List<String> keywords = _keywordControllers
+        .map((controller) => controller.text.trim())
+        .where((text) => text.isNotEmpty)
+        .toList();
+
+    List<String> tiers = _tierControllers
         .map((controller) => controller.text.trim())
         .where((text) => text.isNotEmpty)
         .toList();
@@ -51,6 +70,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
           description: _descriptionController.text.trim(),
           privacy: _selectedPrivacy,
           keywords: keywords,
+          tiers: tiers,
         ),
       ),
     );
@@ -357,6 +377,81 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 24),
+
+                    // Management Tiers Section
+                    const Text(
+                      'Management Tiers',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: _tierControllers.length > 3 ? 200 : null,
+                      decoration: _tierControllers.length > 3
+                          ? BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(12),
+                      )
+                          : null,
+                      child: _tierControllers.length > 3
+                          ? Scrollbar(
+                        thumbVisibility: true,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(8),
+                          itemCount: _tierControllers.length,
+                          itemBuilder: (context, index) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _buildTierField(index),
+                            );
+                          },
+                        ),
+                      )
+                          : Column(
+                        children: List.generate(
+                          _tierControllers.length,
+                              (index) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _buildTierField(index),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _addTierField,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.add,
+                              size: 16,
+                              color: Colors.grey[700],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Add another',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -440,6 +535,45 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
       },
     );
   }
+
+  Widget _buildTierField(int index) {
+    return TextField(
+      controller: _tierControllers[index],
+      decoration: InputDecoration(
+        hintText: 'Tier ${index + 1}',
+        hintStyle: TextStyle(
+          color: Colors.grey[400],
+          fontSize: 14,
+        ),
+        filled: true,
+        fillColor: Colors.grey[100],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: Colors.cyan,
+            width: 2,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        isDense: true,
+      ),
+      style: const TextStyle(
+        fontSize: 14,
+        color: Colors.black87,
+      ),
+      maxLength: 30,
+      buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
+        return const SizedBox.shrink();
+      },
+    );
+  }
 }
 
 class NewDailyNextScreen extends StatefulWidget {
@@ -447,6 +581,7 @@ class NewDailyNextScreen extends StatefulWidget {
   final String description;
   final String privacy;
   final List<String> keywords;
+  final List<String> tiers;
 
   const NewDailyNextScreen({
     Key? key,
@@ -454,6 +589,7 @@ class NewDailyNextScreen extends StatefulWidget {
     required this.description,
     required this.privacy,
     required this.keywords,
+    required this.tiers,
   }) : super(key: key);
 
   @override
@@ -543,6 +679,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
             description: widget.description,
             privacy: widget.privacy,
             keywords: widget.keywords,
+            tiers: widget.tiers,
             selectedFriendIds: _selectedFriendIds.toList(),
           ),
         ),
@@ -764,6 +901,7 @@ class NewDailyFinalScreen extends StatefulWidget {
   final String description;
   final String privacy;
   final List<String> keywords;
+  final List<String> tiers;
   final List<String> selectedFriendIds;
 
   const NewDailyFinalScreen({
@@ -772,6 +910,7 @@ class NewDailyFinalScreen extends StatefulWidget {
     required this.description,
     required this.privacy,
     required this.keywords,
+    required this.tiers,
     required this.selectedFriendIds,
   }) : super(key: key);
 
@@ -833,6 +972,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
       description: widget.description,
       privacy: widget.privacy,
       keywords: widget.keywords,
+      managementTiers: widget.tiers,
       icon: _selectedIcon,
       iconColor: _selectedColor.value,
       customIconPath: _customIcon?.path,

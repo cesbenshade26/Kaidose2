@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'FriendsSearch.dart';
+import 'DailySearch.dart';
 
 // Search Screen
 class SearchScreen extends StatefulWidget {
@@ -12,6 +13,14 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   int _selectedTabIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() {}); // Rebuild when search text changes
+    });
+  }
 
   @override
   void dispose() {
@@ -28,10 +37,17 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             // Search bar at top
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
               color: Colors.grey[100],
               child: Row(
                 children: [
+                  // Back arrow
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                  ),
                   // Search icon
                   const Icon(
                     Icons.search,
@@ -45,7 +61,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       controller: _searchController,
                       autofocus: true,
                       decoration: const InputDecoration(
-                        hintText: 'Search people',
+                        hintText: 'Search',
                         hintStyle: TextStyle(
                           color: Colors.grey,
                           fontSize: 16,
@@ -59,20 +75,14 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                   ),
-                  // Cancel button
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
+                  // Clear button (shows when there's text)
+                  if (_searchController.text.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                      onPressed: () {
+                        _searchController.clear();
+                      },
                     ),
-                  ),
                 ],
               ),
             ),
@@ -118,7 +128,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           ),
                         ),
                       ),
-                      // Empty tab 1
+                      // Dailies tab
                       Expanded(
                         child: GestureDetector(
                           onTap: () {
@@ -129,7 +139,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             child: Text(
-                              'Tab 2',
+                              'Dailies',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 16,
@@ -207,19 +217,8 @@ class _SearchScreenState extends State<SearchScreen> {
       // Friends tab - show contacts from FriendsSearch
         return const FriendsSearchWidget();
       case 1:
-      // Empty tab 1
-        return Container(
-          color: Colors.white,
-          child: const Center(
-            child: Text(
-              'Tab 2 Content',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-        );
+      // Dailies tab - show DailySearch widget
+        return DailySearchWidget(searchQuery: _searchController.text);
       case 2:
       // Empty tab 2
         return Container(
