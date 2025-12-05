@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
+import 'InviteFriends.dart';
 
 class NewDailyScreen extends StatefulWidget {
   const NewDailyScreen({Key? key}) : super(key: key);
@@ -597,94 +598,28 @@ class NewDailyNextScreen extends StatefulWidget {
 }
 
 class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
-  List<dynamic> _friends = [];
-  bool _isLoading = true;
-  Set<String> _selectedFriendIds = {};
+  Set<String> _invitedFriendNames = {};
 
-  @override
-  void initState() {
-    super.initState();
-    _loadFriends();
-  }
-
-  Future<void> _loadFriends() async {
-    await Future.delayed(const Duration(milliseconds: 500));
+  void _handleInvitedFriendsChanged(Set<String> invitedNames) {
     setState(() {
-      _friends = [];
-      _isLoading = false;
+      _invitedFriendNames = invitedNames;
     });
-  }
-
-  void _toggleFriendSelection(String friendId) {
-    setState(() {
-      if (_selectedFriendIds.contains(friendId)) {
-        _selectedFriendIds.remove(friendId);
-      } else {
-        _selectedFriendIds.add(friendId);
-      }
-    });
-  }
-
-  bool _canProceed() {
-    if (_friends.length < 3) {
-      return true;
-    } else {
-      return _selectedFriendIds.length >= 2;
-    }
   }
 
   void _handleNext() {
-    if (!_canProceed()) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            'Selection Required',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: const Text(
-            'Please select at least 2 friends to invite to your daily.',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.black87,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'OK',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.cyan,
-                ),
-              ),
-            ),
-          ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => NewDailyFinalScreen(
+          title: widget.title,
+          description: widget.description,
+          privacy: widget.privacy,
+          keywords: widget.keywords,
+          tiers: widget.tiers,
+          selectedFriendIds: _invitedFriendNames.toList(),
         ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => NewDailyFinalScreen(
-            title: widget.title,
-            description: widget.description,
-            privacy: widget.privacy,
-            keywords: widget.keywords,
-            tiers: widget.tiers,
-            selectedFriendIds: _selectedFriendIds.toList(),
-          ),
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @override
@@ -700,160 +635,21 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
             Navigator.pop(context);
           },
         ),
+        title: const Text(
+          'Invite Friends',
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        centerTitle: true,
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Invite some Friends!',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black87,
-                  ),
-                ),
-                if (_friends.length >= 3) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Select at least 2 friends (${_selectedFriendIds.length} selected)',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
           Expanded(
-            child: _isLoading
-                ? const Center(
-              child: CircularProgressIndicator(
-                color: Colors.cyan,
-              ),
-            )
-                : _friends.isEmpty
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.people_outline,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No Friends Yet',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text(
-                      'Follow users to add them to your friends list',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-            )
-                : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: _friends.length,
-              itemBuilder: (context, index) {
-                final friendId = 'friend_$index';
-                final isSelected = _selectedFriendIds.contains(friendId);
-
-                return GestureDetector(
-                  onTap: () => _toggleFriendSelection(friendId),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isSelected ? Colors.cyan.withOpacity(0.1) : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected ? Colors.cyan : Colors.grey[300]!,
-                        width: isSelected ? 2 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: isSelected ? Colors.cyan : Colors.white,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: isSelected ? Colors.cyan : Colors.grey[400]!,
-                              width: 2,
-                            ),
-                          ),
-                          child: isSelected
-                              ? const Icon(
-                            Icons.check,
-                            color: Colors.white,
-                            size: 16,
-                          )
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.person,
-                            color: Colors.grey[600],
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Friend ${index + 1}',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Mutual friend',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+            child: InviteFriends(
+              onInvitedFriendsChanged: _handleInvitedFriendsChanged,
             ),
           ),
           Container(
