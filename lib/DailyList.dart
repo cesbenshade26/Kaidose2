@@ -36,11 +36,41 @@ class DailyList {
     _notifyListeners();
   }
 
+  // Update an existing daily
+  static Future<void> updateDaily(DailyData updatedDaily) async {
+    final index = _dailies.indexWhere((d) => d.id == updatedDaily.id);
+    if (index != -1) {
+      _dailies[index] = updatedDaily;
+      await _saveToStorage();
+      _notifyListeners();
+    }
+  }
+
   // Toggle pin status
   static Future<void> togglePin(String dailyId) async {
     final index = _dailies.indexWhere((d) => d.id == dailyId);
     if (index != -1) {
-      _dailies[index].isPinned = !_dailies[index].isPinned;
+      final daily = _dailies[index];
+
+      // Create a new DailyData with toggled isPinned
+      final updatedDaily = DailyData(
+        id: daily.id,
+        title: daily.title,
+        description: daily.description,
+        privacy: daily.privacy,
+        keywords: daily.keywords,
+        managementTiers: daily.managementTiers,
+        icon: daily.icon,
+        iconColor: daily.iconColor,
+        customIconPath: daily.customIconPath,
+        invitedFriendIds: daily.invitedFriendIds,
+        createdAt: daily.createdAt,
+        isPinned: !daily.isPinned,
+        tierAssignments: daily.tierAssignments,
+        tierPrivileges: daily.tierPrivileges,
+      );
+
+      _dailies[index] = updatedDaily;
 
       // Re-sort: pinned first, then unpinned (maintaining their relative order)
       final pinned = _dailies.where((d) => d.isPinned).toList();

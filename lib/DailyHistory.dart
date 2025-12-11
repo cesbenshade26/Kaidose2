@@ -136,7 +136,7 @@ class DailyHistory extends StatelessWidget {
 
           // Original Members
           Text(
-            'Original Members',
+            'Founders',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'DailyData.dart';
 import 'DailyBan.dart';
 import 'AssignMemberRole.dart';
+import 'DailyList.dart';
+import 'RolePrivileges.dart';
 
 class ManageMembers extends StatefulWidget {
   final DailyData daily;
@@ -19,9 +21,43 @@ class _ManageMembersState extends State<ManageMembers> {
   double _lastDragY = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _loadTierAssignments();
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadTierAssignments() async {
+    // Load tier assignments from DailyData
+    setState(() {
+      _tierAssignments = widget.daily.tierAssignments ?? {};
+    });
+  }
+
+  Future<void> _saveTierAssignments() async {
+    // Save tier assignments back to DailyData
+    final updatedDaily = DailyData(
+      id: widget.daily.id,
+      title: widget.daily.title,
+      description: widget.daily.description,
+      privacy: widget.daily.privacy,
+      keywords: widget.daily.keywords,
+      managementTiers: widget.daily.managementTiers,
+      icon: widget.daily.icon,
+      iconColor: widget.daily.iconColor,
+      customIconPath: widget.daily.customIconPath,
+      invitedFriendIds: widget.daily.invitedFriendIds,
+      createdAt: widget.daily.createdAt,
+      isPinned: widget.daily.isPinned,
+      tierAssignments: _tierAssignments,
+    );
+
+    await DailyList.updateDaily(updatedDaily);
   }
 
   void _handleDragUpdate(double globalY) {
@@ -69,6 +105,9 @@ class _ManageMembersState extends State<ManageMembers> {
       _tierAssignments[tierIndex]!.add(memberName);
 
       _isDragging = false;
+
+      // Save to storage
+      _saveTierAssignments();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -518,6 +557,53 @@ class _ManageMembersState extends State<ManageMembers> {
                                   color: Colors.cyan[700],
                                   size: 24,
                                 ),
+                                const SizedBox(width: 8),
+                                PopupMenuButton<String>(
+                                  icon: Icon(
+                                    Icons.more_vert,
+                                    color: Colors.grey[600],
+                                    size: 24,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  onSelected: (value) {
+                                    if (value == 'edit_privileges') {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => RolePrivilegesScreen(
+                                            tierName: entry.value,
+                                            tierIndex: entry.key,
+                                            daily: widget.daily,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  itemBuilder: (BuildContext context) => [
+                                    const PopupMenuItem<String>(
+                                      value: 'edit_privileges',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.edit_outlined,
+                                            size: 20,
+                                            color: Colors.black87,
+                                          ),
+                                          SizedBox(width: 12),
+                                          Text(
+                                            'Edit Privileges',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),
@@ -594,6 +680,7 @@ class _ManageMembersState extends State<ManageMembers> {
                                                   setState(() {
                                                     _tierAssignments[entry.key]!.remove(memberName);
                                                   });
+                                                  _saveTierAssignments();
                                                 },
                                                 child: const Icon(
                                                   Icons.close,

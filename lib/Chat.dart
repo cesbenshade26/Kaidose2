@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'LinkedFriends.dart';
+import 'AddToDaily.dart';
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -322,6 +323,13 @@ class _ChatWidgetState extends State<ChatWidget> {
                         duration: const Duration(seconds: 2),
                       ),
                     );
+                  } else if (value == 'add_to_daily') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AddToDailyScreen(friendName: friend.name),
+                      ),
+                    );
                   }
                 },
                 itemBuilder: (BuildContext context) => [
@@ -338,6 +346,22 @@ class _ChatWidgetState extends State<ChatWidget> {
                         Text(
                           isPinned ? 'Unpin' : 'Pin',
                           style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'add_to_daily',
+                    child: Row(
+                      children: [
+                        Icon(Icons.add_circle_outline, size: 20, color: Colors.black87),
+                        SizedBox(width: 12),
+                        Text(
+                          'Add to Daily',
+                          style: TextStyle(
                             fontSize: 16,
                             color: Colors.black87,
                           ),
