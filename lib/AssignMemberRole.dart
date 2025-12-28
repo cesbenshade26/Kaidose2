@@ -21,6 +21,7 @@ class WiggleMemberCard extends StatefulWidget {
   final Widget child;
   final VoidCallback? onDragStarted;
   final VoidCallback? onDragEnd;
+  final Color? accentColor;
 
   const WiggleMemberCard({
     Key? key,
@@ -28,6 +29,7 @@ class WiggleMemberCard extends StatefulWidget {
     required this.child,
     this.onDragStarted,
     this.onDragEnd,
+    this.accentColor,
   }) : super(key: key);
 
   @override
@@ -112,6 +114,7 @@ class WiggleTierDropZone extends StatefulWidget {
   final int tierIndex;
   final Widget child;
   final Function(String memberName, int tierIndex) onMemberDropped;
+  final Color? accentColor;
 
   const WiggleTierDropZone({
     Key? key,
@@ -119,6 +122,7 @@ class WiggleTierDropZone extends StatefulWidget {
     required this.tierIndex,
     required this.child,
     required this.onMemberDropped,
+    this.accentColor,
   }) : super(key: key);
 
   @override
@@ -202,12 +206,12 @@ class _WiggleTierDropZoneState extends State<WiggleTierDropZone>
                 duration: const Duration(milliseconds: 200),
                 decoration: BoxDecoration(
                   color: _isHovering
-                      ? Colors.cyan.withOpacity(0.1)
+                      ? (widget.accentColor ?? Colors.cyan).withOpacity(0.1)
                       : Colors.grey[50],
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: _isHovering
-                        ? Colors.cyan
+                        ? (widget.accentColor ?? Colors.cyan)
                         : Colors.grey[300]!,
                     width: _isHovering ? 2 : 1,
                   ),
@@ -225,10 +229,12 @@ class _WiggleTierDropZoneState extends State<WiggleTierDropZone>
 // Exit Button for Assign Mode
 class ExitAssignModeButton extends StatelessWidget {
   final VoidCallback onExit;
+  final Color? accentColor;
 
   const ExitAssignModeButton({
     Key? key,
     required this.onExit,
+    this.accentColor,
   }) : super(key: key);
 
   @override
@@ -249,7 +255,7 @@ class ExitAssignModeButton extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.cyan,
+              color: accentColor ?? Colors.cyan,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
@@ -280,7 +286,9 @@ class ExitAssignModeButton extends StatelessWidget {
 
 // Banner showing assign mode is active
 class AssignModeBanner extends StatelessWidget {
-  const AssignModeBanner({Key? key}) : super(key: key);
+  final Color? accentColor;
+
+  const AssignModeBanner({Key? key, this.accentColor}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -292,19 +300,19 @@ class AssignModeBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.cyan.withOpacity(0.1),
+        color: (accentColor ?? Colors.cyan).withOpacity(0.1),
         border: Border(
           bottom: BorderSide(
-            color: Colors.cyan,
+            color: accentColor ?? Colors.cyan,
             width: 2,
           ),
         ),
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.info_outline,
-            color: Colors.cyan,
+            color: accentColor ?? Colors.cyan,
             size: 20,
           ),
           const SizedBox(width: 12),
@@ -314,7 +322,7 @@ class AssignModeBanner extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.cyan[900],
+                color: (accentColor ?? Colors.cyan).withOpacity(0.9),
               ),
             ),
           ),

@@ -64,6 +64,7 @@ class DailyList {
         iconColor: daily.iconColor,
         customIconPath: daily.customIconPath,
         invitedFriendIds: daily.invitedFriendIds,
+        foundingMemberIds: daily.foundingMemberIds,
         createdAt: daily.createdAt,
         isPinned: !daily.isPinned,
         tierAssignments: daily.tierAssignments,

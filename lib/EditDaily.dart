@@ -21,6 +21,8 @@ class _EditDailyState extends State<EditDaily> {
   late String _selectedPrivacy;
   late List<TextEditingController> _keywordControllers;
 
+  Color get _dailyColor => Color(widget.daily.iconColor ?? 0xFF00BCD4);
+
   @override
   void initState() {
     super.initState();
@@ -72,22 +74,24 @@ class _EditDailyState extends State<EditDaily> {
       iconColor: widget.daily.iconColor,
       customIconPath: widget.daily.customIconPath,
       invitedFriendIds: widget.daily.invitedFriendIds,
+      foundingMemberIds: widget.daily.foundingMemberIds,
       createdAt: widget.daily.createdAt,
       isPinned: widget.daily.isPinned,
+      tierAssignments: widget.daily.tierAssignments,
+      tierPrivileges: widget.daily.tierPrivileges,
     );
 
-    // Delete old and add updated
-    await DailyList.deleteDaily(widget.daily.id);
-    await DailyList.addDaily(updatedDaily);
+    // Update the daily
+    await DailyList.updateDaily(updatedDaily);
 
     widget.onSave(updatedDaily);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Changes saved successfully!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: const Text('Changes saved successfully!'),
+          backgroundColor: _dailyColor,
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -129,8 +133,8 @@ class _EditDailyState extends State<EditDaily> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Colors.cyan,
+                      borderSide: BorderSide(
+                        color: _dailyColor,
                         width: 2,
                       ),
                     ),
@@ -170,7 +174,7 @@ class _EditDailyState extends State<EditDaily> {
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: _selectedPrivacy == 'Public' ? Colors.cyan : Colors.transparent,
+                        color: _selectedPrivacy == 'Public' ? _dailyColor : Colors.transparent,
                         width: 2,
                       ),
                     ),
@@ -180,7 +184,7 @@ class _EditDailyState extends State<EditDaily> {
                           _selectedPrivacy == 'Public'
                               ? Icons.check_box
                               : Icons.check_box_outline_blank,
-                          color: _selectedPrivacy == 'Public' ? Colors.cyan : Colors.grey[400],
+                          color: _selectedPrivacy == 'Public' ? _dailyColor : Colors.grey[400],
                           size: 24,
                         ),
                         const SizedBox(width: 12),
@@ -209,7 +213,7 @@ class _EditDailyState extends State<EditDaily> {
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: _selectedPrivacy == 'Private' ? Colors.cyan : Colors.transparent,
+                        color: _selectedPrivacy == 'Private' ? _dailyColor : Colors.transparent,
                         width: 2,
                       ),
                     ),
@@ -219,7 +223,7 @@ class _EditDailyState extends State<EditDaily> {
                           _selectedPrivacy == 'Private'
                               ? Icons.check_box
                               : Icons.check_box_outline_blank,
-                          color: _selectedPrivacy == 'Private' ? Colors.cyan : Colors.grey[400],
+                          color: _selectedPrivacy == 'Private' ? _dailyColor : Colors.grey[400],
                           size: 24,
                         ),
                         const SizedBox(width: 12),
@@ -333,7 +337,7 @@ class _EditDailyState extends State<EditDaily> {
           child: ElevatedButton(
             onPressed: _saveChanges,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.cyan,
+              backgroundColor: _dailyColor,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
@@ -371,8 +375,8 @@ class _EditDailyState extends State<EditDaily> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: Colors.cyan,
+          borderSide: BorderSide(
+            color: _dailyColor,
             width: 2,
           ),
         ),

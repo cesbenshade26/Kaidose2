@@ -9,13 +9,16 @@ class ChatWidget extends StatefulWidget {
   State<ChatWidget> createState() => _ChatWidgetState();
 }
 
-class _ChatWidgetState extends State<ChatWidget> {
+class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMixin {
   List<LinkedFriend> _linkedFriends = [];
   List<LinkedFriend> _filteredFriends = [];
   Set<String> _pinnedFriends = {}; // Track pinned friends by name
   VoidCallback? _linkedFriendsListener;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -116,6 +119,7 @@ class _ChatWidgetState extends State<ChatWidget> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // IMPORTANT: Call super.build for AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -314,15 +318,6 @@ class _ChatWidgetState extends State<ChatWidget> {
                         duration: const Duration(seconds: 2),
                       ),
                     );
-                  } else if (value == 'invite') {
-                    print('Invite ${friend.name}');
-                    // TODO: Implement invite functionality
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Invitation sent to ${friend.name}!'),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
                   } else if (value == 'add_to_daily') {
                     Navigator.push(
                       context,
@@ -361,22 +356,6 @@ class _ChatWidgetState extends State<ChatWidget> {
                         SizedBox(width: 12),
                         Text(
                           'Add to Daily',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem<String>(
-                    value: 'invite',
-                    child: Row(
-                      children: [
-                        Icon(Icons.person_add_outlined, size: 20, color: Colors.black87),
-                        SizedBox(width: 12),
-                        Text(
-                          'Invite',
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.black87,

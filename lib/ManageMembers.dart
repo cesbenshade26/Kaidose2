@@ -20,6 +20,9 @@ class _ManageMembersState extends State<ManageMembers> {
   bool _isDragging = false;
   double _lastDragY = 0;
 
+  // Get the daily's theme color
+  Color get _dailyColor => Color(widget.daily.iconColor ?? 0xFF00BCD4);
+
   @override
   void initState() {
     super.initState();
@@ -52,9 +55,11 @@ class _ManageMembersState extends State<ManageMembers> {
       iconColor: widget.daily.iconColor,
       customIconPath: widget.daily.customIconPath,
       invitedFriendIds: widget.daily.invitedFriendIds,
+      foundingMemberIds: widget.daily.foundingMemberIds,
       createdAt: widget.daily.createdAt,
       isPinned: widget.daily.isPinned,
       tierAssignments: _tierAssignments,
+      tierPrivileges: widget.daily.tierPrivileges,
     );
 
     await DailyList.updateDaily(updatedDaily);
@@ -113,7 +118,7 @@ class _ManageMembersState extends State<ManageMembers> {
         SnackBar(
           content: Text('$memberName assigned to ${widget.daily.managementTiers[tierIndex]}'),
           duration: const Duration(seconds: 2),
-          backgroundColor: Colors.green,
+          backgroundColor: _dailyColor,
         ),
       );
     });
@@ -148,7 +153,7 @@ class _ManageMembersState extends State<ManageMembers> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Assign mode banner
-                const AssignModeBanner(),
+                AssignModeBanner(accentColor: _dailyColor),
                 if (AssignMemberRole.isAssignMode) const SizedBox(height: 16),
 
                 // Invited Friends Section
@@ -156,7 +161,7 @@ class _ManageMembersState extends State<ManageMembers> {
                   children: [
                     Icon(
                       Icons.people,
-                      color: Colors.cyan,
+                      color: _dailyColor,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
@@ -223,6 +228,7 @@ class _ManageMembersState extends State<ManageMembers> {
                   children: widget.daily.invitedFriendIds.map((friendName) {
                     return WiggleMemberCard(
                       memberName: friendName,
+                      accentColor: _dailyColor,
                       onDragStarted: () {
                         setState(() {
                           _isDragging = true;
@@ -430,7 +436,7 @@ class _ManageMembersState extends State<ManageMembers> {
                   children: [
                     Icon(
                       Icons.admin_panel_settings,
-                      color: Colors.cyan,
+                      color: _dailyColor,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
@@ -507,11 +513,11 @@ class _ManageMembersState extends State<ManageMembers> {
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: Colors.cyan,
+                                    color: _dailyColor,
                                     shape: BoxShape.circle,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.cyan.withOpacity(0.3),
+                                        color: _dailyColor.withOpacity(0.3),
                                         spreadRadius: 1,
                                         blurRadius: 4,
                                       ),
@@ -554,7 +560,7 @@ class _ManageMembersState extends State<ManageMembers> {
                                 ),
                                 Icon(
                                   Icons.admin_panel_settings,
-                                  color: Colors.cyan[700],
+                                  color: _dailyColor,
                                   size: 24,
                                 ),
                                 const SizedBox(width: 8),
@@ -612,6 +618,7 @@ class _ManageMembersState extends State<ManageMembers> {
                           WiggleTierDropZone(
                             tierName: entry.value,
                             tierIndex: entry.key,
+                            accentColor: _dailyColor,
                             onMemberDropped: _handleMemberDropped,
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -657,10 +664,10 @@ class _ManageMembersState extends State<ManageMembers> {
                                             vertical: 6,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: Colors.cyan.withOpacity(0.1),
+                                            color: _dailyColor.withOpacity(0.1),
                                             borderRadius: BorderRadius.circular(16),
                                             border: Border.all(
-                                              color: Colors.cyan,
+                                              color: _dailyColor,
                                             ),
                                           ),
                                           child: Row(
@@ -682,10 +689,10 @@ class _ManageMembersState extends State<ManageMembers> {
                                                   });
                                                   _saveTierAssignments();
                                                 },
-                                                child: const Icon(
+                                                child: Icon(
                                                   Icons.close,
                                                   size: 14,
-                                                  color: Colors.cyan,
+                                                  color: _dailyColor,
                                                 ),
                                               ),
                                             ],
@@ -709,6 +716,7 @@ class _ManageMembersState extends State<ManageMembers> {
           // Exit assign mode button
           ExitAssignModeButton(
             onExit: _exitAssignMode,
+            accentColor: _dailyColor,
           ),
         ],
       ),

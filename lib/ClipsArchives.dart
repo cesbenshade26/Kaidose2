@@ -563,3 +563,200 @@ class _ClipsArchiveViewerScreenState extends State<ClipsArchiveViewerScreen> {
     );
   }
 }
+
+// Embedded Clips Archives View - For Profile Tab
+class ClipsArchivesView extends StatefulWidget {
+  const ClipsArchivesView({Key? key}) : super(key: key);
+
+  @override
+  State<ClipsArchivesView> createState() => _ClipsArchivesViewState();
+}
+
+class _ClipsArchivesViewState extends State<ClipsArchivesView> {
+  List<String> _availableDates = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailableDates();
+  }
+
+  Future<void> _loadAvailableDates() async {
+    print('Loading available clip dates...');
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final dailyClipsDir = Directory('${directory.path}/daily_clips');
+
+      if (await dailyClipsDir.exists()) {
+        final List<FileSystemEntity> entities = await dailyClipsDir.list().toList();
+
+        List<String> dates = [];
+        for (var entity in entities) {
+          if (entity is Directory) {
+            // Extract date from directory name (YYYY-MM-DD format)
+            final dirName = entity.path.split('/').last;
+            if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dirName)) {
+              dates.add(dirName);
+            }
+          }
+        }
+
+        // Sort dates in descending order (newest first)
+        dates.sort((a, b) => b.compareTo(a));
+
+        setState(() {
+          _availableDates = dates;
+          _isLoading = false;
+        });
+
+        print('Found ${dates.length} dates with clips');
+      } else {
+        setState(() {
+          _isLoading = false;
+        });
+        print('No daily clips directory found');
+      }
+    } catch (e) {
+      print('Error loading available dates: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _openDateArchive(String date) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ClipsArchiveViewerScreen(date: date),
+      ),
+    );
+  }
+
+  String _formatDateForDisplay(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      final months = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+
+      return '${months[date.month - 1]} ${date.day}, ${date.year}';
+    } catch (e) {
+      return dateString;
+    }
+  }
+
+  String _getDayOfWeek(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      return days[date.weekday - 1];
+    } catch (e) {
+      return '';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          color: Colors.purple,
+        ),
+      );
+    }
+
+    if (_availableDates.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.videocam_outlined,
+              size: 80,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Clips Yet',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Start posting clips to see them here!',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _availableDates.length,
+      itemBuilder: (context, index) {
+        final date = _availableDates[index];
+        final displayDate = _formatDateForDisplay(date);
+        final dayOfWeek = _getDayOfWeek(date);
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 8,
+              ),
+              leading: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: const Icon(
+                  Icons.videocam,
+                  color: Colors.purple,
+                  size: 24,
+                ),
+              ),
+              title: Text(
+                displayDate,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                dayOfWeek,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+              ),
+              onTap: () => _openDateArchive(date),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

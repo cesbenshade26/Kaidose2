@@ -6,6 +6,8 @@ class DailyHistory extends StatelessWidget {
 
   const DailyHistory({Key? key, required this.daily}) : super(key: key);
 
+  Color get _dailyColor => Color(daily.iconColor ?? 0xFF00BCD4);
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -36,12 +38,12 @@ class DailyHistory extends StatelessWidget {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: Colors.cyan.withOpacity(0.2),
+                    color: _dailyColor.withOpacity(0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.person,
-                    color: Colors.cyan[700],
+                    color: _dailyColor,
                     size: 28,
                   ),
                 ),
@@ -96,12 +98,12 @@ class DailyHistory extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.cyan.withOpacity(0.1),
+                    color: _dailyColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     Icons.calendar_today,
-                    color: Colors.cyan[700],
+                    color: _dailyColor,
                     size: 24,
                   ),
                 ),
@@ -134,7 +136,7 @@ class DailyHistory extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // Original Members
+          // Founding Members
           Text(
             'Founders',
             style: TextStyle(
@@ -144,7 +146,7 @@ class DailyHistory extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          daily.invitedFriendIds.isEmpty
+          daily.foundingMemberIds.isEmpty
               ? Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -162,7 +164,7 @@ class DailyHistory extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'No members were invited',
+                    'No founding members',
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.grey[500],
@@ -173,7 +175,7 @@ class DailyHistory extends StatelessWidget {
             ),
           )
               : Column(
-            children: daily.invitedFriendIds.map((friendId) {
+            children: daily.foundingMemberIds.map((friendId) {
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(12),
@@ -190,10 +192,39 @@ class DailyHistory extends StatelessWidget {
                         color: Colors.grey[300],
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
-                        Icons.person,
-                        color: Colors.grey[600],
-                        size: 24,
+                      child: ClipOval(
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Head circle
+                            Positioned(
+                              top: 11,
+                              child: Container(
+                                width: 14,
+                                height: 14,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ),
+                            // Body/shoulders
+                            Positioned(
+                              bottom: -5,
+                              child: Container(
+                                width: 40,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[600],
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(20),
+                                    topRight: Radius.circular(20),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -202,7 +233,7 @@ class DailyHistory extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Friend ${friendId.split('_').last}',
+                            friendId,
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -211,7 +242,7 @@ class DailyHistory extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Original Member',
+                            'Founding Member',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey[600],
@@ -226,15 +257,15 @@ class DailyHistory extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.1),
+                        color: _dailyColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.cyan),
+                        border: Border.all(color: _dailyColor),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Founding',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.cyan,
+                          color: _dailyColor,
                           fontWeight: FontWeight.w600,
                         ),
                       ),

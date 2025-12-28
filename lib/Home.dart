@@ -5,6 +5,7 @@ import 'Dailies.dart'; // Import the Dailies.dart file
 import 'Add.dart'; // Import the Add.dart file
 import 'Clips.dart';
 import 'Chat.dart';
+import 'HomeSwipe.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool fadeInFromAnimation; // New parameter to control fade-in
@@ -22,6 +23,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late int _selectedIndex;
+  int _previousIndex = 0;
 
   late AnimationController _contentFadeController;
   late Animation<double> _contentFadeAnimation;
@@ -31,6 +33,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   late AnimationController _staggerController;
   late List<Animation<double>> _staggeredAnimations;
+
+  // Pre-build all pages to maintain state
+  late final List<Widget> _pages;
 
   @override
   void initState() {
@@ -43,6 +48,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Always start on Dailies (index 0) when coming from animation, otherwise Profile (index 4)
       _selectedIndex = widget.fadeInFromAnimation ? 0 : 4;
     }
+
+    _previousIndex = _selectedIndex;
+
+    // Initialize all pages once - they will maintain their state
+    _pages = [
+      DailiesWidget(
+        key: const PageStorageKey('dailies'),
+        onNavigateToTab: (idx) {
+          _onItemTapped(idx);
+        },
+      ),
+      const ChatWidget(key: PageStorageKey('chat')),
+      const ClipsWidget(key: PageStorageKey('clips')),
+      const AddWidget(key: PageStorageKey('add')),
+      const ProfilePage(key: PageStorageKey('profile')),
+    ];
 
     // Initialize content fade controller
     _contentFadeController = AnimationController(
@@ -112,9 +133,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (index != _selectedIndex) {
+      setState(() {
+        _previousIndex = _selectedIndex;
+        _selectedIndex = index;
+      });
+    }
   }
 
   @override
@@ -134,7 +158,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         builder: (context, child) {
           return FadeTransition(
             opacity: _contentFadeAnimation,
-            child: _getSelectedPage(),
+            child: HomeSwipeDetector(
+              currentIndex: _selectedIndex,
+              totalPages: 5,
+              edgeThreshold: 80.0, // 80px from edge to start swipe
+              pages: _pages, // Pass the actual pages list
+              onPageChanged: (newIndex) {
+                _onItemTapped(newIndex);
+              },
+            ),
           );
         },
       ),
@@ -170,31 +202,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       ),
     );
-  }
-
-  Widget _getSelectedPage() {
-    switch (_selectedIndex) {
-      case 0:
-        return DailiesWidget(
-          onNavigateToTab: (index) {
-            _onItemTapped(index);
-          },
-        );
-      case 1:
-        return const ChatWidget();
-      case 2:
-        return const ClipsWidget();
-      case 3:
-        return const AddWidget();
-      case 4:
-        return const ProfilePage();
-      default:
-        return DailiesWidget(
-          onNavigateToTab: (index) {
-            _onItemTapped(index);
-          },
-        );
-    }
   }
 
   Widget _buildNavItem(int index, IconData icon, String label, Animation<double> animation) {

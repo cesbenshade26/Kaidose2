@@ -20,6 +20,8 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
   int _selectedTabIndex = 0;
   late DailyData _currentDaily;
 
+  Color get _dailyColor => Color(_currentDaily.iconColor ?? 0xFF00BCD4);
+
   @override
   void initState() {
     super.initState();
@@ -84,7 +86,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                       width: 100,
                       height: 100,
                       decoration: BoxDecoration(
-                        color: Color(_currentDaily.iconColor ?? 0xFF00BCD4).withOpacity(0.1),
+                        color: _dailyColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: _currentDaily.customIconPath != null && File(_currentDaily.customIconPath!).existsSync()
@@ -97,7 +99,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                       )
                           : Icon(
                         _currentDaily.icon,
-                        color: Color(_currentDaily.iconColor ?? 0xFF00BCD4),
+                        color: _dailyColor,
                         size: 50,
                       ),
                     ),
@@ -109,7 +111,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.cyan,
+                            color: _dailyColor,
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
@@ -269,7 +271,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                     ),
                   ],
                 ),
-                // Animated sliding indicator
+                // Animated sliding indicator - uses daily color
                 Container(
                   height: 2,
                   child: Stack(
@@ -286,7 +288,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                         width: MediaQuery.of(context).size.width / 3,
                         child: Container(
                           height: 2,
-                          color: Colors.black,
+                          color: _dailyColor,
                         ),
                       ),
                     ],
@@ -416,21 +418,23 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
       iconColor: _selectedColor.value,
       customIconPath: _customIcon?.path,
       invitedFriendIds: widget.daily.invitedFriendIds,
+      foundingMemberIds: widget.daily.foundingMemberIds,
       createdAt: widget.daily.createdAt,
       isPinned: widget.daily.isPinned,
+      tierAssignments: widget.daily.tierAssignments,
+      tierPrivileges: widget.daily.tierPrivileges,
     );
 
-    await DailyList.deleteDaily(widget.daily.id);
-    await DailyList.addDaily(updatedDaily);
+    await DailyList.updateDaily(updatedDaily);
 
     if (mounted) {
       Navigator.of(context).pop();
       widget.onSave(updatedDaily);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Icon and title updated!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: const Text('Icon and title updated!'),
+          backgroundColor: _selectedColor,
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -447,11 +451,11 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
+            // Header - uses selected color
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.cyan,
+                color: _selectedColor,
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(20),
                   topRight: Radius.circular(20),
@@ -510,8 +514,8 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Colors.cyan,
+                          borderSide: BorderSide(
+                            color: _selectedColor,
                             width: 2,
                           ),
                         ),
@@ -639,10 +643,10 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: _customIcon != null ? Colors.cyan.withOpacity(0.1) : Colors.grey[100],
+                          color: _customIcon != null ? _selectedColor.withOpacity(0.1) : Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _customIcon != null ? Colors.cyan : Colors.grey[300]!,
+                            color: _customIcon != null ? _selectedColor : Colors.grey[300]!,
                             width: _customIcon != null ? 2 : 1,
                           ),
                         ),
@@ -682,14 +686,14 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
               ),
             ),
 
-            // Save button
+            // Save button - uses selected color
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               child: ElevatedButton(
                 onPressed: _saveChanges,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.cyan,
+                  backgroundColor: _selectedColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(

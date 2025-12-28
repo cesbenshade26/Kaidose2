@@ -10,6 +10,8 @@ import 'ProfilePic.dart';
 import 'BackgroundPic.dart';
 import 'SettingBar.dart';
 import 'Bio.dart';
+import 'UserActivity.dart';
+import 'ClipsArchives.dart';
 
 class ProfileWidget extends StatefulWidget {
   const ProfileWidget({Key? key}) : super(key: key);
@@ -260,174 +262,212 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     }
   }
 
+  Widget _buildTabContent() {
+    switch (_selectedTabIndex) {
+      case 0:
+        return const UserActivityWidget();
+      case 1:
+        return const ClipsArchivesView();
+      case 2:
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.person_outline,
+                size: 80,
+                color: Colors.grey[400],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Coming Soon',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ],
+          ),
+        );
+      default:
+        return const SizedBox();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
 
-    return Center(
-      child: Column(
-        children: [
-          const SizedBox(height: 40),
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
-              ).then((_) {
-                setState(() {
-                  _profilePic = ProfilePicManager.globalProfilePic;
-                });
-              });
-            },
-            child: Container(
-              width: 160,
-              height: 160,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.grey[300],
-                border: Border.all(color: Colors.grey[400]!, width: 3),
-              ),
-              child: ClipOval(
-                child: _profilePic != null && _profilePic!.existsSync()
-                    ? Image.file(
-                  _profilePic!,
-                  fit: BoxFit.cover,
-                  width: 160,
-                  height: 160,
-                  key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-                  errorBuilder: (context, error, stackTrace) {
-                    return const DefaultProfilePic(size: 160, borderWidth: 0);
-                  },
-                )
-                    : const DefaultProfilePic(size: 160, borderWidth: 0),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Column(
-                  children: [
-                    Text(
-                      '$_followersCount',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Followers',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
-                    ),
-                  ],
-                ),
-                if (_username != null && _username!.isNotEmpty)
-                  Text(
-                    _username!,
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
-                    textAlign: TextAlign.center,
-                  ),
-                Column(
-                  children: [
-                    Text(
-                      '$_followingCount',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Following',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const BioScreen()),
-              );
-              await BioManager.loadBioFromStorage();
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
+            ).then((_) {
               setState(() {
-                _loadBioData();
+                _profilePic = ProfilePicManager.globalProfilePic;
               });
-            },
-            child: _buildBioText(screenWidth),
+            });
+          },
+          child: Container(
+            width: 160,
+            height: 160,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.grey[300],
+              border: Border.all(color: Colors.grey[400]!, width: 3),
+            ),
+            child: ClipOval(
+              child: _profilePic != null && _profilePic!.existsSync()
+                  ? Image.file(
+                _profilePic!,
+                fit: BoxFit.cover,
+                width: 160,
+                height: 160,
+                key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
+                errorBuilder: (context, error, stackTrace) {
+                  return const DefaultProfilePic(size: 160, borderWidth: 0);
+                },
+              )
+                  : const DefaultProfilePic(size: 160, borderWidth: 0),
+            ),
           ),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            child: Column(
-              children: [
-                Row(
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Column(
+                children: [
+                  Text(
+                    '$_followersCount',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Followers',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                ],
+              ),
+              if (_username != null && _username!.isNotEmpty)
+                Text(
+                  _username!,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+                  textAlign: TextAlign.center,
+                ),
+              Column(
+                children: [
+                  Text(
+                    '$_followingCount',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Following',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const BioScreen()),
+            );
+            await BioManager.loadBioFromStorage();
+            setState(() {
+              _loadBioData();
+            });
+          },
+          child: _buildBioText(screenWidth),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedTabIndex = 0;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Icon(
+                          Icons.insert_chart_outlined,
+                          size: 24,
+                          color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedTabIndex = 1;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Icon(Icons.videocam_outlined, size: 24, color: _selectedTabIndex == 1 ? Colors.black : Colors.grey),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedTabIndex = 2;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Icon(Icons.person_outline, size: 24, color: _selectedTabIndex == 2 ? Colors.black : Colors.grey),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                height: 2,
+                child: Stack(
                   children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 0;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Icon(Icons.grid_on, size: 24, color: _selectedTabIndex == 0 ? Colors.black : Colors.grey),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 1;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Icon(Icons.videocam_outlined, size: 24, color: _selectedTabIndex == 1 ? Colors.black : Colors.grey),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 2;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Icon(Icons.person_outline, size: 24, color: _selectedTabIndex == 2 ? Colors.black : Colors.grey),
-                        ),
-                      ),
+                    Container(width: double.infinity, height: 2, color: Colors.transparent),
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                      left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
+                      width: MediaQuery.of(context).size.width / 3,
+                      child: Container(height: 2, color: Colors.black),
                     ),
                   ],
                 ),
-                Container(
-                  height: 2,
-                  child: Stack(
-                    children: [
-                      Container(width: double.infinity, height: 2, color: Colors.transparent),
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
-                        width: MediaQuery.of(context).size.width / 3,
-                        child: Container(height: 2, color: Colors.black),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: 32),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: _buildTabContent(),
+        ),
+      ],
     );
   }
 }
@@ -556,14 +596,7 @@ class _ProfilePageState extends State<ProfilePage> {
             bottom: 0,
             child: Container(color: Colors.white),
           ),
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                const ProfileWidget(),
-                const SizedBox(height: 32),
-              ],
-            ),
-          ),
+          const ProfileWidget(),
           Positioned(
             top: 50,
             right: 16,
@@ -592,6 +625,65 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class DefaultProfilePic extends StatelessWidget {
+  final double size;
+  final double borderWidth;
+
+  const DefaultProfilePic({
+    Key? key,
+    this.size = 160,
+    this.borderWidth = 3,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.grey[300],
+        border: Border.all(
+          color: Colors.grey[400]!,
+          width: borderWidth,
+        ),
+      ),
+      child: ClipOval(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned(
+              top: size * 0.1875,
+              child: Container(
+                width: size * 0.3125,
+                height: size * 0.3125,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -size * 0.125,
+              child: Container(
+                width: size * 0.875,
+                height: size * 0.5,
+                decoration: BoxDecoration(
+                  color: Colors.grey[600],
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(size * 0.4375),
+                    topRight: Radius.circular(size * 0.4375),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

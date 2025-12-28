@@ -17,7 +17,7 @@ class DailiesWidget extends StatefulWidget {
   State<DailiesWidget> createState() => _DailiesWidgetState();
 }
 
-class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserver, TickerProviderStateMixin {
+class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserver, TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   List<File> _todaysPhotos = [];
   int _currentPhotoIndex = 0;
   bool _isLoading = true;
@@ -35,6 +35,9 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   VoidCallback? _trackerListener;
   VoidCallback? _profilePicListener;
   VoidCallback? _dailyListListener;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -816,6 +819,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // IMPORTANT: Call super.build for AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(

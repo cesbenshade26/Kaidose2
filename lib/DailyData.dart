@@ -11,6 +11,7 @@ class DailyData {
   final int? iconColor;
   final String? customIconPath;
   final List<String> invitedFriendIds;
+  final List<String> foundingMemberIds; // Members who were invited at creation
   final DateTime createdAt;
   final bool isPinned;
   final Map<int, List<String>>? tierAssignments;
@@ -27,11 +28,12 @@ class DailyData {
     this.iconColor,
     this.customIconPath,
     required this.invitedFriendIds,
+    List<String>? foundingMemberIds,
     required this.createdAt,
     this.isPinned = false,
     this.tierAssignments,
     this.tierPrivileges,
-  });
+  }) : foundingMemberIds = foundingMemberIds ?? List<String>.from(invitedFriendIds);
 
   Map<String, dynamic> toJson() {
     // Convert tierPrivileges for JSON
@@ -53,6 +55,7 @@ class DailyData {
       'iconColor': iconColor,
       'customIconPath': customIconPath,
       'invitedFriendIds': invitedFriendIds,
+      'foundingMemberIds': foundingMemberIds,
       'createdAt': createdAt.toIso8601String(),
       'isPinned': isPinned,
       'tierAssignments': tierAssignments?.map((key, value) => MapEntry(key.toString(), value)),
@@ -120,6 +123,9 @@ class DailyData {
       iconColor: json['iconColor'],
       customIconPath: json['customIconPath'],
       invitedFriendIds: List<String>.from(json['invitedFriendIds']),
+      foundingMemberIds: json['foundingMemberIds'] != null
+          ? List<String>.from(json['foundingMemberIds'])
+          : List<String>.from(json['invitedFriendIds']), // Fallback for old data
       createdAt: DateTime.parse(json['createdAt']),
       isPinned: json['isPinned'] ?? false,
       tierAssignments: tierAssignments,
