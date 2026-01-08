@@ -11,11 +11,12 @@ class DailyData {
   final int? iconColor;
   final String? customIconPath;
   final List<String> invitedFriendIds;
-  final List<String> foundingMemberIds; // Members who were invited at creation
+  final List<String> foundingMemberIds;
   final DateTime createdAt;
   final bool isPinned;
   final Map<int, List<String>>? tierAssignments;
-  final Map<int, Map<String, bool>>? tierPrivileges; // tier index -> privilege name -> enabled
+  final Map<int, Map<String, bool>>? tierPrivileges;
+  final String dailyEntryPrompt; // NEW FIELD
 
   DailyData({
     required this.id,
@@ -33,10 +34,10 @@ class DailyData {
     this.isPinned = false,
     this.tierAssignments,
     this.tierPrivileges,
+    this.dailyEntryPrompt = '', // NEW FIELD WITH DEFAULT
   }) : foundingMemberIds = foundingMemberIds ?? List<String>.from(invitedFriendIds);
 
   Map<String, dynamic> toJson() {
-    // Convert tierPrivileges for JSON
     Map<String, dynamic>? tierPrivilegesJson;
     if (tierPrivileges != null) {
       tierPrivilegesJson = tierPrivileges!.map(
@@ -60,11 +61,11 @@ class DailyData {
       'isPinned': isPinned,
       'tierAssignments': tierAssignments?.map((key, value) => MapEntry(key.toString(), value)),
       'tierPrivileges': tierPrivilegesJson,
+      'dailyEntryPrompt': dailyEntryPrompt, // NEW FIELD
     };
   }
 
   factory DailyData.fromJson(Map<String, dynamic> json) {
-    // Parse tier assignments - handle various cases safely
     Map<int, List<String>>? tierAssignments;
     try {
       if (json['tierAssignments'] != null) {
@@ -87,7 +88,6 @@ class DailyData {
       tierAssignments = null;
     }
 
-    // Parse tier privileges
     Map<int, Map<String, bool>>? tierPrivileges;
     try {
       if (json['tierPrivileges'] != null) {
@@ -125,11 +125,12 @@ class DailyData {
       invitedFriendIds: List<String>.from(json['invitedFriendIds']),
       foundingMemberIds: json['foundingMemberIds'] != null
           ? List<String>.from(json['foundingMemberIds'])
-          : List<String>.from(json['invitedFriendIds']), // Fallback for old data
+          : List<String>.from(json['invitedFriendIds']),
       createdAt: DateTime.parse(json['createdAt']),
       isPinned: json['isPinned'] ?? false,
       tierAssignments: tierAssignments,
       tierPrivileges: tierPrivileges,
+      dailyEntryPrompt: json['dailyEntryPrompt'] ?? '', // NEW FIELD WITH DEFAULT
     );
   }
 }

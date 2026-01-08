@@ -6,6 +6,8 @@ import 'ProfilePicManager.dart';
 import 'DailyList.dart';
 import 'DailyData.dart';
 import 'ManageDaily.dart';
+import 'UponOpeningDaily.dart';
+import 'InsideDaily.dart';
 import 'dart:io';
 
 class DailiesWidget extends StatefulWidget {
@@ -240,8 +242,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   }
 
   bool _isUserCreatedDaily(DailyData daily) {
-    // TODO: Replace with actual user ID check
-    // For now, assume all dailies are created by the user
     return true;
   }
 
@@ -288,25 +288,44 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   Widget _buildDailyCard(DailyData daily) {
     bool isUserCreated = _isUserCreatedDaily(daily);
+    bool hasBeenViewed = DailyList.hasBeenViewedToday(daily.id);
+    final dailyColor = Color(daily.iconColor ?? 0xFF00BCD4);
 
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DailyDetailScreen(daily: daily),
-          ),
-        );
+      onTap: () async {
+        bool wasUnviewed = !hasBeenViewed;
+
+        await DailyList.markAsViewed(daily.id);
+
+        if (wasUnviewed && daily.dailyEntryPrompt.isNotEmpty) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => UponOpeningDaily(
+                daily: daily,
+              ),
+            ),
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => InsideDaily(daily: daily),
+            ),
+          );
+        }
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: !hasBeenViewed ? dailyColor.withOpacity(0.08) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: daily.isPinned ? Colors.cyan : Colors.grey[300]!,
-            width: daily.isPinned ? 2 : 1,
+            color: !hasBeenViewed
+                ? dailyColor
+                : (daily.isPinned ? dailyColor : Colors.grey[300]!),
+            width: !hasBeenViewed ? 2 : (daily.isPinned ? 2 : 1),
           ),
           boxShadow: [
             BoxShadow(
@@ -472,7 +491,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                   ),
                 ];
 
-                // Only add Manage option if user created this daily
                 if (isUserCreated) {
                   menuItems.add(
                     const PopupMenuItem<String>(
@@ -819,7 +837,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // IMPORTANT: Call super.build for AutomaticKeepAliveClientMixin
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
@@ -1026,126 +1044,6 @@ class DefaultProfilePic extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class DailyDetailScreen extends StatefulWidget {
-  final DailyData daily;
-
-  const DailyDetailScreen({Key? key, required this.daily}) : super(key: key);
-
-  @override
-  State<DailyDetailScreen> createState() => _DailyDetailScreenState();
-}
-
-class _DailyDetailScreenState extends State<DailyDetailScreen> {
-  final TextEditingController _messageController = TextEditingController();
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-        title: Text(
-          widget.daily.title,
-          style: const TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Container(
-              color: Colors.white,
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.2),
-                  spreadRadius: 1,
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: TextField(
-                        controller: _messageController,
-                        decoration: InputDecoration(
-                          hintText: 'Type a message...',
-                          hintStyle: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 16,
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
-                          ),
-                        ),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.black87,
-                        ),
-                        maxLines: null,
-                        textCapitalization: TextCapitalization.sentences,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.cyan,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.send,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                      onPressed: () {
-                        print('Send message: ${_messageController.text}');
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

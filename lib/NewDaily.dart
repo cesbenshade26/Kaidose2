@@ -15,6 +15,7 @@ class NewDailyScreen extends StatefulWidget {
 class _NewDailyScreenState extends State<NewDailyScreen> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _promptController = TextEditingController(); // NEW CONTROLLER
   String _selectedPrivacy = 'Public';
   List<TextEditingController> _keywordControllers = [
     TextEditingController(),
@@ -31,6 +32,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
+    _promptController.dispose(); // DISPOSE NEW CONTROLLER
     for (var controller in _keywordControllers) {
       controller.dispose();
     }
@@ -72,6 +74,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
           privacy: _selectedPrivacy,
           keywords: keywords,
           tiers: tiers,
+          dailyEntryPrompt: _promptController.text.trim(), // PASS PROMPT
         ),
       ),
     );
@@ -160,6 +163,83 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                       },
                     ),
                     const SizedBox(height: 24),
+
+                    // NEW DAILY ENTRY PROMPT SECTION
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Daily Entry Prompt:',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.grey[400]!,
+                              width: 2,
+                            ),
+                          ),
+                          child: Center(
+                            child: Icon(
+                              Icons.info_outline,
+                              size: 16,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _promptController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter a prompt for daily entries...',
+                        hintStyle: TextStyle(
+                          color: Colors.grey[400],
+                          fontSize: 16,
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Colors.cyan,
+                            width: 2,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                      ),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                      maxLength: 100,
+                      buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
+                        return Text(
+                          '$currentLength/$maxLength',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
                     const Text(
                       'Privacy',
                       style: TextStyle(
@@ -583,6 +663,7 @@ class NewDailyNextScreen extends StatefulWidget {
   final String privacy;
   final List<String> keywords;
   final List<String> tiers;
+  final String dailyEntryPrompt; // NEW PARAMETER
 
   const NewDailyNextScreen({
     Key? key,
@@ -591,6 +672,7 @@ class NewDailyNextScreen extends StatefulWidget {
     required this.privacy,
     required this.keywords,
     required this.tiers,
+    required this.dailyEntryPrompt, // NEW PARAMETER
   }) : super(key: key);
 
   @override
@@ -617,6 +699,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
           keywords: widget.keywords,
           tiers: widget.tiers,
           selectedFriendIds: _invitedFriendNames.toList(),
+          dailyEntryPrompt: widget.dailyEntryPrompt, // PASS PROMPT
         ),
       ),
     );
@@ -699,6 +782,7 @@ class NewDailyFinalScreen extends StatefulWidget {
   final List<String> keywords;
   final List<String> tiers;
   final List<String> selectedFriendIds;
+  final String dailyEntryPrompt; // NEW PARAMETER
 
   const NewDailyFinalScreen({
     Key? key,
@@ -708,6 +792,7 @@ class NewDailyFinalScreen extends StatefulWidget {
     required this.keywords,
     required this.tiers,
     required this.selectedFriendIds,
+    required this.dailyEntryPrompt, // NEW PARAMETER
   }) : super(key: key);
 
   @override
@@ -774,6 +859,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
       customIconPath: _customIcon?.path,
       invitedFriendIds: widget.selectedFriendIds,
       createdAt: DateTime.now(),
+      dailyEntryPrompt: widget.dailyEntryPrompt, // SAVE PROMPT
     );
 
     await DailyList.addDaily(daily);

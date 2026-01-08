@@ -50,10 +50,6 @@ class _UserActivityWidgetState extends State<UserActivityWidget> {
               ),
               items: const [
                 DropdownMenuItem(
-                  value: 'Clips',
-                  child: Text('Clips'),
-                ),
-                DropdownMenuItem(
                   value: 'Daily Posts',
                   child: Text('Daily Posts'),
                 ),
@@ -256,18 +252,6 @@ class _YourDailyArchivesViewState extends State<YourDailyArchivesView> {
     }
   }
 
-  void _openPhotoViewer(String date, int initialIndex) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DailyArchiveViewerScreen(
-          date: date,
-          initialPhotoIndex: initialIndex,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -312,7 +296,7 @@ class _YourDailyArchivesViewState extends State<YourDailyArchivesView> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.only(top: 50, left: 16, right: 16, bottom: 16),
+      padding: const EdgeInsets.only(top: 50, bottom: 16),
       itemCount: _sortedDates.length,
       itemBuilder: (context, dateIndex) {
         final date = _sortedDates[dateIndex];
@@ -325,7 +309,7 @@ class _YourDailyArchivesViewState extends State<YourDailyArchivesView> {
           children: [
             // Date header
             Padding(
-              padding: const EdgeInsets.only(top: 16, bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
                   Container(
@@ -381,61 +365,176 @@ class _YourDailyArchivesViewState extends State<YourDailyArchivesView> {
               ),
             ),
 
-            // Photos grid for this date
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 4,
-                mainAxisSpacing: 4,
+            // Full-screen horizontal swipeable photos
+            SizedBox(
+              height: 400,
+              child: DailyPhotoCarousel(
+                photos: photos,
+                date: date,
               ),
-              itemCount: photos.length,
-              itemBuilder: (context, photoIndex) {
-                return GestureDetector(
-                  onTap: () => _openPhotoViewer(date, photoIndex),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.grey[300]!,
-                        width: 1,
-                      ),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(7),
-                      child: Image.file(
-                        photos[photoIndex],
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey[200],
-                            child: Icon(
-                              Icons.error_outline,
-                              color: Colors.grey[400],
-                              size: 32,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                );
-              },
             ),
 
             // Divider between dates
             if (dateIndex < _sortedDates.length - 1)
               Padding(
-                padding: const EdgeInsets.only(top: 16),
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Divider(
                   color: Colors.grey[300],
                   thickness: 1,
+                  height: 1,
                 ),
               ),
           ],
         );
       },
+    );
+  }
+}
+
+// Horizontal photo carousel for each date
+class DailyPhotoCarousel extends StatefulWidget {
+  final List<File> photos;
+  final String date;
+
+  const DailyPhotoCarousel({
+    Key? key,
+    required this.photos,
+    required this.date,
+  }) : super(key: key);
+
+  @override
+  State<DailyPhotoCarousel> createState() => _DailyPhotoCarouselState();
+}
+
+class _DailyPhotoCarouselState extends State<DailyPhotoCarousel> {
+  late PageController _pageController;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _pageController.addListener(() {
+      final page = _pageController.page?.round() ?? 0;
+      if (page != _currentPage) {
+        setState(() {
+          _currentPage = page;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        PageView.builder(
+          controller: _pageController,
+          itemCount: widget.photos.length,
+          itemBuilder: (context, index) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.grey[300]!,
+                  width: 2,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(
+                  widget.photos[index],
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[200],
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              color: Colors.grey[400],
+                              size: 48,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Error loading photo',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+
+        // Photo indicator dots
+        if (widget.photos.length > 1)
+          Positioned(
+            bottom: 12,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(widget.photos.length, (index) {
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: _currentPage == index ? 10 : 6,
+                  height: _currentPage == index ? 10 : 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _currentPage == index
+                        ? Colors.cyan
+                        : Colors.white.withOpacity(0.6),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        spreadRadius: 1,
+                        blurRadius: 2,
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ),
+          ),
+
+        // Photo counter
+        Positioned(
+          top: 12,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              '${_currentPage + 1}/${widget.photos.length}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

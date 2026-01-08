@@ -6,6 +6,8 @@ import 'DailyData.dart';
 class DailyList {
   static final List<DailyData> _dailies = [];
   static final List<VoidCallback> _listeners = [];
+  static final Set<String> _viewedTodayIds = {};
+  static String _lastViewedDate = '';
 
   static List<DailyData> get dailies => List.unmodifiable(_dailies);
 
@@ -29,14 +31,62 @@ class DailyList {
     }
   }
 
-  // Add a new daily
+  static bool hasBeenViewedToday(String dailyId) {
+    _checkAndResetViewedIfNewDay();
+    return _viewedTodayIds.contains(dailyId);
+  }
+
+  static Future<void> markAsViewed(String dailyId) async {
+    _checkAndResetViewedIfNewDay();
+    _viewedTodayIds.add(dailyId);
+    await _saveViewedToStorage();
+    _notifyListeners();
+  }
+
+  static void _checkAndResetViewedIfNewDay() {
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    if (_lastViewedDate != today) {
+      _viewedTodayIds.clear();
+      _lastViewedDate = today;
+    }
+  }
+
+  static Future<void> _saveViewedToStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('viewed_dailies_today', _viewedTodayIds.toList());
+      await prefs.setString('last_viewed_date', _lastViewedDate);
+    } catch (e) {
+      print('Error saving viewed dailies: $e');
+    }
+  }
+
+  static Future<void> _loadViewedFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedDate = prefs.getString('last_viewed_date') ?? '';
+      final today = DateTime.now().toIso8601String().split('T')[0];
+
+      if (savedDate == today) {
+        final viewedList = prefs.getStringList('viewed_dailies_today') ?? [];
+        _viewedTodayIds.clear();
+        _viewedTodayIds.addAll(viewedList);
+        _lastViewedDate = savedDate;
+      } else {
+        _viewedTodayIds.clear();
+        _lastViewedDate = today;
+      }
+    } catch (e) {
+      print('Error loading viewed dailies: $e');
+    }
+  }
+
   static Future<void> addDaily(DailyData daily) async {
-    _dailies.insert(0, daily); // Add to beginning of list
+    _dailies.insert(0, daily);
     await _saveToStorage();
     _notifyListeners();
   }
 
-  // Update an existing daily
   static Future<void> updateDaily(DailyData updatedDaily) async {
     final index = _dailies.indexWhere((d) => d.id == updatedDaily.id);
     if (index != -1) {
@@ -46,13 +96,11 @@ class DailyList {
     }
   }
 
-  // Toggle pin status
   static Future<void> togglePin(String dailyId) async {
     final index = _dailies.indexWhere((d) => d.id == dailyId);
     if (index != -1) {
       final daily = _dailies[index];
 
-      // Create a new DailyData with toggled isPinned
       final updatedDaily = DailyData(
         id: daily.id,
         title: daily.title,
@@ -69,11 +117,11 @@ class DailyList {
         isPinned: !daily.isPinned,
         tierAssignments: daily.tierAssignments,
         tierPrivileges: daily.tierPrivileges,
+        dailyEntryPrompt: daily.dailyEntryPrompt,
       );
 
       _dailies[index] = updatedDaily;
 
-      // Re-sort: pinned first, then unpinned (maintaining their relative order)
       final pinned = _dailies.where((d) => d.isPinned).toList();
       final unpinned = _dailies.where((d) => !d.isPinned).toList();
       _dailies.clear();
@@ -84,14 +132,12 @@ class DailyList {
     }
   }
 
-  // Delete a daily
   static Future<void> deleteDaily(String dailyId) async {
     _dailies.removeWhere((d) => d.id == dailyId);
     await _saveToStorage();
     _notifyListeners();
   }
 
-  // Save to storage
   static Future<void> _saveToStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -103,7 +149,6 @@ class DailyList {
     }
   }
 
-  // Load from storage
   static Future<void> loadFromStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -118,13 +163,14 @@ class DailyList {
         print('No saved dailies found');
       }
 
+      await _loadViewedFromStorage();
+
       _notifyListeners();
     } catch (e) {
       print('Error loading dailies: $e');
     }
   }
 
-  // Clear all dailies (for testing)
   static Future<void> clearAll() async {
     _dailies.clear();
     await _saveToStorage();
