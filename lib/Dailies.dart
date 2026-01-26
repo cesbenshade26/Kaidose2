@@ -8,6 +8,7 @@ import 'DailyData.dart';
 import 'ManageDaily.dart';
 import 'UponOpeningDaily.dart';
 import 'InsideDaily.dart';
+import 'SkipCount.dart';
 import 'dart:io';
 
 class DailiesWidget extends StatefulWidget {
@@ -118,6 +119,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkForNewDay();
+      SkipCount.checkAndResetIfNewWeek();
     }
   }
 
@@ -132,6 +134,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     await DailyPhotoManager.loadDailyPhotoFromStorage();
     await ProfilePicManager.loadProfilePicFromStorage();
     await DailyList.loadFromStorage();
+    await SkipCount.loadFromStorage();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;

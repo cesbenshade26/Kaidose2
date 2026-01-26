@@ -17,6 +17,7 @@ class UponOpeningDaily extends StatefulWidget {
 
 class _UponOpeningDailyState extends State<UponOpeningDaily> {
   final TextEditingController _entryController = TextEditingController();
+  final GlobalKey<InsideDailyState> _insideDailyKey = GlobalKey<InsideDailyState>();
   bool _showOverlay = true;
 
   @override
@@ -26,9 +27,17 @@ class _UponOpeningDailyState extends State<UponOpeningDaily> {
   }
 
   void _handleSend() {
-    setState(() {
-      _showOverlay = false;
-    });
+    final message = _entryController.text.trim();
+    if (message.isNotEmpty) {
+      setState(() {
+        _showOverlay = false;
+      });
+
+      // Add message directly to InsideDaily after overlay closes
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _insideDailyKey.currentState?.addPromptMessage(message);
+      });
+    }
   }
 
   void _handleBack() {
@@ -39,7 +48,10 @@ class _UponOpeningDailyState extends State<UponOpeningDaily> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        InsideDaily(daily: widget.daily),
+        InsideDaily(
+          key: _insideDailyKey,
+          daily: widget.daily,
+        ),
         if (_showOverlay)
           DailyPromptOverlay(
             dailyTitle: widget.daily.title,
