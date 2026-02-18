@@ -1,7 +1,12 @@
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import 'SkipCount.dart';
 import 'DailyList.dart';
+import 'CamRoll.dart';
+import 'DrawPad.dart';
 
 class DailyPromptOverlay extends StatefulWidget {
   final String dailyTitle;
@@ -9,6 +14,11 @@ class DailyPromptOverlay extends StatefulWidget {
   final VoidCallback onSend;
   final VoidCallback onBack;
   final TextEditingController entryController;
+  final XFile? selectedImage;
+  final XFile? selectedVideo;
+  final VideoPlayerController? videoController;
+  final VoidCallback? onMediaRemove;
+  final Function(XFile?, XFile?, VideoPlayerController?)? onMediaAttach;
 
   const DailyPromptOverlay({
     Key? key,
@@ -17,6 +27,11 @@ class DailyPromptOverlay extends StatefulWidget {
     required this.onSend,
     required this.onBack,
     required this.entryController,
+    this.selectedImage,
+    this.selectedVideo,
+    this.videoController,
+    this.onMediaRemove,
+    this.onMediaAttach,
   }) : super(key: key);
 
   @override
@@ -30,6 +45,7 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
   late Animation<double> _blurAnimation;
   int _remainingSkips = 0;
   int _totalSkips = 0;
+  bool _showAttachMenu = false;
 
   @override
   void initState() {
@@ -37,12 +53,77 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
     _loadSkipInfo();
   }
 
-  void _loadSkipInfo() {
+  void _loadSkipInfo() async {
+    // Check for weekly reset first
+    await SkipCount.checkAndResetIfNewWeek();
+
     int numDailies = DailyList.dailies.length;
     setState(() {
       _totalSkips = SkipCount.calculateTotalSkips(numDailies);
       _remainingSkips = SkipCount.getRemainingSkips(numDailies);
     });
+  }
+
+  void _toggleAttachMenu() {
+    setState(() {
+      _showAttachMenu = !_showAttachMenu;
+    });
+  }
+
+  Future<void> _openCameraRoll() async {
+    final XFile? image = await CamRoll.openCameraRoll(context);
+    if (image != null && widget.onMediaAttach != null) {
+      widget.onMediaAttach!(image, null, null);
+      _toggleAttachMenu();
+    }
+  }
+
+  Future<void> _selectVideo() async {
+    final ImagePicker picker = ImagePicker();
+    try {
+      final XFile? video = await picker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(minutes: 5),
+      );
+
+      if (video != null && widget.onMediaAttach != null) {
+        final videoFile = File(video.path);
+        final controller = VideoPlayerController.file(videoFile);
+
+        try {
+          await controller.initialize();
+          controller.setLooping(true);
+          controller.play();
+          widget.onMediaAttach!(null, video, controller);
+        } catch (e) {
+          print('Error initializing video: $e');
+          controller.dispose();
+        }
+        _toggleAttachMenu();
+      }
+    } catch (e) {
+      print('Error selecting video: $e');
+    }
+  }
+
+  Future<void> _openDrawPad() async {
+    final File? drawingFile = await Navigator.push<File>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DrawingScreen(
+          onDrawingComplete: (file) {
+            Navigator.pop(context, file);
+          },
+        ),
+      ),
+    );
+
+    if (drawingFile != null && widget.onMediaAttach != null) {
+      // Convert File to XFile
+      final xFile = XFile(drawingFile.path);
+      widget.onMediaAttach!(xFile, null, null);
+    }
+    _toggleAttachMenu();
   }
 
   @override
@@ -51,10 +132,10 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
   }
 
   Future<void> _handleSend() async {
-    if (widget.entryController.text.trim().isEmpty) {
+    if (widget.entryController.text.trim().isEmpty && widget.selectedImage == null && widget.selectedVideo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Add some text!'),
+          content: const Text('Add text or attach media!'),
           backgroundColor: Colors.orange,
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
@@ -92,6 +173,34 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
 
   Future<void> _handleBack() async {
     widget.onBack();
+  }
+
+  Widget _buildAttachOption(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.cyan.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: Colors.cyan, size: 28),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[700],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSkipIndicator() {
@@ -212,53 +321,197 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 20),
-                        TextField(
-                          controller: widget.entryController,
-                          decoration: InputDecoration(
-                            hintText: 'Type your entry here...',
-                            hintStyle: TextStyle(
-                              color: Colors.grey[400],
-                              fontSize: 16,
+
+                        // Media preview
+                        if (widget.selectedImage != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            height: 200,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.cyan, width: 2),
                             ),
-                            filled: true,
-                            fillColor: Colors.grey[100],
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(
-                                color: Colors.cyan,
-                                width: 2,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 16,
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Image.file(
+                                    File(widget.selectedImage!.path),
+                                    width: double.infinity,
+                                    height: 200,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: GestureDetector(
+                                    onTap: widget.onMediaRemove,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.6),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.close,
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.black87,
+
+                        if (widget.selectedVideo != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            height: 200,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.cyan, width: 2),
+                            ),
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: widget.videoController != null && widget.videoController!.value.isInitialized
+                                      ? SizedBox(
+                                    width: double.infinity,
+                                    height: 200,
+                                    child: FittedBox(
+                                      fit: BoxFit.cover,
+                                      child: SizedBox(
+                                        width: widget.videoController!.value.size.width,
+                                        height: widget.videoController!.value.size.height,
+                                        child: VideoPlayer(widget.videoController!),
+                                      ),
+                                    ),
+                                  )
+                                      : Container(
+                                    color: Colors.grey[200],
+                                    child: const Center(
+                                      child: CircularProgressIndicator(color: Colors.cyan),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: GestureDetector(
+                                    onTap: widget.onMediaRemove,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.6),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.close,
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          maxLines: 8,
-                          minLines: 8,
-                          maxLength: 500,
-                          autofocus: true,
-                          buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                '$currentLength/$maxLength',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
+
+                        Row(
+                          children: [
+                            // Attach button
+                            GestureDetector(
+                              onTap: _toggleAttachMenu,
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.cyan.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.cyan, width: 1.5),
+                                ),
+                                child: const Icon(
+                                  Icons.attach_file,
+                                  color: Colors.cyan,
+                                  size: 24,
                                 ),
                               ),
-                            );
-                          },
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: widget.entryController,
+                                decoration: InputDecoration(
+                                  hintText: 'Type your entry here...',
+                                  hintStyle: TextStyle(
+                                    color: Colors.grey[400],
+                                    fontSize: 16,
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.grey[100],
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: const BorderSide(
+                                      color: Colors.cyan,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 16,
+                                  ),
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 8,
+                                minLines: 8,
+                                maxLength: 500,
+                                autofocus: true,
+                                buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      '$currentLength/$maxLength',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         ),
+
+                        // Attach menu
+                        if (_showAttachMenu)
+                          Container(
+                            margin: const EdgeInsets.only(top: 12),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _buildAttachOption(Icons.photo_library, 'Photo', _openCameraRoll),
+                                _buildAttachOption(Icons.videocam, 'Video', _selectVideo),
+                                _buildAttachOption(Icons.edit, 'Draw', _openDrawPad),
+                              ],
+                            ),
+                          ),
+
                         const SizedBox(height: 20),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,

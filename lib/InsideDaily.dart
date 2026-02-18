@@ -4,8 +4,12 @@ import 'CamRoll.dart';
 import 'SendDailyMessage.dart';
 import 'DrawPad.dart';
 import 'MessageStorage.dart';
+import 'DailySaved.dart';
+import 'DailyComments.dart';
+import 'DailyLikes.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'package:video_player/video_player.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
@@ -25,10 +29,14 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   DateTime? _selectedDate; // null means "any time"
   bool _showOptionsMenu = false;
   bool _showAttachMenu = false;
+  bool _filterOnlyPromptMessages = false;
   XFile? _selectedImage;
+  XFile? _selectedVideo;
+  VideoPlayerController? _videoController;
   List<DailyMessage> _messages = [];
   late AnimationController _optionsAnimationController;
   late Animation<double> _optionsAnimation;
+  Function()? _messageStorageListener;
 
   // Edit mode variables
   bool _isEditingMessage = false;
@@ -50,6 +58,12 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
     // Load saved messages
     _loadMessages();
+
+    // Listen for new messages from other sources (like AddDailyMessage)
+    _messageStorageListener = () {
+      if (mounted) _loadMessages();
+    };
+    MessageStorage.addListener(_messageStorageListener!);
   }
 
   Future<void> _loadMessages() async {
@@ -79,6 +93,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
     final promptMessage = DailyMessage(
       text: messageText,
       timestamp: DateTime.now(),
+      dailyId: widget.daily.id,
+      isFromPrompt: true, // Mark as from prompt
     );
 
     setState(() {
@@ -99,13 +115,46 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       }
     });
 
-    print('Prompt message added: $messageText');
+  }
+
+  // Method to add prompt message with media from daily entry overlay
+  void addPromptMessageWithMedia(String messageText, String? imagePath, String? videoPath) {
+    final promptMessage = DailyMessage(
+      text: messageText.trim().isNotEmpty ? messageText : null,
+      imagePath: imagePath,
+      videoPath: videoPath,
+      timestamp: DateTime.now(),
+      dailyId: widget.daily.id,
+      isFromPrompt: true, // Mark as from prompt
+    );
+
+    setState(() {
+      _messages.add(promptMessage);
+    });
+
+    // Save messages
+    _saveMessages();
+
+    // Scroll to bottom after adding message
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
     _messageController.dispose();
     _optionsAnimationController.dispose();
+    _videoController?.dispose();
+    if (_messageStorageListener != null) {
+      MessageStorage.removeListener(_messageStorageListener!);
+    }
     super.dispose();
   }
 
@@ -201,6 +250,51 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
     }
   }
 
+  Future<void> _selectVideo() async {
+    final ImagePicker picker = ImagePicker();
+    try {
+      final XFile? video = await picker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(minutes: 5),
+      );
+
+      if (video != null) {
+        // Dispose old video controller if exists
+        await _videoController?.dispose();
+        _videoController = null;
+
+        final videoFile = File(video.path);
+        _videoController = VideoPlayerController.file(videoFile);
+
+        try {
+          await _videoController!.initialize();
+          if (mounted) {
+            _videoController!.setLooping(true);
+            _videoController!.play();
+          }
+        } catch (e) {
+          print('Error initializing video: $e');
+        }
+
+        setState(() {
+          _selectedVideo = video;
+          _selectedImage = null; // Clear image if video selected
+          _showAttachMenu = false;
+        });
+      }
+    } catch (e) {
+      print('Error selecting video: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error selecting video: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _openDrawPad() async {
     final File? drawingFile = await Navigator.push<File>(
       context,
@@ -293,6 +387,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         timestamp: oldMessage.timestamp, // Keep original timestamp
         userId: oldMessage.userId,
         messageId: oldMessage.messageId,
+        dailyId: oldMessage.dailyId,
         isLiked: oldMessage.isLiked,
         isSaved: oldMessage.isSaved,
       );
@@ -333,11 +428,11 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
     final text = _messageController.text.trim();
 
-    // Don't allow empty messages (no text and no image)
-    if (text.isEmpty && _selectedImage == null) {
+    // Don't allow empty messages (no text, no image, and no video)
+    if (text.isEmpty && _selectedImage == null && _selectedVideo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter a message or attach an image'),
+          content: Text('Please enter a message or attach media'),
           duration: Duration(seconds: 2),
           backgroundColor: Colors.red,
         ),
@@ -349,7 +444,9 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
     final message = DailyMessage(
       text: text.isNotEmpty ? text : null,
       imagePath: _selectedImage?.path,
+      videoPath: _selectedVideo?.path,
       timestamp: DateTime.now(),
+      dailyId: widget.daily.id,
     );
 
     // Add message to local list
@@ -357,7 +454,12 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       _messages.add(message);
       _messageController.clear();
       _selectedImage = null;
+      _selectedVideo = null;
     });
+
+    // Dispose video controller
+    await _videoController?.dispose();
+    _videoController = null;
 
     // Save messages
     _saveMessages();
@@ -401,23 +503,29 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   }
 
   List<DailyMessage> _getFilteredMessages() {
-    if (_selectedDate == null) {
-      // Show all messages
-      return _messages;
+    List<DailyMessage> filtered = _messages;
+
+    // Filter by date if selected
+    if (_selectedDate != null) {
+      filtered = filtered.where((message) {
+        final messageDate = message.timestamp;
+        return messageDate.year == _selectedDate!.year &&
+            messageDate.month == _selectedDate!.month &&
+            messageDate.day == _selectedDate!.day;
+      }).toList();
     }
 
-    // Filter messages by selected date
-    return _messages.where((message) {
-      final messageDate = message.timestamp;
-      return messageDate.year == _selectedDate!.year &&
-          messageDate.month == _selectedDate!.month &&
-          messageDate.day == _selectedDate!.day;
-    }).toList();
+    // Filter by prompt messages only if enabled
+    if (_filterOnlyPromptMessages) {
+      filtered = filtered.where((message) => message.isFromPrompt).toList();
+    }
+
+    return filtered;
   }
 
   Widget _buildOptionsMenu() {
     return Positioned(
-      bottom: _selectedImage != null ? 377 : 165, // 165 + 212 (image height + margins)
+      bottom: _selectedImage != null || _selectedVideo != null ? 407 : 195, // Proper gap above FAB (195 = 135 + 48 + 12)
       right: 16,
       child: FadeTransition(
         opacity: _optionsAnimation,
@@ -427,7 +535,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
             end: Offset.zero,
           ).animate(_optionsAnimation),
           child: Container(
-            width: 160,
+            width: 210,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
@@ -448,6 +556,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                 _buildOptionItem(Icons.favorite_outline, 'Liked'),
                 Divider(height: 1, color: Colors.grey[300]),
                 _buildOptionItem(Icons.comment_outlined, 'Comments'),
+                Divider(height: 1, color: Colors.grey[300]),
+                _buildFilterOptionItem(),
               ],
             ),
           ),
@@ -459,9 +569,32 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   Widget _buildOptionItem(IconData icon, String label) {
     return InkWell(
       onTap: () {
-        // TODO: Implement functionality
-        print('$label tapped');
         _toggleOptionsMenu();
+
+        if (label == 'Saved') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DailySavedScreen(daily: widget.daily),
+            ),
+          );
+        } else if (label == 'Liked') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DailyLikesScreen(daily: widget.daily),
+            ),
+          );
+        } else if (label == 'Comments') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DailyCommentsScreen(daily: widget.daily),
+            ),
+          );
+        } else {
+          print('$label tapped');
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -476,6 +609,46 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                 fontWeight: FontWeight.w500,
                 color: Colors.black87,
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterOptionItem() {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _filterOnlyPromptMessages = !_filterOnlyPromptMessages;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(Icons.filter_list, size: 20, color: Colors.black87),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Entry Messages Only',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
+            Checkbox(
+              value: _filterOnlyPromptMessages,
+              onChanged: (val) {
+                setState(() {
+                  _filterOnlyPromptMessages = val ?? false;
+                });
+              },
+              activeColor: Colors.cyan,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
             ),
           ],
         ),
@@ -504,6 +677,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildAttachMenuItem(Icons.photo_library, 'Camera Roll', _openCameraRoll),
+            Container(width: 1, height: 40, color: Colors.grey[300]),
+            _buildAttachMenuItem(Icons.videocam, 'Video', _selectVideo),
             Container(width: 1, height: 40, color: Colors.grey[300]),
             _buildAttachMenuItem(Icons.camera_alt, 'Camera', null),
             Container(width: 1, height: 40, color: Colors.grey[300]),
@@ -602,6 +777,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                   messages: _getFilteredMessages(),
                   scrollController: _scrollController,
                   onEdit: _startEditingMessage,
+                  onMessageUpdate: _saveMessages,
                 ),
               ),
               Container(
@@ -645,6 +821,67 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                                 right: 8,
                                 child: GestureDetector(
                                   onTap: _removeImage,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.6),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.close,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      // Video preview
+                      if (_selectedVideo != null)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          height: 200,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[300]!, width: 2),
+                          ),
+                          child: Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: _videoController != null && _videoController!.value.isInitialized
+                                    ? SizedBox(
+                                  width: double.infinity,
+                                  height: 200,
+                                  child: FittedBox(
+                                    fit: BoxFit.cover,
+                                    child: SizedBox(
+                                      width: _videoController!.value.size.width,
+                                      height: _videoController!.value.size.height,
+                                      child: VideoPlayer(_videoController!),
+                                    ),
+                                  ),
+                                )
+                                    : Container(
+                                  color: Colors.grey[200],
+                                  child: const Center(
+                                    child: CircularProgressIndicator(color: Colors.cyan),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedVideo = null;
+                                    });
+                                    _videoController?.dispose();
+                                    _videoController = null;
+                                  },
                                   child: Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
@@ -779,7 +1016,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
           if (_showOptionsMenu) _buildOptionsMenu(),
           if (_showAttachMenu) _buildAttachMenu(),
           Positioned(
-            bottom: _selectedImage != null ? 327 : 115, // 115 + 212 (image height + margins)
+            bottom: _selectedImage != null || _selectedVideo != null ? 347 : 135, // Increased from 115 to add gap
             right: 16,
             child: GestureDetector(
               onTap: _toggleOptionsMenu,

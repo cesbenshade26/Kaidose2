@@ -11,7 +11,8 @@ import 'BackgroundPic.dart';
 import 'SettingBar.dart';
 import 'Bio.dart';
 import 'UserActivity.dart';
-import 'ClipsArchives.dart';
+import 'ClipsActivity.dart';
+import 'Archives.dart';
 
 class ProfileWidget extends StatefulWidget {
   const ProfileWidget({Key? key}) : super(key: key);
@@ -267,29 +268,9 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       case 0:
         return const UserActivityWidget();
       case 1:
-        return const ClipsArchivesView();
+        return const ClipsActivity();
       case 2:
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.person_outline,
-                size: 80,
-                color: Colors.grey[400],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Coming Soon',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
-              ),
-            ],
-          ),
-        );
+        return const ArchivesView();
       default:
         return const SizedBox();
     }
@@ -439,7 +420,11 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Icon(Icons.person_outline, size: 24, color: _selectedTabIndex == 2 ? Colors.black : Colors.grey),
+                        child: Icon(
+                          Icons.folder_outlined,
+                          size: 24,
+                          color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
+                        ),
                       ),
                     ),
                   ),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'YourDaily.dart';
 import 'AddClip.dart';
-import 'AddDailies.dart';
+import 'AddDailyMessage.dart';
 
 // Add Post Widget
 class AddWidget extends StatefulWidget {
@@ -155,7 +155,7 @@ class _AddWidgetState extends State<AddWidget> {
     switch (_selectedTabIndex) {
       case 0:
       // Daily tab content
-        return const AddDailiesWidget();
+        return const AddDailyMessage();
       case 1:
       // Clip tab content
         return const AddClipWidget();

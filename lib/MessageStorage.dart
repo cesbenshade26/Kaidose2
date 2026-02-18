@@ -4,6 +4,13 @@ import 'SendDailyMessage.dart';
 
 class MessageStorage {
   static const String _messagesPrefix = 'daily_messages_';
+  static final List<Function()> _listeners = [];
+
+  static void addListener(Function() listener) => _listeners.add(listener);
+  static void removeListener(Function() listener) => _listeners.remove(listener);
+  static void _notifyListeners() {
+    for (final l in _listeners) l();
+  }
 
   /// Save messages for a specific daily
   static Future<void> saveMessages(String dailyId, List<DailyMessage> messages) async {
@@ -11,12 +18,13 @@ class MessageStorage {
       final prefs = await SharedPreferences.getInstance();
       final String key = '$_messagesPrefix$dailyId';
 
-      // Convert messages to JSON
+      // Convert messages to JSON (includes isLiked and isSaved)
       final List<Map<String, dynamic>> messagesJson = messages.map((msg) => msg.toJson()).toList();
       final String jsonString = json.encode(messagesJson);
 
       await prefs.setString(key, jsonString);
-      print('Saved ${messages.length} messages for daily: $dailyId');
+      print('Saved ${messages.length} messages for daily: $dailyId (with like/save states)');
+      _notifyListeners();
     } catch (e) {
       print('Error saving messages: $e');
     }

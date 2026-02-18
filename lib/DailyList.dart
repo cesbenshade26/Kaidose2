@@ -43,6 +43,13 @@ class DailyList {
     _notifyListeners();
   }
 
+  static Future<void> unmarkAsViewed(String dailyId) async {
+    _checkAndResetViewedIfNewDay();
+    _viewedTodayIds.remove(dailyId);
+    await _saveViewedToStorage();
+    _notifyListeners();
+  }
+
   static void _checkAndResetViewedIfNewDay() {
     final today = DateTime.now().toIso8601String().split('T')[0];
     if (_lastViewedDate != today) {
