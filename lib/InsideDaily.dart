@@ -7,6 +7,7 @@ import 'MessageStorage.dart';
 import 'DailySaved.dart';
 import 'DailyComments.dart';
 import 'DailyLikes.dart';
+import 'UseCam.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:video_player/video_player.dart';
@@ -247,6 +248,19 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         _selectedImage = image;
         _showAttachMenu = false;
       });
+    }
+  }
+
+  Future<void> _openCamera() async {
+    final XFile? image = await UseCam.openCamera(context);
+    if (image != null) {
+      setState(() {
+        _selectedImage = image;
+        _selectedVideo = null;
+        _showAttachMenu = false;
+      });
+      await _videoController?.dispose();
+      _videoController = null;
     }
   }
 
@@ -680,7 +694,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
             Container(width: 1, height: 40, color: Colors.grey[300]),
             _buildAttachMenuItem(Icons.videocam, 'Video', _selectVideo),
             Container(width: 1, height: 40, color: Colors.grey[300]),
-            _buildAttachMenuItem(Icons.camera_alt, 'Camera', null),
+            _buildAttachMenuItem(Icons.camera_alt, 'Camera', _openCamera),
             Container(width: 1, height: 40, color: Colors.grey[300]),
             _buildAttachMenuItem(Icons.edit, 'Draw', _openDrawPad),
           ],

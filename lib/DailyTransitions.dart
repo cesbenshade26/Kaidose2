@@ -7,6 +7,7 @@ import 'SkipCount.dart';
 import 'DailyList.dart';
 import 'CamRoll.dart';
 import 'DrawPad.dart';
+import 'UseCam.dart';
 
 class DailyPromptOverlay extends StatefulWidget {
   final String dailyTitle;
@@ -72,6 +73,14 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
 
   Future<void> _openCameraRoll() async {
     final XFile? image = await CamRoll.openCameraRoll(context);
+    if (image != null && widget.onMediaAttach != null) {
+      widget.onMediaAttach!(image, null, null);
+      _toggleAttachMenu();
+    }
+  }
+
+  Future<void> _openCamera() async {
+    final XFile? image = await UseCam.openCamera(context);
     if (image != null && widget.onMediaAttach != null) {
       widget.onMediaAttach!(image, null, null);
       _toggleAttachMenu();
@@ -506,6 +515,7 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 _buildAttachOption(Icons.photo_library, 'Photo', _openCameraRoll),
+                                _buildAttachOption(Icons.camera_alt, 'Camera', _openCamera),
                                 _buildAttachOption(Icons.videocam, 'Video', _selectVideo),
                                 _buildAttachOption(Icons.edit, 'Draw', _openDrawPad),
                               ],

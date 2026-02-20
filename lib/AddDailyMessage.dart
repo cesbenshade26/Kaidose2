@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'CamRoll.dart';
 import 'DrawPad.dart';
+import 'UseCam.dart';
 import 'SelectDailiesScreen.dart';
 
 class AddDailyMessage extends StatefulWidget {
@@ -35,6 +36,19 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
 
   Future<void> _openCameraRoll() async {
     final XFile? image = await CamRoll.openCameraRoll(context);
+    if (image != null) {
+      setState(() {
+        _selectedImage = image;
+        _selectedVideo = null;
+        _showAttachMenu = false;
+      });
+      await _videoController?.dispose();
+      _videoController = null;
+    }
+  }
+
+  Future<void> _openCamera() async {
+    final XFile? image = await UseCam.openCamera(context);
     if (image != null) {
       setState(() {
         _selectedImage = image;
@@ -336,6 +350,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           _buildAttachOption(Icons.photo_library, 'Photo', _openCameraRoll),
+                          _buildAttachOption(Icons.camera_alt, 'Camera', _openCamera),
                           _buildAttachOption(Icons.videocam, 'Video', _selectVideo),
                           _buildAttachOption(Icons.edit, 'Draw', _openDrawPad),
                         ],

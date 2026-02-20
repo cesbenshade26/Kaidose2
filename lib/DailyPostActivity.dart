@@ -25,6 +25,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
   bool _isLoading = true;
   bool _isRefreshing = false;
   VoidCallback? _messageListener;
+  DateTime? _selectedDate; // null = show all
 
   @override
   void initState() {
@@ -43,26 +44,74 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
     super.dispose();
   }
 
+  Future<void> _selectDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.cyan,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _selectedDate = null;
+    });
+  }
+
+  List<_PostItem> _getFilteredPosts() {
+    if (_selectedDate == null) return _posts;
+
+    final dateStr = _selectedDate!.toIso8601String().split('T')[0];
+    return _posts.where((post) {
+      final postDateStr = post.message.timestamp.toIso8601String().split('T')[0];
+      return postDateStr == dateStr;
+    }).toList();
+  }
+
   Future<void> _loadPublicPosts() async {
     if (_isRefreshing) return;
     _isRefreshing = true;
 
     final publicDailies = DailyList.dailies
-        .where((d) => d.privacy.toLowerCase() == 'public')
+        .where((daily) => daily.privacy == 'Public')
         .toList();
 
     List<_PostItem> allPosts = [];
 
     for (final daily in publicDailies) {
       final messages = await MessageStorage.loadMessages(daily.id);
-      for (final msg in messages) {
-        if (msg.hasContent) {
-          allPosts.add(_PostItem(message: msg, dailyTitle: daily.title));
-        }
+
+      for (final message in messages) {
+        allPosts.add(_PostItem(
+          message: message,
+          dailyTitle: daily.title,
+        ));
       }
     }
 
-    allPosts.sort((a, b) => b.message.timestamp.compareTo(a.message.timestamp));
+    // Sort by newest first
+    allPosts.sort((a, b) =>
+        b.message.timestamp.compareTo(a.message.timestamp));
 
     if (mounted) {
       setState(() {
@@ -108,70 +157,133 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
       );
     }
 
-    return GridView.builder(
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 0,
-        mainAxisSpacing: 0,
-        childAspectRatio: 1,
-      ),
-      itemCount: _posts.length,
-      itemBuilder: (context, index) {
-        final post = _posts[index];
-        return GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => DailyPostViewer(
-                  posts: _posts,
-                  initialIndex: index,
+    final filteredPosts = _getFilteredPosts();
+
+    return Stack(
+      children: [
+        GridView.builder(
+          padding: EdgeInsets.zero,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 0,
+            mainAxisSpacing: 0,
+            childAspectRatio: 1,
+          ),
+          itemCount: filteredPosts.length,
+          itemBuilder: (context, index) {
+            final post = filteredPosts[index];
+            final message = post.message;
+
+            return GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => DailyPostViewer(
+                      posts: filteredPosts,
+                      initialIndex: index,
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                ),
+                child: message.imagePath != null
+                    ? Image.file(
+                  File(message.imagePath!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: Icon(Icons.error, color: Colors.grey[600]),
+                    );
+                  },
+                )
+                    : Container(
+                  padding: const EdgeInsets.all(12),
+                  color: Colors.grey[100],
+                  child: Center(
+                    child: Text(
+                      message.text ?? '',
+                      maxLines: 5,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             );
           },
-          child: _buildGridThumbnail(post),
-        );
-      },
-    );
-  }
+        ),
 
-  Widget _buildGridThumbnail(_PostItem post) {
-    final msg = post.message;
-
-    // Image post
-    if (msg.imagePath != null) {
-      final file = File(msg.imagePath!);
-      if (file.existsSync()) {
-        return Image.file(
-          file,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _textThumbnail(msg.text),
-        );
-      }
-    }
-
-    // Text-only post
-    return _textThumbnail(msg.text);
-  }
-
-  Widget _textThumbnail(String? text) {
-    return Container(
-      color: Colors.grey[100],
-      padding: const EdgeInsets.all(8),
-      child: Center(
-        child: Text(
-          text ?? '',
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey[800],
+        // Floating date filter button
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Clear filter button (if date selected)
+              if (_selectedDate != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GestureDetector(
+                    onTap: _clearDateFilter,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.9),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.clear,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              // Date picker button
+              GestureDetector(
+                onTap: _selectDate,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.cyan.withOpacity(0.95),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.calendar_today,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -187,130 +299,129 @@ class DailyPostViewer extends StatelessWidget {
     required this.initialIndex,
   }) : super(key: key);
 
-  String _formatDate(DateTime dt) {
-    final months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    final dayName = days[dt.weekday - 1];
-    return '$dayName, ${months[dt.month - 1]} ${dt.day}, ${dt.year}';
-  }
-
   @override
   Widget build(BuildContext context) {
-    final ScrollController scrollController = ScrollController(
-      initialScrollOffset: initialIndex * 420.0,
-    );
-
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.black,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Daily Posts',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
       ),
       body: ListView.builder(
-        controller: scrollController,
-        padding: const EdgeInsets.only(bottom: 24),
+        controller: ScrollController(
+          initialScrollOffset: initialIndex * MediaQuery.of(context).size.height,
+        ),
         itemCount: posts.length,
         itemBuilder: (context, index) {
           final post = posts[index];
-          final msg = post.message;
+          return _buildPostItem(context, post);
+        },
+      ),
+    );
+  }
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+  Widget _buildPostItem(BuildContext context, _PostItem post) {
+    final message = post.message;
+
+    return Container(
+      height: MediaQuery.of(context).size.height -
+          AppBar().preferredSize.height -
+          MediaQuery.of(context).padding.top,
+      color: Colors.black,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Image if present
+          if (message.imagePath != null)
+            Expanded(
+              child: Center(
+                child: Image.file(
+                  File(message.imagePath!),
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[900],
+                      child: const Center(
+                        child: Icon(
+                          Icons.error_outline,
+                          color: Colors.white,
+                          size: 48,
+                        ),
                       ),
-                      child: const Icon(Icons.public, color: Colors.cyan, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            post.dailyTitle,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black,
-                            ),
-                          ),
-                          Text(
-                            _formatDate(msg.timestamp),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
+                    );
+                  },
+                ),
+              ),
+            ),
+
+          // Text and info section
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.black,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Daily name
+                Row(
+                  children: [
+                    Icon(Icons.circle, size: 8, color: Colors.cyan),
+                    const SizedBox(width: 8),
+                    Text(
+                      post.dailyTitle,
+                      style: const TextStyle(
+                        color: Colors.cyan,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
-              ),
 
-              // Image
-              if (msg.imagePath != null && File(msg.imagePath!).existsSync())
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(msg.imagePath!),
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox(),
-                    ),
-                  ),
-                ),
-
-              // Text
-              if (msg.text != null && msg.text!.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                  child: Text(
-                    msg.text!,
+                if (message.text != null && message.text!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    message.text!,
                     style: const TextStyle(
+                      color: Colors.white,
                       fontSize: 15,
-                      color: Colors.black87,
+                      height: 1.4,
                     ),
                   ),
-                ),
+                ],
 
-              // Divider
-              if (index < posts.length - 1)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Divider(color: Colors.grey[200], height: 1),
+                const SizedBox(height: 12),
+
+                // Timestamp
+                Text(
+                  _formatTimestamp(message.timestamp),
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 12,
+                  ),
                 ),
-            ],
-          );
-        },
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final diff = now.difference(timestamp);
+
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[timestamp.month - 1]} ${timestamp.day}';
   }
 }

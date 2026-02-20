@@ -13,11 +13,53 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
   Map<String, List<File>> _photosByDate = {};
   List<String> _sortedDates = [];
   bool _isLoading = true;
+  DateTime? _selectedDate; // null = show all
 
   @override
   void initState() {
     super.initState();
     _loadAllPhotos();
+  }
+
+  Future<void> _selectDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.cyan,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _selectedDate = null;
+    });
+  }
+
+  List<String> _getFilteredDates() {
+    if (_selectedDate == null) return _sortedDates;
+
+    final dateStr = _selectedDate!.toIso8601String().split('T')[0];
+    return _sortedDates.where((date) => date == dateStr).toList();
   }
 
   Future<void> _loadAllPhotos() async {
@@ -107,50 +149,119 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
       );
     }
 
-    // Grid view of posts - just return GridView directly
-    return GridView.builder(
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 0,
-        mainAxisSpacing: 0,
-        childAspectRatio: 1,
-      ),
-      itemCount: _sortedDates.length,
-      itemBuilder: (context, index) {
-        final date = _sortedDates[index];
-        final photos = _photosByDate[date]!;
-        final firstPhoto = photos.first;
+    final filteredDates = _getFilteredDates();
 
-        return GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => DailyPostsViewer(
-                  allDates: _sortedDates,
-                  photosByDate: _photosByDate,
-                  initialDateIndex: index,
-                ),
+    // Wrap in Stack for floating date button
+    return Stack(
+      children: [
+        // Grid view of posts
+        GridView.builder(
+          padding: EdgeInsets.zero,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 0,
+            mainAxisSpacing: 0,
+            childAspectRatio: 1,
+          ),
+          itemCount: filteredDates.length,
+          itemBuilder: (context, index) {
+            final date = filteredDates[index];
+            final photos = _photosByDate[date]!;
+            final firstPhoto = photos.first;
+
+            return GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => DailyPostsViewer(
+                      allDates: _sortedDates,
+                      photosByDate: _photosByDate,
+                      initialDateIndex: _sortedDates.indexOf(date),
+                    ),
+                  ),
+                );
+              },
+              child: Image.file(
+                firstPhoto,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[200],
+                    child: Icon(
+                      Icons.broken_image,
+                      color: Colors.grey[400],
+                      size: 40,
+                    ),
+                  );
+                },
               ),
             );
           },
-          child: Image.file(
-            firstPhoto,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                color: Colors.grey[200],
-                child: Icon(
-                  Icons.broken_image,
-                  color: Colors.grey[400],
-                  size: 40,
+        ),
+
+        // Floating date filter button
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Clear filter button (if date selected)
+              if (_selectedDate != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GestureDetector(
+                    onTap: _clearDateFilter,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.9),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.clear,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
                 ),
-              );
-            },
+              // Date picker button
+              GestureDetector(
+                onTap: _selectDate,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.cyan.withOpacity(0.95),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.calendar_today,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
