@@ -53,6 +53,21 @@ class _SelectArchiveFolderScreenState extends State<SelectArchiveFolderScreen> {
     }
   }
 
+  Future<void> _saveToDailyOnly() async {
+    // Message is already saved to daily's saved messages
+    // Just close the screen without saving to archive
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Saved to Daily only'),
+          backgroundColor: Colors.cyan,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -82,27 +97,28 @@ class _SelectArchiveFolderScreenState extends State<SelectArchiveFolderScreen> {
           color: Colors.cyan,
         ),
       )
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _archives.length,
-        itemBuilder: (context, index) {
-          final archive = _archives[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+          : Column(
+        children: [
+          // "Save to Daily Only" button at top
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.cyan.withOpacity(0.1),
+              border: Border(
+                bottom: BorderSide(color: Colors.grey[200]!),
+              ),
+            ),
             child: GestureDetector(
-              onTap: () => _saveToArchive(archive),
+              onTap: _saveToDailyOnly,
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Colors.cyan,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.cyan.withOpacity(0.3),
-                    width: 2,
-                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.cyan.withOpacity(0.1),
+                      color: Colors.cyan.withOpacity(0.3),
                       blurRadius: 8,
                       spreadRadius: 1,
                       offset: const Offset(0, 2),
@@ -110,58 +126,113 @@ class _SelectArchiveFolderScreenState extends State<SelectArchiveFolderScreen> {
                   ],
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.folder,
-                        color: Colors.cyan,
-                        size: 28,
-                      ),
+                    const Icon(
+                      Icons.bookmark_border,
+                      color: Colors.white,
+                      size: 24,
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            archive.name,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          if (archive.description.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              archive.description,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[600],
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ],
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Save to Daily Only',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
-                    ),
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.grey[400],
-                      size: 18,
                     ),
                   ],
                 ),
               ),
             ),
-          );
-        },
+          ),
+
+          // Archive list
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _archives.length,
+              itemBuilder: (context, index) {
+                final archive = _archives[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: GestureDetector(
+                    onTap: () => _saveToArchive(archive),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.cyan.withOpacity(0.3),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.cyan.withOpacity(0.1),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.cyan.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.folder,
+                              color: Colors.cyan,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  archive.name,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                if (archive.description.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    archive.description,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey[600],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            color: Colors.grey[400],
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

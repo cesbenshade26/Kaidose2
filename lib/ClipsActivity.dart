@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
+import 'VideoClipPlayer.dart';
 
 class ClipsActivity extends StatefulWidget {
   const ClipsActivity({Key? key}) : super(key: key);
@@ -14,7 +15,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
   Map<String, List<File>> _clipsByDate = {};
   List<String> _sortedDates = [];
   bool _isLoading = true;
-  DateTime? _selectedDate; // null = show all
+  DateTime? _selectedDate;
 
   @override
   void initState() {
@@ -94,7 +95,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
         }
 
         List<String> sortedDates = clipsByDate.keys.toList();
-        sortedDates.sort((a, b) => b.compareTo(a)); // Newest first
+        sortedDates.sort((a, b) => b.compareTo(a));
 
         setState(() {
           _clipsByDate = clipsByDate;
@@ -107,6 +108,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
         });
       }
     } catch (e) {
+      print('Error loading clips: $e');
       setState(() {
         _isLoading = false;
       });
@@ -152,17 +154,15 @@ class _ClipsActivityState extends State<ClipsActivity> {
 
     final filteredDates = _getFilteredDates();
 
-    // Wrap in Stack for floating date button
     return Stack(
       children: [
-        // Grid view of clips
         GridView.builder(
           padding: EdgeInsets.zero,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
             crossAxisSpacing: 0,
             mainAxisSpacing: 0,
-            childAspectRatio: 0.56,  // 9:16 aspect ratio for vertical videos
+            childAspectRatio: 0.56,
           ),
           itemCount: filteredDates.length,
           itemBuilder: (context, index) {
@@ -178,7 +178,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
                     builder: (context) => ClipsViewer(
                       allDates: _sortedDates,
                       clipsByDate: _clipsByDate,
-                      initialDateIndex: index,
+                      initialDateIndex: _sortedDates.indexOf(date),
                     ),
                   ),
                 );
@@ -188,7 +188,6 @@ class _ClipsActivityState extends State<ClipsActivity> {
           },
         ),
 
-        // Floating date filter button
         Positioned(
           bottom: 16,
           right: 16,
@@ -196,7 +195,6 @@ class _ClipsActivityState extends State<ClipsActivity> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // Clear filter button (if date selected)
               if (_selectedDate != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -223,7 +221,6 @@ class _ClipsActivityState extends State<ClipsActivity> {
                     ),
                   ),
                 ),
-              // Date picker button
               GestureDetector(
                 onTap: _selectDate,
                 child: Container(
@@ -254,7 +251,6 @@ class _ClipsActivityState extends State<ClipsActivity> {
   }
 }
 
-// Thumbnail widget that shows first frame of video
 class ClipThumbnail extends StatefulWidget {
   final File videoFile;
 
@@ -274,54 +270,51 @@ class _ClipThumbnailState extends State<ClipThumbnail> {
     _initializeThumbnail();
   }
 
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
   Future<void> _initializeThumbnail() async {
+    _controller = VideoPlayerController.file(widget.videoFile);
     try {
-      _controller = VideoPlayerController.file(widget.videoFile);
       await _controller!.initialize();
-
       if (mounted) {
         setState(() {
           _isInitialized = true;
         });
       }
     } catch (e) {
-      print('Error loading thumbnail: $e');
+      print('Error initializing thumbnail: $e');
     }
   }
 
   @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (_isInitialized && _controller != null) {
-      return FittedBox(
+    if (!_isInitialized || _controller == null) {
+      return Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: CircularProgressIndicator(color: Colors.purple, strokeWidth: 2),
+        ),
+      );
+    }
+
+    return Container(
+      color: Colors.grey[200],
+      child: FittedBox(
         fit: BoxFit.cover,
         child: SizedBox(
           width: _controller!.value.size.width,
           height: _controller!.value.size.height,
           child: VideoPlayer(_controller!),
         ),
-      );
-    }
-
-    return Container(
-      color: Colors.grey[900],
-      child: Center(
-        child: Icon(
-          Icons.videocam,
-          color: Colors.grey[700],
-          size: 40,
-        ),
       ),
     );
   }
 }
 
-// Viewer that shows clips in scrollable format (free scrolling)
 class ClipsViewer extends StatefulWidget {
   final List<String> allDates;
   final Map<String, List<File>> clipsByDate;
@@ -339,21 +332,40 @@ class ClipsViewer extends StatefulWidget {
 }
 
 class _ClipsViewerState extends State<ClipsViewer> {
-  final ScrollController _scrollController = ScrollController();
+  late PageController _pageController;
+  int _currentClipIndex = 0;
+  List<_ClipItem> _allClips = [];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (widget.initialDateIndex > 0 && _scrollController.hasClients) {
-        _scrollController.jumpTo(widget.initialDateIndex * 500.0);
+
+    for (final date in widget.allDates) {
+      final clips = widget.clipsByDate[date]!;
+      for (int i = 0; i < clips.length; i++) {
+        _allClips.add(_ClipItem(
+          file: clips[i],
+          date: date,
+          clipNumber: i + 1,
+          totalClips: clips.length,
+        ));
       }
-    });
+    }
+
+    int initialIndex = 0;
+    int clipsSoFar = 0;
+    for (int i = 0; i < widget.initialDateIndex && i < widget.allDates.length; i++) {
+      clipsSoFar += widget.clipsByDate[widget.allDates[i]]!.length;
+    }
+    initialIndex = clipsSoFar;
+
+    _currentClipIndex = initialIndex;
+    _pageController = PageController(initialPage: initialIndex);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -383,236 +395,131 @@ class _ClipsViewerState extends State<ClipsViewer> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Clips',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
-      ),
-      body: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.only(bottom: 16),
-        itemCount: widget.allDates.length,
-        itemBuilder: (context, dateIndex) {
-          final date = widget.allDates[dateIndex];
-          final clips = widget.clipsByDate[date]!;
-          final displayDate = _formatDateForDisplay(date);
-          final dayOfWeek = _getDayOfWeek(date);
+      backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: PageView.builder(
+              controller: _pageController,
+              scrollDirection: Axis.vertical,
+              onPageChanged: (index) {
+                setState(() {
+                  _currentClipIndex = index;
+                });
+              },
+              itemCount: _allClips.length,
+              itemBuilder: (context, index) {
+                final clip = _allClips[index];
+                final isActive = index == _currentClipIndex;
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.videocam, color: Colors.purple, size: 20),
+                if (isActive) {
+                  return VideoClipPlayer(
+                    key: ValueKey('clip_$index'),
+                    videoFile: clip.file,
+                    autoPlay: true,
+                    looping: true,
+                    fit: BoxFit.cover,
+                  );
+                } else {
+                  return Container(color: Colors.black);
+                }
+              },
+            ),
+          ),
+
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 60,
+            left: 16,
+            right: 16,
+            child: _allClips.isNotEmpty
+                ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    const SizedBox(width: 12),
-                    Column(
+                    child: const Icon(Icons.videocam, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          displayDate,
+                          _formatDateForDisplay(_allClips[_currentClipIndex].date),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
-                            color: Colors.black,
+                            color: Colors.white,
                           ),
                         ),
                         Text(
-                          dayOfWeek,
-                          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                          _getDayOfWeek(_allClips[_currentClipIndex].date),
+                          style: const TextStyle(fontSize: 13, color: Colors.white70),
                         ),
                       ],
                     ),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${clips.length} ${clips.length == 1 ? 'clip' : 'clips'}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.purple,
-                        ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${_allClips[_currentClipIndex].clipNumber}/${_allClips[_currentClipIndex].totalClips}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              SizedBox(
-                height: 400,
-                child: DailyClipsCarousel(clips: clips),
+            )
+                : const SizedBox.shrink(),
+          ),
+
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 8,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                shape: BoxShape.circle,
               ),
-              if (dateIndex < widget.allDates.length - 1)
-                Divider(color: Colors.grey[300], thickness: 1, height: 32),
-            ],
-          );
-        },
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// Horizontal clips carousel for each date with auto-play
-class DailyClipsCarousel extends StatefulWidget {
-  final List<File> clips;
+class _ClipItem {
+  final File file;
+  final String date;
+  final int clipNumber;
+  final int totalClips;
 
-  const DailyClipsCarousel({
-    Key? key,
-    required this.clips,
-  }) : super(key: key);
-
-  @override
-  State<DailyClipsCarousel> createState() => _DailyClipsCarouselState();
-}
-
-class _DailyClipsCarouselState extends State<DailyClipsCarousel> {
-  late PageController _pageController;
-  int _currentPage = 0;
-  VideoPlayerController? _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController();
-    _initVideo(0);
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initVideo(int index) async {
-    if (index >= widget.clips.length) return;
-
-    // Dispose previous controller
-    final old = _controller;
-    _controller = null;
-    await old?.dispose();
-
-    if (!mounted) return;
-
-    final controller = VideoPlayerController.file(widget.clips[index]);
-    try {
-      await controller.initialize();
-      if (!mounted) {
-        controller.dispose();
-        return;
-      }
-      controller.setLooping(true);
-      await controller.play();
-      if (!mounted) {
-        controller.dispose();
-        return;
-      }
-      setState(() {
-        _controller = controller;
-      });
-    } catch (e) {
-      controller.dispose();
-      print('Error initializing video: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        PageView.builder(
-          controller: _pageController,
-          itemCount: widget.clips.length,
-          onPageChanged: (index) {
-            if (!mounted) return;
-            setState(() => _currentPage = index);
-            _initVideo(index);
-          },
-          itemBuilder: (context, index) {
-            // Only show player for current page
-            if (index == _currentPage && _controller != null && _controller!.value.isInitialized) {
-              return FittedBox(
-                fit: BoxFit.cover,
-                child: SizedBox(
-                  width: _controller!.value.size.width,
-                  height: _controller!.value.size.height,
-                  child: VideoPlayer(_controller!),
-                ),
-              );
-            }
-            return Container(
-              color: Colors.grey[200],
-              child: const Center(
-                child: CircularProgressIndicator(color: Colors.purple),
-              ),
-            );
-          },
-        ),
-
-        // Page dots
-        if (widget.clips.length > 1)
-          Positioned(
-            bottom: 12,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(widget.clips.length, (index) {
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  width: _currentPage == index ? 10 : 6,
-                  height: _currentPage == index ? 10 : 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _currentPage == index ? Colors.purple : Colors.grey[400],
-                  ),
-                );
-              }),
-            ),
-          ),
-
-        // Counter
-        Positioned(
-          top: 12,
-          right: 12,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${_currentPage + 1}/${widget.clips.length}',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  _ClipItem({
+    required this.file,
+    required this.date,
+    required this.clipNumber,
+    required this.totalClips,
+  });
 }

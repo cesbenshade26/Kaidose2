@@ -32,11 +32,15 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.3
-  image_picker: ^1.0.4
-  permission_handler: ^11.0.1
-  path_provider: ^2.0.15
-  video_player: ^2.8.1
-  contacts_service: ^0.6.3
+  image_picker: ^1.1.2         # Updated from 1.0.4
+  permission_handler: ^11.4.0  # Updated from 11.0.1
+  path_provider: ^2.1.5        # Updated from 2.0.15
+  video_player: ^2.9.1         # Updated from 2.8.1
+  contacts_service: ^0.6.3     # (Keep this, but we'll fix the link below)
+  firebase_core: ^3.12.1       # Updated (Matches Firebase iOS SDK 12.9.0)
+  firebase_auth: ^5.5.1        # Updated
+  cloud_firestore: ^5.6.2      # Updated
+  firebase_storage: ^12.4.3
 
 dev_dependencies:
   flutter_test:

@@ -25,8 +25,9 @@ class _AddWidgetState extends State<AddWidget> {
         title: const Text(
           'Add Post',
           style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
+            fontFamily: 'Slackey',
+            color: Colors.cyan,
+            fontSize: 32,
             fontWeight: FontWeight.w600,
           ),
         ),

@@ -539,8 +539,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
   Widget _buildOptionsMenu() {
     return Positioned(
-      bottom: _selectedImage != null || _selectedVideo != null ? 407 : 195, // Proper gap above FAB (195 = 135 + 48 + 12)
-      right: 16,
+      bottom: _selectedImage != null || _selectedVideo != null ? 407 : 195,
+      left: 16, // Changed from right to left
       child: FadeTransition(
         opacity: _optionsAnimation,
         child: SlideTransition(
@@ -742,45 +742,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
           ),
         ),
         centerTitle: true,
-        actions: [
-          GestureDetector(
-            onTap: () => _selectDate(context),
-            child: Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.grey[300]!, width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.calendar_today,
-                    size: 16,
-                    color: Colors.grey[700],
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _formatDate(_selectedDate),
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(
-                    Icons.arrow_drop_down,
-                    size: 20,
-                    color: Colors.grey[700],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
       body: Stack(
         children: [
@@ -1029,9 +990,11 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
           ),
           if (_showOptionsMenu) _buildOptionsMenu(),
           if (_showAttachMenu) _buildAttachMenu(),
+
+          // FAB moved to bottom left
           Positioned(
-            bottom: _selectedImage != null || _selectedVideo != null ? 347 : 135, // Increased from 115 to add gap
-            right: 16,
+            bottom: _selectedImage != null || _selectedVideo != null ? 347 : 135,
+            left: 16, // Changed from right to left
             child: GestureDetector(
               onTap: _toggleOptionsMenu,
               child: AnimatedRotation(
@@ -1058,6 +1021,73 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                   ),
                 ),
               ),
+            ),
+          ),
+
+          // Floating date filter button (bottom right)
+          Positioned(
+            bottom: _selectedImage != null || _selectedVideo != null ? 347 : 135,
+            right: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Clear filter button (if date selected)
+                if (_selectedDate != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedDate = null;
+                        });
+                        _loadMessages();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.clear,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                // Date picker button
+                GestureDetector(
+                  onTap: () => _selectDate(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.cyan.withOpacity(0.95),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.calendar_today,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

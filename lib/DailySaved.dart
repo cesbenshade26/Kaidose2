@@ -20,11 +20,56 @@ class DailySavedScreen extends StatefulWidget {
 class _DailySavedScreenState extends State<DailySavedScreen> {
   List<DailyMessage> _savedItems = [];
   bool _isLoading = true;
+  DateTime? _selectedDate;
 
   @override
   void initState() {
     super.initState();
     _loadSavedItems();
+  }
+
+  Future<void> _selectDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.cyan,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _selectedDate = null;
+    });
+  }
+
+  List<DailyMessage> _getFilteredItems() {
+    if (_selectedDate == null) return _savedItems;
+
+    final dateStr = _selectedDate!.toIso8601String().split('T')[0];
+    return _savedItems.where((msg) {
+      final msgDateStr = msg.timestamp.toIso8601String().split('T')[0];
+      return msgDateStr == dateStr;
+    }).toList();
   }
 
   Future<void> _loadSavedItems() async {
@@ -155,18 +200,83 @@ class _DailySavedScreenState extends State<DailySavedScreen> {
           ],
         ),
       )
-          : GridView.builder(
-        padding: EdgeInsets.zero,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 0,
-          mainAxisSpacing: 0,
-          childAspectRatio: 1,
-        ),
-        itemCount: _savedItems.length,
-        itemBuilder: (context, index) {
-          return _buildGridItem(_savedItems[index], index);
-        },
+          : Stack(
+        children: [
+          GridView.builder(
+            padding: EdgeInsets.zero,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 0,
+              mainAxisSpacing: 0,
+              childAspectRatio: 1,
+            ),
+            itemCount: _getFilteredItems().length,
+            itemBuilder: (context, index) {
+              final filteredItems = _getFilteredItems();
+              return _buildGridItem(filteredItems[index], index);
+            },
+          ),
+
+          // Floating date button
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_selectedDate != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: GestureDetector(
+                      onTap: _clearDateFilter,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.clear,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                GestureDetector(
+                  onTap: _selectDate,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.cyan.withOpacity(0.95),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.calendar_today,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

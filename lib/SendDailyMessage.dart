@@ -5,6 +5,7 @@ import 'SelectArchiveFolder.dart';
 import 'SavedItemStorage.dart';
 import 'MessageComments.dart';
 import 'package:video_player/video_player.dart';
+import 'VideoClipPlayer.dart';
 
 class DailyMessage {
   final String? text;
@@ -104,38 +105,16 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   bool _showOptionsMenu = false;
   bool _showComments = false;
   int _commentCount = 0;
-  VideoPlayerController? _videoController;
 
   @override
   void initState() {
     super.initState();
     _loadCommentCount();
-    _initializeVideo();
   }
 
   @override
   void dispose() {
-    _videoController?.dispose();
     super.dispose();
-  }
-
-  Future<void> _initializeVideo() async {
-    if (widget.message.videoPath != null) {
-      final videoFile = File(widget.message.videoPath!);
-      if (videoFile.existsSync()) {
-        _videoController = VideoPlayerController.file(videoFile);
-        try {
-          await _videoController!.initialize();
-          if (mounted) {
-            _videoController!.setLooping(true);
-            _videoController!.play();
-            setState(() {});
-          }
-        } catch (e) {
-          print('Error initializing video: $e');
-        }
-      }
-    }
   }
 
   Future<void> _loadCommentCount() async {
@@ -310,16 +289,13 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                           topLeft: Radius.circular(widget.message.imagePath == null ? 14 : 0),
                           topRight: Radius.circular(widget.message.imagePath == null ? 14 : 0),
                         ),
-                        child: _videoController != null && _videoController!.value.isInitialized
-                            ? AspectRatio(
-                          aspectRatio: _videoController!.value.aspectRatio,
-                          child: VideoPlayer(_videoController!),
-                        )
-                            : Container(
-                          height: 300,
-                          color: Colors.grey[200],
-                          child: const Center(
-                            child: CircularProgressIndicator(color: Colors.cyan),
+                        child: AspectRatio(
+                          aspectRatio: 9 / 16, // Standard vertical video ratio
+                          child: VideoClipPlayer(
+                            videoFile: File(widget.message.videoPath!),
+                            autoPlay: true,
+                            looping: true,
+                            fit: BoxFit.contain,
                           ),
                         ),
                       ),

@@ -11,8 +11,8 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     kotlinOptions {
@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.kaidose"
+        applicationId = "com.yourname.kaidose"
         minSdk = 21  // <--- MAKE SURE THIS IS AT LEAST 21
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()

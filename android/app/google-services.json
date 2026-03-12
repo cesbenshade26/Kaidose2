@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "226093347823",
+    "project_id": "kaidose2-e0a7a",
+    "storage_bucket": "kaidose2-e0a7a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:226093347823:android:8eb362792adb570ead3c1a",
+        "android_client_info": {
+          "package_name": "com.yourname.kaidose"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdVOFq7nqNngEYPgp6ZiEKCTOiqprIffg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
