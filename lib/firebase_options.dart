@@ -1,3 +1,4 @@
+// firebase_options.dart
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
@@ -13,8 +14,10 @@ class DefaultFirebaseOptions {
         return android;
       case TargetPlatform.iOS:
         return ios;
+      case TargetPlatform.macOS:
+        return ios;
       default:
-        throw UnsupportedError('Platform not supported');
+        throw UnsupportedError('Platform not supported for this project');
     }
   }
 
@@ -27,11 +30,11 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyC3G4OvtjEOG_toUF2Sp4E5Iw-oO7ftWBY',
-    appId: '1:11348182275:ios:a95373292315f3206755536',
-    messagingSenderId: '11348182275',
-    projectId: 'kaidose-671d9',
-    storageBucket: 'kaidose-671d9.firebasestorage.app',
+    apiKey: 'AIzaSyAdV0Fq7nqNngEYPgp6ZiEKCTOiqprIffg',
+    appId: '1:226093347823:ios:a95373292315f3206755536', // Double check this ID in Firebase Console
+    messagingSenderId: '226093347823',
+    projectId: 'kaidose2-e0a7a',
+    storageBucket: 'kaidose2-e0a7a.firebasestorage.app',
     iosBundleId: 'com.Kaidose.kaidose',
   );
 }

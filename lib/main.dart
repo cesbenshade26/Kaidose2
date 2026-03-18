@@ -6,11 +6,20 @@ import 'OpeningScreen.dart';
 import 'UserAccount.dart';
 
 void main() async {
+  // Ensure Flutter is ready before calling Firebase
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    // Check if Firebase is already initialized to prevent [core/duplicate-app]
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      print("Firebase initialized successfully");
+    }
+  } catch (e) {
+    print("Firebase initialization error: $e");
+  }
 
   runApp(const KaidoseApp());
 }

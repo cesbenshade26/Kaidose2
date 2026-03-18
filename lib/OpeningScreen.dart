@@ -1,10 +1,8 @@
 // OpeningScreen.dart
 import 'UserAccount.dart';
 import 'package:flutter/material.dart';
-import 'package:kaidose/InterestDetector.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'CreateAccount.dart';
-import 'InterestDetector.dart';
+import 'auth_service.dart';
 
 class OpeningScreen extends StatefulWidget {
   final bool skipAnimation;
@@ -25,6 +23,8 @@ class _OpeningScreenState extends State<OpeningScreen>
   late AnimationController _fadeController;
   late Animation<double> _fadeOpacity;
 
+  final _authService = AuthService();
+
   bool moveToTop = false;
   bool showForm = false;
   bool isCheckingLoginState = true;
@@ -32,9 +32,6 @@ class _OpeningScreenState extends State<OpeningScreen>
 
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
-  String? storedUsername;
-  String? storedPassword;
 
   String loginError = '';
 
@@ -73,37 +70,24 @@ class _OpeningScreenState extends State<OpeningScreen>
   }
 
   Future<void> _checkLoginStateAndInitialize() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-
-    // Load stored credentials
-    storedUsername = prefs.getString('kaidose_user');
-    storedPassword = prefs.getString('kaidose_pass');
-
-    // Get today's date as a string
-    String today = DateTime.now().toString().substring(0, 10); // YYYY-MM-DD format
-    String? lastLoginDate = prefs.getString('kaidose_last_login_date');
-
-    // Check if user logged in today
-    bool loggedInToday = (lastLoginDate == today);
+    // Check if user is already logged in with Firebase
+    bool loggedIn = _authService.isLoggedIn;
 
     setState(() {
       isCheckingLoginState = false;
-      shouldGoToHome = loggedInToday;
+      shouldGoToHome = loggedIn;
     });
 
     if (widget.skipAnimation) {
       if (shouldGoToHome) {
-        // Skip animation, go directly to UserAccount
         Navigator.pushReplacementNamed(context, '/user-account');
       } else {
-        // Skip animation, show login form
         moveToTop = true;
         showForm = true;
         _drawController.forward();
         _formController.forward();
       }
     } else {
-      // Show animation regardless
       _startAnimation();
     }
   }
@@ -117,25 +101,15 @@ class _OpeningScreenState extends State<OpeningScreen>
       await Future.delayed(const Duration(milliseconds: 2000));
 
       if (shouldGoToHome) {
-        // Fade out the title and go to Home
         _fadeController.forward().whenComplete(() {
           Navigator.pushReplacementNamed(context, '/user-account');
         });
       } else {
-        // Show login form
         setState(() {
           showForm = true;
         });
         _formController.forward();
       }
-    });
-  }
-
-  Future<void> _loadStoredCredentials() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    setState(() {
-      storedUsername = prefs.getString('kaidose_user');
-      storedPassword = prefs.getString('kaidose_pass');
     });
   }
 
@@ -149,10 +123,11 @@ class _OpeningScreenState extends State<OpeningScreen>
     super.dispose();
   }
 
-  void _attemptLogin() async {
+  Future<void> _attemptLogin() async {
     setState(() {
       loginError = '';
     });
+
     final inputUser = _usernameController.text.trim();
     final inputPass = _passwordController.text;
 
@@ -163,23 +138,22 @@ class _OpeningScreenState extends State<OpeningScreen>
       return;
     }
 
-    if (storedUsername == null || storedPassword == null) {
-      setState(() {
-        loginError = 'No account found. Please create an account.';
-      });
-      return;
-    }
+    setState(() => isCheckingLoginState = true);
 
-    if (inputUser == storedUsername && inputPass == storedPassword) {
-      // Save today's date as login date
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String today = DateTime.now().toString().substring(0, 10); // YYYY-MM-DD format
-      await prefs.setString('kaidose_last_login_date', today);
+    final result = await _authService.login(
+      usernameOrEmail: inputUser,
+      password: inputPass,
+    );
 
+    setState(() => isCheckingLoginState = false);
+
+    if (!mounted) return;
+
+    if (result['success']) {
       Navigator.pushReplacementNamed(context, '/user-account');
     } else {
       setState(() {
-        loginError = 'Incorrect username or password';
+        loginError = result['error'];
       });
     }
   }
@@ -198,7 +172,6 @@ class _OpeningScreenState extends State<OpeningScreen>
       color: Colors.cyan,
     );
 
-    // Show loading while checking login state
     if (isCheckingLoginState) {
       return const Scaffold(
         backgroundColor: Colors.white,
@@ -213,7 +186,6 @@ class _OpeningScreenState extends State<OpeningScreen>
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // Kaidose title that draws and then moves to top, with fade animation
           AnimatedPositioned(
             duration: const Duration(seconds: 2),
             curve: Curves.easeInOut,
@@ -239,7 +211,6 @@ class _OpeningScreenState extends State<OpeningScreen>
             ),
           ),
 
-          // Login form fades in
           if (showForm)
             FadeTransition(
               opacity: _formOpacity,
@@ -250,7 +221,6 @@ class _OpeningScreenState extends State<OpeningScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // "Login to Kaidose"
                       const Padding(
                         padding: EdgeInsets.only(bottom: 16.0),
                         child: Text(
@@ -259,20 +229,17 @@ class _OpeningScreenState extends State<OpeningScreen>
                         ),
                       ),
 
-                      // Username field
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: TextField(
                           controller: _usernameController,
                           cursorColor: Colors.black,
-
                           decoration: InputDecoration(
-                            hintText: 'Username',
+                            hintText: 'Username or Email',
                             focusedBorder: OutlineInputBorder(
                                 borderSide: BorderSide(
                                   color: Colors.black,
-                                )
-                            ),
+                                )),
                             border: OutlineInputBorder(
                               borderSide: BorderSide(
                                 color: Colors.black,
@@ -284,7 +251,6 @@ class _OpeningScreenState extends State<OpeningScreen>
                       ),
                       const SizedBox(height: 20),
 
-                      // Password field
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: TextField(
@@ -306,15 +272,14 @@ class _OpeningScreenState extends State<OpeningScreen>
 
                       const SizedBox(height: 12),
 
-                      // Login button below password box
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent),
                           onPressed: _attemptLogin,
                           child: const Text('Login',
-                              style: TextStyle(color: Colors.white)
-                          ),
+                              style: TextStyle(color: Colors.white)),
                         ),
                       ),
 
@@ -328,7 +293,6 @@ class _OpeningScreenState extends State<OpeningScreen>
 
                       const SizedBox(height: 20),
 
-                      // Divider between inputs and buttons
                       const Divider(
                         color: Colors.grey,
                         thickness: 1,
@@ -338,7 +302,6 @@ class _OpeningScreenState extends State<OpeningScreen>
 
                       const SizedBox(height: 20),
 
-                      // Forgot password + Create account
                       TextButton(
                         onPressed: () {
                           // TODO: Add forgot password functionality
@@ -352,7 +315,8 @@ class _OpeningScreenState extends State<OpeningScreen>
                       const SizedBox(height: 8),
 
                       ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent),
                         onPressed: () {
                           Navigator.push(
                             context,
@@ -361,8 +325,7 @@ class _OpeningScreenState extends State<OpeningScreen>
                           );
                         },
                         child: const Text('Create Account',
-                            style: TextStyle(color: Colors.white)
-                        ),
+                            style: TextStyle(color: Colors.white)),
                       ),
                     ],
                   ),

@@ -1,7 +1,6 @@
-// CreateAccount.dart
 import 'package:flutter/material.dart';
 import 'dart:math';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'auth_service.dart';
 import 'OpeningScreen.dart';
 
 class CreateAccount extends StatefulWidget {
@@ -13,6 +12,7 @@ class CreateAccount extends StatefulWidget {
 
 class _CreateAccountState extends State<CreateAccount> {
   final _formKey = GlobalKey<FormState>();
+  final _authService = AuthService();
 
   late TextEditingController usernameController;
   late TextEditingController emailController;
@@ -30,6 +30,7 @@ class _CreateAccountState extends State<CreateAccount> {
   String? selectedDay;
 
   bool showVerification = false;
+  bool isLoading = false;
   String generatedCode = '';
 
   List<String> years =
@@ -42,7 +43,6 @@ class _CreateAccountState extends State<CreateAccount> {
   @override
   void initState() {
     super.initState();
-
     usernameController = TextEditingController();
     emailController = TextEditingController();
     passwordController = TextEditingController();
@@ -75,21 +75,6 @@ class _CreateAccountState extends State<CreateAccount> {
     generatedCode = (Random().nextInt(900000) + 100000).toString();
   }
 
-  Future<void> saveCredentials() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('kaidose_user', usernameController.text);
-    await prefs.setString('kaidose_email', emailController.text);
-    await prefs.setString('kaidose_pass', passwordController.text);
-
-    // Save birthday - same pattern as username/email/password
-    await prefs.setString('kaidose_birth_year', selectedYear ?? '');
-    await prefs.setString('kaidose_birth_month', selectedMonth ?? '');
-    await prefs.setString('kaidose_birth_day', selectedDay ?? '');
-
-    print('Saved credentials: user=${usernameController.text}, email=${emailController.text}');
-    print('Saved birthday: $selectedMonth/$selectedDay/$selectedYear');
-  }
-
   void validateAndProceed() {
     if (_formKey.currentState!.validate() &&
         selectedYear != null &&
@@ -104,7 +89,7 @@ class _CreateAccountState extends State<CreateAccount> {
         builder: (_) => AlertDialog(
           title: const Text('Verification Sent'),
           content: Text(
-            'Thanks for joining Kaidose! To verify your account, enter the following six-digit code in the provided box on your device:\n\n$generatedCode',
+            'Thanks for joining Kaidose! To verify your account, enter the following six-digit code:\n\n$generatedCode',
           ),
           actions: [
             TextButton(
@@ -117,9 +102,32 @@ class _CreateAccountState extends State<CreateAccount> {
     }
   }
 
-  void verifyCode() async {
-    if (codeController.text == generatedCode) {
-      await saveCredentials();
+  Future<void> verifyCodeAndCreateAccount() async {
+    if (codeController.text != generatedCode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Incorrect verification code')),
+      );
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    // Create account in Firebase
+    final result = await _authService.signUp(
+      email: emailController.text.trim(),
+      password: passwordController.text,
+      username: usernameController.text.trim(),
+      birthYear: selectedYear!,
+      birthMonth: selectedMonth!,
+      birthDay: selectedDay!,
+    );
+
+    setState(() => isLoading = false);
+
+    if (!mounted) return;
+
+    if (result['success']) {
+      // Success - go to home
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
@@ -127,8 +135,14 @@ class _CreateAccountState extends State<CreateAccount> {
             (Route<dynamic> route) => false,
       );
     } else {
+      // Show detailed error
+      print('Firebase error: ${result['error']}');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect verification code')),
+        SnackBar(
+          content: Text(result['error']),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
       );
     }
   }
@@ -161,13 +175,16 @@ class _CreateAccountState extends State<CreateAccount> {
         title: const Text('Create Account'),
         backgroundColor: Colors.white,
       ),
-      body: Padding(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
         padding: const EdgeInsets.all(16),
         child: showVerification
             ? Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('Enter the 6-digit code sent to your email/phone:'),
+            const Text(
+                'Enter the 6-digit code:'),
             const SizedBox(height: 16),
             TextField(
               controller: codeController,
@@ -180,8 +197,8 @@ class _CreateAccountState extends State<CreateAccount> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: verifyCode,
-              child: const Text('Verify'),
+              onPressed: verifyCodeAndCreateAccount,
+              child: const Text('Verify & Create Account'),
             ),
           ],
         )
@@ -193,27 +210,38 @@ class _CreateAccountState extends State<CreateAccount> {
               TextFormField(
                 controller: usernameController,
                 focusNode: usernameFocusNode,
-                decoration: customInputDecoration('Username', usernameFocusNode),
+                decoration: customInputDecoration(
+                    'Username', usernameFocusNode),
                 cursorColor: Colors.black,
                 validator: (value) =>
-                value == null || value.isEmpty ? 'Required' : null,
+                value == null || value.isEmpty
+                    ? 'Required'
+                    : null,
               ),
               TextFormField(
-
                 controller: emailController,
                 focusNode: emailFocusNode,
                 decoration: customInputDecoration(
-                    'Email or Phone Number (XXX-XXX-XXXX)', emailFocusNode),
-                validator: (value) =>
-                value == null || value.isEmpty ? 'Required' : null,
+                    'Email', emailFocusNode),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Required';
+                  }
+                  if (!value.contains('@')) {
+                    return 'Please enter a valid email';
+                  }
+                  return null;
+                },
               ),
               TextFormField(
                 controller: passwordController,
                 focusNode: passwordFocusNode,
-                decoration:
-                customInputDecoration('Password', passwordFocusNode),
+                decoration: customInputDecoration(
+                    'Password', passwordFocusNode),
                 obscureText: true,
-                validator: (value) => value == null || value.length < 6
+                validator: (value) =>
+                value == null || value.length < 6
                     ? 'Min 6 chars'
                     : null,
               ),
@@ -223,7 +251,8 @@ class _CreateAccountState extends State<CreateAccount> {
                 decoration: customInputDecoration(
                     'Confirm Password', confirmPasswordFocusNode),
                 obscureText: true,
-                validator: (value) => value != passwordController.text
+                validator: (value) =>
+                value != passwordController.text
                     ? 'Passwords do not match'
                     : null,
               ),
@@ -237,8 +266,8 @@ class _CreateAccountState extends State<CreateAccount> {
                     hint: const Text('Year'),
                     value: selectedYear,
                     items: years
-                        .map((e) =>
-                        DropdownMenuItem(value: e, child: Text(e)))
+                        .map((e) => DropdownMenuItem(
+                        value: e, child: Text(e)))
                         .toList(),
                     onChanged: (value) =>
                         setState(() => selectedYear = value),
@@ -248,8 +277,8 @@ class _CreateAccountState extends State<CreateAccount> {
                     hint: const Text('Month'),
                     value: selectedMonth,
                     items: months
-                        .map((e) =>
-                        DropdownMenuItem(value: e, child: Text(e)))
+                        .map((e) => DropdownMenuItem(
+                        value: e, child: Text(e)))
                         .toList(),
                     onChanged: (value) =>
                         setState(() => selectedMonth = value),
@@ -259,8 +288,8 @@ class _CreateAccountState extends State<CreateAccount> {
                     hint: const Text('Day'),
                     value: selectedDay,
                     items: days
-                        .map((e) =>
-                        DropdownMenuItem(value: e, child: Text(e)))
+                        .map((e) => DropdownMenuItem(
+                        value: e, child: Text(e)))
                         .toList(),
                     onChanged: (value) =>
                         setState(() => selectedDay = value),
@@ -275,7 +304,6 @@ class _CreateAccountState extends State<CreateAccount> {
                 ),
                 onPressed: validateAndProceed,
                 child: const Text('Next'),
-
               ),
             ],
           ),
