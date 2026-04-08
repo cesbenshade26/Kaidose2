@@ -22,16 +22,16 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAdV0Fq7nqNngEYPgp6ZiEKCTOiqprIffg',
-    appId: '1:226093347823:android:8eb36792adb570ead3c1a',
+    apiKey: "AIzaSyBYyBzKrzxEG112EYk1pPrQwWx3eOrqVaQ",
+    appId: '1:226093347823:android:8eb362792adb570ead3c1a',
     messagingSenderId: '226093347823',
     projectId: 'kaidose2-e0a7a',
     storageBucket: 'kaidose2-e0a7a.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAdV0Fq7nqNngEYPgp6ZiEKCTOiqprIffg',
-    appId: '1:226093347823:ios:a95373292315f3206755536', // Double check this ID in Firebase Console
+    apiKey: "AIzaSyBYyBzKrzxEG112EYk1pPrQwWx3eOrqVaQ",
+    appId: '1:226093347823:ios:3ee8477a2c92af51ad3c1a', // Double check this ID in Firebase Console
     messagingSenderId: '226093347823',
     projectId: 'kaidose2-e0a7a',
     storageBucket: 'kaidose2-e0a7a.firebasestorage.app',

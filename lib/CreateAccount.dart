@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
 import 'auth_service.dart';
-import 'OpeningScreen.dart';
+import 'EmailVerificationScreen.dart'; // Import the new screen
 
 class CreateAccount extends StatefulWidget {
   const CreateAccount({super.key});
@@ -18,7 +17,6 @@ class _CreateAccountState extends State<CreateAccount> {
   late TextEditingController emailController;
   late TextEditingController passwordController;
   late TextEditingController confirmPasswordController;
-  late TextEditingController codeController;
 
   late FocusNode usernameFocusNode;
   late FocusNode emailFocusNode;
@@ -29,16 +27,11 @@ class _CreateAccountState extends State<CreateAccount> {
   String? selectedMonth;
   String? selectedDay;
 
-  bool showVerification = false;
   bool isLoading = false;
-  String generatedCode = '';
 
-  List<String> years =
-  List.generate(100, (index) => (DateTime.now().year - index).toString());
-  List<String> months =
-  List.generate(12, (index) => '${index + 1}'.padLeft(2, '0'));
-  List<String> days =
-  List.generate(31, (index) => '${index + 1}'.padLeft(2, '0'));
+  List<String> years = List.generate(100, (index) => (DateTime.now().year - index).toString());
+  List<String> months = List.generate(12, (index) => '${index + 1}'.padLeft(2, '0'));
+  List<String> days = List.generate(31, (index) => '${index + 1}'.padLeft(2, '0'));
 
   @override
   void initState() {
@@ -47,7 +40,6 @@ class _CreateAccountState extends State<CreateAccount> {
     emailController = TextEditingController();
     passwordController = TextEditingController();
     confirmPasswordController = TextEditingController();
-    codeController = TextEditingController();
 
     usernameFocusNode = FocusNode()..addListener(() => setState(() {}));
     emailFocusNode = FocusNode()..addListener(() => setState(() {}));
@@ -61,88 +53,52 @@ class _CreateAccountState extends State<CreateAccount> {
     emailController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
-    codeController.dispose();
-
     usernameFocusNode.dispose();
     emailFocusNode.dispose();
     passwordFocusNode.dispose();
     confirmPasswordFocusNode.dispose();
-
     super.dispose();
   }
 
-  void generateCode() {
-    generatedCode = (Random().nextInt(900000) + 100000).toString();
-  }
-
-  void validateAndProceed() {
+  Future<void> _handleSignup() async {
     if (_formKey.currentState!.validate() &&
         selectedYear != null &&
         selectedMonth != null &&
         selectedDay != null) {
-      generateCode();
-      setState(() {
-        showVerification = true;
-      });
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Verification Sent'),
-          content: Text(
-            'Thanks for joining Kaidose! To verify your account, enter the following six-digit code:\n\n$generatedCode',
+
+      setState(() => isLoading = true);
+
+      // 1. Create account in Firebase & send verification link via AuthService
+      final result = await _authService.signUp(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+        username: usernameController.text.trim(),
+        birthYear: selectedYear!,
+        birthMonth: selectedMonth!,
+        birthDay: selectedDay!,
+      );
+
+      setState(() => isLoading = false);
+
+      if (!mounted) return;
+
+      if (result['success']) {
+        // 2. Success - Go to the "Waiting Room" verification screen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const EmailVerificationScreen()),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']),
+            backgroundColor: Colors.red,
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            )
-          ],
-        ),
-      );
-    }
-  }
-
-  Future<void> verifyCodeAndCreateAccount() async {
-    if (codeController.text != generatedCode) {
+        );
+      }
+    } else if (selectedYear == null || selectedMonth == null || selectedDay == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect verification code')),
-      );
-      return;
-    }
-
-    setState(() => isLoading = true);
-
-    // Create account in Firebase
-    final result = await _authService.signUp(
-      email: emailController.text.trim(),
-      password: passwordController.text,
-      username: usernameController.text.trim(),
-      birthYear: selectedYear!,
-      birthMonth: selectedMonth!,
-      birthDay: selectedDay!,
-    );
-
-    setState(() => isLoading = false);
-
-    if (!mounted) return;
-
-    if (result['success']) {
-      // Success - go to home
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-            builder: (context) => const OpeningScreen(skipAnimation: true)),
-            (Route<dynamic> route) => false,
-      );
-    } else {
-      // Show detailed error
-      print('Firebase error: ${result['error']}');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['error']),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
+        const SnackBar(content: Text('Please select your full date of birth')),
       );
     }
   }
@@ -150,163 +106,99 @@ class _CreateAccountState extends State<CreateAccount> {
   InputDecoration customInputDecoration(String label, FocusNode focusNode) {
     return InputDecoration(
       labelText: label,
-      labelStyle: TextStyle(
-        color: focusNode.hasFocus ? Colors.blue : Colors.black,
-      ),
-      enabledBorder: const UnderlineInputBorder(
-        borderSide: BorderSide(color: Colors.black),
-      ),
-      focusedBorder: const UnderlineInputBorder(
-        borderSide: BorderSide(color: Colors.blue, width: 2.0),
-      ),
+      labelStyle: TextStyle(color: focusNode.hasFocus ? Colors.blue : Colors.black),
+      enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.black)),
+      focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blue, width: 2.0)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        titleTextStyle: const TextStyle(
-          fontFamily: 'Slackey',
-          fontSize: 25,
-          fontWeight: FontWeight.bold,
-          color: Colors.cyan,
-        ),
+        titleTextStyle: const TextStyle(fontFamily: 'Slackey', fontSize: 25, fontWeight: FontWeight.bold, color: Colors.cyan),
         title: const Text('Create Account'),
         backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
       ),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-        padding: const EdgeInsets.all(16),
-        child: showVerification
-            ? Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-                'Enter the 6-digit code:'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: codeController,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Verification Code',
-              ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: verifyCodeAndCreateAccount,
-              child: const Text('Verify & Create Account'),
-            ),
-          ],
-        )
-            : Form(
+          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          : SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
           key: _formKey,
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               TextFormField(
                 controller: usernameController,
                 focusNode: usernameFocusNode,
-                decoration: customInputDecoration(
-                    'Username', usernameFocusNode),
-                cursorColor: Colors.black,
-                validator: (value) =>
-                value == null || value.isEmpty
-                    ? 'Required'
-                    : null,
+                decoration: customInputDecoration('Username', usernameFocusNode),
+                validator: (value) => value == null || value.isEmpty ? 'Required' : null,
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: emailController,
                 focusNode: emailFocusNode,
-                decoration: customInputDecoration(
-                    'Email', emailFocusNode),
+                decoration: customInputDecoration('Email', emailFocusNode),
                 keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Required';
-                  }
-                  if (!value.contains('@')) {
-                    return 'Please enter a valid email';
-                  }
-                  return null;
-                },
+                validator: (value) => (value == null || !value.contains('@')) ? 'Invalid email' : null,
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: passwordController,
                 focusNode: passwordFocusNode,
-                decoration: customInputDecoration(
-                    'Password', passwordFocusNode),
+                decoration: customInputDecoration('Password', passwordFocusNode),
                 obscureText: true,
-                validator: (value) =>
-                value == null || value.length < 6
-                    ? 'Min 6 chars'
-                    : null,
+                validator: (value) => (value == null || value.length < 6) ? 'Min 6 chars' : null,
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: confirmPasswordController,
                 focusNode: confirmPasswordFocusNode,
-                decoration: customInputDecoration(
-                    'Confirm Password', confirmPasswordFocusNode),
+                decoration: customInputDecoration('Confirm Password', confirmPasswordFocusNode),
                 obscureText: true,
-                validator: (value) =>
-                value != passwordController.text
-                    ? 'Passwords do not match'
-                    : null,
+                validator: (value) => value != passwordController.text ? 'Passwords do not match' : null,
               ),
-              const SizedBox(height: 16),
-              const Text('Date of Birth:'),
+              const SizedBox(height: 32),
+              const Align(alignment: Alignment.centerLeft, child: Text('Date of Birth', style: TextStyle(fontWeight: FontWeight.bold))),
+              const SizedBox(height: 12),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  DropdownButton<String>(
-                    dropdownColor: Colors.white,
-                    hint: const Text('Year'),
-                    value: selectedYear,
-                    items: years
-                        .map((e) => DropdownMenuItem(
-                        value: e, child: Text(e)))
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => selectedYear = value),
-                  ),
-                  DropdownButton<String>(
-                    dropdownColor: Colors.white,
-                    hint: const Text('Month'),
-                    value: selectedMonth,
-                    items: months
-                        .map((e) => DropdownMenuItem(
-                        value: e, child: Text(e)))
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => selectedMonth = value),
-                  ),
-                  DropdownButton<String>(
-                    dropdownColor: Colors.white,
-                    hint: const Text('Day'),
-                    value: selectedDay,
-                    items: days
-                        .map((e) => DropdownMenuItem(
-                        value: e, child: Text(e)))
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => selectedDay = value),
-                  ),
+                  _buildDropdown('Year', years, selectedYear, (v) => setState(() => selectedYear = v)),
+                  _buildDropdown('Month', months, selectedMonth, (v) => setState(() => selectedMonth = v)),
+                  _buildDropdown('Day', days, selectedDay, (v) => setState(() => selectedDay = v)),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 48),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
-                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.black,
+                  minimumSize: const Size(double.infinity, 55),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: validateAndProceed,
-                child: const Text('Next'),
+                onPressed: _handleSignup,
+                child: const Text('Verify & Create Account', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdown(String hint, List<String> items, String? value, ValueChanged<String?> onChanged) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          hint: Text(hint),
+          value: value,
+          items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          onChanged: onChanged,
         ),
       ),
     );

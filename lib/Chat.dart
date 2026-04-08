@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'LinkedFriends.dart';
+import 'friend_request_service.dart';
+import 'user_service.dart';
 import 'AddToDaily.dart';
+import 'ChatScreen.dart';
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -10,12 +12,12 @@ class ChatWidget extends StatefulWidget {
 }
 
 class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMixin {
-  List<LinkedFriend> _linkedFriends = [];
-  List<LinkedFriend> _filteredFriends = [];
-  Set<String> _pinnedFriends = {}; // Track pinned friends by name
-  VoidCallback? _linkedFriendsListener;
+  List<FriendRequest> _acceptedFriends = [];
+  List<FriendRequest> _filteredFriends = [];
+  Set<String> _pinnedFriends = {}; // Track pinned friends by userId
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  final FriendRequestService _friendRequestService = FriendRequestService();
 
   @override
   bool get wantKeepAlive => true;
@@ -23,56 +25,30 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
   @override
   void initState() {
     super.initState();
-    _loadLinkedFriends();
-
-    _linkedFriendsListener = () {
-      if (mounted) {
-        setState(() {
-          // Only show accepted friends in chat
-          _linkedFriends = LinkedFriends.acceptedFriends;
-          _sortAndFilterFriends();
-        });
-      }
-    };
-
-    LinkedFriends.addListener(_linkedFriendsListener!);
-
-    // Listen to search input
     _searchController.addListener(_filterFriends);
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    if (_linkedFriendsListener != null) {
-      LinkedFriends.removeListener(_linkedFriendsListener!);
-    }
     super.dispose();
-  }
-
-  Future<void> _loadLinkedFriends() async {
-    await LinkedFriends.loadFromStorage();
-
-    // Auto-accept all pending friends (temporary fix for existing data)
-    // TODO: Remove this once you have proper acceptance flow with database
-    final pendingFriends = LinkedFriends.pendingRequests;
-    for (var friend in pendingFriends) {
-      await LinkedFriends.acceptLinkRequest(friend.name);
-    }
-
-    if (mounted) {
-      setState(() {
-        // Only show accepted friends
-        _linkedFriends = LinkedFriends.acceptedFriends;
-        _sortAndFilterFriends();
-      });
-    }
   }
 
   void _sortAndFilterFriends() {
     // Sort friends: pinned ones first, then others
-    final pinnedList = _linkedFriends.where((f) => _pinnedFriends.contains(f.name)).toList();
-    final unpinnedList = _linkedFriends.where((f) => !_pinnedFriends.contains(f.name)).toList();
+    final pinnedList = _acceptedFriends.where((f) {
+      final friendUserId = f.fromUserId == _friendRequestService.currentUserId
+          ? f.toUserId
+          : f.fromUserId;
+      return _pinnedFriends.contains(friendUserId);
+    }).toList();
+
+    final unpinnedList = _acceptedFriends.where((f) {
+      final friendUserId = f.fromUserId == _friendRequestService.currentUserId
+          ? f.toUserId
+          : f.fromUserId;
+      return !_pinnedFriends.contains(friendUserId);
+    }).toList();
 
     _filteredFriends = [...pinnedList, ...unpinnedList];
   }
@@ -84,24 +60,38 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
         _sortAndFilterFriends();
       } else {
         // Filter and maintain pin order
-        final filtered = _linkedFriends.where((friend) {
-          return friend.name.toLowerCase().contains(query);
+        final filtered = _acceptedFriends.where((friend) {
+          final friendName = friend.fromUserId == _friendRequestService.currentUserId
+              ? friend.toUsername
+              : friend.fromUsername;
+          return friendName.toLowerCase().contains(query);
         }).toList();
 
-        final pinnedFiltered = filtered.where((f) => _pinnedFriends.contains(f.name)).toList();
-        final unpinnedFiltered = filtered.where((f) => !_pinnedFriends.contains(f.name)).toList();
+        final pinnedFiltered = filtered.where((f) {
+          final friendUserId = f.fromUserId == _friendRequestService.currentUserId
+              ? f.toUserId
+              : f.fromUserId;
+          return _pinnedFriends.contains(friendUserId);
+        }).toList();
+
+        final unpinnedFiltered = filtered.where((f) {
+          final friendUserId = f.fromUserId == _friendRequestService.currentUserId
+              ? f.toUserId
+              : f.fromUserId;
+          return !_pinnedFriends.contains(friendUserId);
+        }).toList();
 
         _filteredFriends = [...pinnedFiltered, ...unpinnedFiltered];
       }
     });
   }
 
-  void _togglePin(String friendName) {
+  void _togglePin(String friendUserId) {
     setState(() {
-      if (_pinnedFriends.contains(friendName)) {
-        _pinnedFriends.remove(friendName);
+      if (_pinnedFriends.contains(friendUserId)) {
+        _pinnedFriends.remove(friendUserId);
       } else {
-        _pinnedFriends.add(friendName);
+        _pinnedFriends.add(friendUserId);
       }
       _sortAndFilterFriends();
     });
@@ -119,7 +109,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // IMPORTANT: Call super.build for AutomaticKeepAliveClientMixin
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -164,235 +154,250 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
           ),
         ],
       ),
-      body: _filteredFriends.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _isSearching ? Icons.search_off : Icons.chat_bubble_outline,
-              size: 80,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _isSearching ? 'No Results Found' : 'No Linked Friends Yet',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                _isSearching
-                    ? 'Try searching for a different name'
-                    : 'Link friends from Search to start chatting',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
-        ),
-      )
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _filteredFriends.length,
-        itemBuilder: (context, index) {
-          final friend = _filteredFriends[index];
-          final isPinned = _pinnedFriends.contains(friend.name);
+      body: StreamBuilder<List<FriendRequest>>(
+        stream: _friendRequestService.getAcceptedFriends(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.cyan),
+            );
+          }
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: isPinned ? Colors.cyan : Colors.grey[300]!,
-                  width: isPinned ? 2 : 1,
-                ),
-              ),
-              leading: Stack(
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('Error: ${snapshot.error}'),
+            );
+          }
+
+          _acceptedFriends = snapshot.data ?? [];
+          _sortAndFilterFriends();
+
+          if (_filteredFriends.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      shape: BoxShape.circle,
-                    ),
-                    child: ClipOval(
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Head circle
-                          Positioned(
-                            top: 12,
-                            child: Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ),
-                          // Body/shoulders
-                          Positioned(
-                            bottom: -6,
-                            child: Container(
-                              width: 44,
-                              height: 26,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[600],
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(22),
-                                  topRight: Radius.circular(22),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  Icon(
+                    _isSearching ? Icons.search_off : Icons.chat_bubble_outline,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isSearching ? 'No Results Found' : 'No Friends Yet',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
                     ),
                   ),
-                  if (isPinned)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Colors.cyan,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.push_pin,
-                          size: 12,
-                          color: Colors.white,
-                        ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    child: Text(
+                      _isSearching
+                          ? 'Try searching for a different name'
+                          : 'Add friends from Search to start chatting',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
                       ),
+                      textAlign: TextAlign.center,
                     ),
+                  ),
                 ],
               ),
-              title: Text(
-                friend.name,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              subtitle: Text(
-                'Linked ${_formatDate(friend.linkedDate)}',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[600],
-                ),
-              ),
-              trailing: PopupMenuButton<String>(
-                icon: Icon(
-                  Icons.more_vert,
-                  color: Colors.grey[600],
-                  size: 24,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                onSelected: (value) {
-                  if (value == 'pin') {
-                    _togglePin(friend.name);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isPinned
-                              ? '${friend.name} unpinned!'
-                              : '${friend.name} pinned!',
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _filteredFriends.length,
+            itemBuilder: (context, index) {
+              final friendRequest = _filteredFriends[index];
+              final isCurrentUserSender = friendRequest.fromUserId == _friendRequestService.currentUserId;
+              final friendName = isCurrentUserSender
+                  ? friendRequest.toUsername
+                  : friendRequest.fromUsername;
+              final friendUserId = isCurrentUserSender
+                  ? friendRequest.toUserId
+                  : friendRequest.fromUserId;
+              final isPinned = _pinnedFriends.contains(friendUserId);
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: isPinned ? Colors.cyan : Colors.grey[300]!,
+                      width: isPinned ? 2 : 1,
+                    ),
+                  ),
+                  leading: Stack(
+                    children: [
+                      Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: Colors.cyan.withOpacity(0.2),
+                          shape: BoxShape.circle,
                         ),
-                        duration: const Duration(seconds: 2),
+                        child: ClipOval(
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Positioned(
+                                top: 12,
+                                child: Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.cyan[700],
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: -6,
+                                child: Container(
+                                  width: 44,
+                                  height: 26,
+                                  decoration: BoxDecoration(
+                                    color: Colors.cyan[700],
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(22),
+                                      topRight: Radius.circular(22),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    );
-                  } else if (value == 'add_to_daily') {
+                      if (isPinned)
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: const BoxDecoration(
+                              color: Colors.cyan,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.push_pin,
+                              size: 12,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  title: Text(
+                    friendName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Friends on Kaidose',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.more_vert,
+                      color: Colors.grey[600],
+                      size: 24,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    onSelected: (value) {
+                      if (value == 'pin') {
+                        _togglePin(friendUserId);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              isPinned
+                                  ? '$friendName unpinned!'
+                                  : '$friendName pinned!',
+                            ),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      } else if (value == 'add_to_daily') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => AddToDailyScreen(friendName: friendName),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (BuildContext context) => [
+                      PopupMenuItem<String>(
+                        value: 'pin',
+                        child: Row(
+                          children: [
+                            Icon(
+                              isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                              size: 20,
+                              color: Colors.black87,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              isPinned ? 'Unpin' : 'Pin',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'add_to_daily',
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_circle_outline, size: 20, color: Colors.black87),
+                            SizedBox(width: 12),
+                            Text(
+                              'Add to Daily',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => AddToDailyScreen(friendName: friend.name),
+                        builder: (context) => ChatScreen(
+                          friendUserId: friendUserId,
+                          friendUsername: friendName,
+                        ),
                       ),
                     );
-                  }
-                },
-                itemBuilder: (BuildContext context) => [
-                  PopupMenuItem<String>(
-                    value: 'pin',
-                    child: Row(
-                      children: [
-                        Icon(
-                          isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                          size: 20,
-                          color: Colors.black87,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          isPinned ? 'Unpin' : 'Pin',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem<String>(
-                    value: 'add_to_daily',
-                    child: Row(
-                      children: [
-                        Icon(Icons.add_circle_outline, size: 20, color: Colors.black87),
-                        SizedBox(width: 12),
-                        Text(
-                          'Add to Daily',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              onTap: () {
-                // TODO: Open chat with this friend
-                print('Open chat with ${friend.name}');
-              },
-            ),
+                  },
+                ),
+              );
+            },
           );
         },
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inDays == 0) {
-      return 'today';
-    } else if (difference.inDays == 1) {
-      return 'yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else if (difference.inDays < 30) {
-      final weeks = (difference.inDays / 7).floor();
-      return weeks == 1 ? '1 week ago' : '$weeks weeks ago';
-    } else {
-      final months = (difference.inDays / 30).floor();
-      return months == 1 ? '1 month ago' : '$months months ago';
-    }
   }
 }

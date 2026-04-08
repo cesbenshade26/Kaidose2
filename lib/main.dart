@@ -1,45 +1,43 @@
-// main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'OpeningScreen.dart';
 import 'UserAccount.dart';
+import 'EmailVerificationScreen.dart';
+import 'ForgotPasswordScreen.dart';
+import 'NotificationScreen.dart';
 
 void main() async {
-  // Ensure Flutter is ready before calling Firebase
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    // Check if Firebase is already initialized to prevent [core/duplicate-app]
-    if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-      print("Firebase initialized successfully");
-    }
-  } catch (e) {
-    print("Firebase initialization error: $e");
-  }
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  runApp(const KaidoseApp());
+    // --- FOR TESTING ONLY ---
+    // Force a fresh start by ignoring any saved sessions
+    Widget initialScreen = const OpeningScreen();
+
+    runApp(KaidoseApp(startScreen: initialScreen));
+  } catch (e) {
+    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Error: $e")))));
+  }
 }
 
 class KaidoseApp extends StatelessWidget {
-  const KaidoseApp({super.key});
+  final Widget startScreen;
+  const KaidoseApp({super.key, required this.startScreen});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Kaidose',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        scaffoldBackgroundColor: Colors.white,
-      ),
-      initialRoute: '/',
+      home: startScreen,
       routes: {
-        '/': (context) => const OpeningScreen(),
+        '/opening': (context) => const OpeningScreen(),
         '/user-account': (context) => const UserAccount(),
+        '/verify-email': (context) => const EmailVerificationScreen(),
+        '/forgot-password': (context) => const ForgotPasswordScreen(),
+        '/notifications': (context) => const NotificationsScreen(),
       },
     );
   }

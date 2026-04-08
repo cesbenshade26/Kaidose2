@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'Customization.dart'; // Import the new Customization screen
-import 'SecurityInfo.dart'; // Import the Security Info screen
+import 'Customization.dart';
+import 'SecurityInfo.dart';
+import 'auth_service.dart';
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -105,6 +106,67 @@ class ProfileSettingsSection extends StatelessWidget {
                 builder: (context) => const SecurityInfoScreen(),
               ),
             );
+          },
+        ),
+        const Divider(
+          color: Colors.grey,
+          thickness: 0.5,
+        ),
+        // Logout Option
+        ListTile(
+          leading: const Icon(
+            Icons.logout,
+            color: Colors.red,
+            size: 28,
+          ),
+          title: const Text(
+            'Logout',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Colors.red,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right,
+            color: Colors.red,
+          ),
+          onTap: () async {
+            // Show confirmation dialog
+            final shouldLogout = await showDialog<bool>(
+              context: context,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  title: const Text('Logout'),
+                  content: const Text('Are you sure you want to logout?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
+                      child: const Text('Logout'),
+                    ),
+                  ],
+                );
+              },
+            );
+
+            if (shouldLogout == true && context.mounted) {
+              // Logout from Firebase
+              await AuthService().logout();
+
+              // Navigate to opening screen and remove all previous routes
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                '/opening',
+                    (route) => false,
+              );
+            }
           },
         ),
         const Divider(

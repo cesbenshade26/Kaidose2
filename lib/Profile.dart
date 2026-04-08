@@ -13,6 +13,10 @@ import 'Bio.dart';
 import 'UserActivity.dart';
 import 'ClipsActivity.dart';
 import 'Archives.dart';
+import 'NotificationScreen.dart';
+import 'friend_request_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ProfileWidget extends StatefulWidget {
   const ProfileWidget({Key? key}) : super(key: key);
@@ -139,9 +143,19 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     _textColor = BioManager.globalColor;
   }
 
-  void _loadUsernameData() {
-    _username = UserManager.globalUsername;
-    print('Username loaded in ProfileWidget: "$_username"');
+  void _loadUsernameData() async {
+    String? uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (uid != null) {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+
+      if (userDoc.exists && mounted) {
+        setState(() {
+          _username = userDoc.data()?['username'] ?? "No Name";
+          _bio = userDoc.data()?['bio'] ?? "";
+        });
+      }
+    }
   }
 
   void _loadFollowersData() {
@@ -582,6 +596,75 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Container(color: Colors.white),
           ),
           const ProfileWidget(),
+
+          // Notification Bell (Top Left)
+          Positioned(
+            top: 50,
+            left: 16,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.8),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    spreadRadius: 1,
+                    blurRadius: 3,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const NotificationsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  StreamBuilder<int>(
+                    stream: FriendRequestService().getIncomingRequestCount(),
+                    builder: (context, snapshot) {
+                      final count = snapshot.data ?? 0;
+                      if (count == 0) return const SizedBox();
+
+                      return Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Settings Button (Top Right)
           Positioned(
             top: 50,
             right: 16,

@@ -1,7 +1,6 @@
-// OpeningScreen.dart
-import 'UserAccount.dart';
 import 'package:flutter/material.dart';
 import 'CreateAccount.dart';
+import 'ForgotPasswordScreen.dart';
 import 'auth_service.dart';
 
 class OpeningScreen extends StatefulWidget {
@@ -12,14 +11,11 @@ class OpeningScreen extends StatefulWidget {
   State<OpeningScreen> createState() => _OpeningScreenState();
 }
 
-class _OpeningScreenState extends State<OpeningScreen>
-    with TickerProviderStateMixin {
+class _OpeningScreenState extends State<OpeningScreen> with TickerProviderStateMixin {
   late AnimationController _drawController;
   late Animation<double> _drawProgress;
-
   late AnimationController _formController;
   late Animation<double> _formOpacity;
-
   late AnimationController _fadeController;
   late Animation<double> _fadeOpacity;
 
@@ -28,7 +24,6 @@ class _OpeningScreenState extends State<OpeningScreen>
   bool moveToTop = false;
   bool showForm = false;
   bool isCheckingLoginState = true;
-  bool shouldGoToHome = false;
 
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -66,27 +61,22 @@ class _OpeningScreenState extends State<OpeningScreen>
       CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
     );
 
-    _checkLoginStateAndInitialize();
+    _initializeScreen();
   }
 
-  Future<void> _checkLoginStateAndInitialize() async {
-    // Check if user is already logged in with Firebase
-    bool loggedIn = _authService.isLoggedIn;
-
+  void _initializeScreen() {
+    // For testing: we ignore previous login sessions to always show the form
     setState(() {
       isCheckingLoginState = false;
-      shouldGoToHome = loggedIn;
     });
 
     if (widget.skipAnimation) {
-      if (shouldGoToHome) {
-        Navigator.pushReplacementNamed(context, '/user-account');
-      } else {
+      setState(() {
         moveToTop = true;
         showForm = true;
-        _drawController.forward();
-        _formController.forward();
-      }
+      });
+      _drawController.value = 1.0;
+      _formController.value = 1.0;
     } else {
       _startAnimation();
     }
@@ -98,18 +88,12 @@ class _OpeningScreenState extends State<OpeningScreen>
         moveToTop = true;
       });
 
-      await Future.delayed(const Duration(milliseconds: 2000));
+      await Future.delayed(const Duration(milliseconds: 1500));
 
-      if (shouldGoToHome) {
-        _fadeController.forward().whenComplete(() {
-          Navigator.pushReplacementNamed(context, '/user-account');
-        });
-      } else {
-        setState(() {
-          showForm = true;
-        });
-        _formController.forward();
-      }
+      setState(() {
+        showForm = true;
+      });
+      _formController.forward();
     });
   }
 
@@ -160,24 +144,10 @@ class _OpeningScreenState extends State<OpeningScreen>
 
   @override
   Widget build(BuildContext context) {
-    const titleText = 'Kaidose';
-    const slackeyStyle = TextStyle(
-      fontFamily: 'Slackey',
-      fontSize: 64,
-      color: Colors.cyan,
-    );
-    const formTitleStyle = TextStyle(
-      fontFamily: 'Slackey',
-      fontSize: 24,
-      color: Colors.cyan,
-    );
-
     if (isCheckingLoginState) {
       return const Scaffold(
         backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Colors.cyan)),
       );
     }
 
@@ -186,6 +156,7 @@ class _OpeningScreenState extends State<OpeningScreen>
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
+          // The Animated Title
           AnimatedPositioned(
             duration: const Duration(seconds: 2),
             curve: Curves.easeInOut,
@@ -202,7 +173,14 @@ class _OpeningScreenState extends State<OpeningScreen>
                       child: Align(
                         alignment: Alignment.centerLeft,
                         widthFactor: _drawProgress.value,
-                        child: Text(titleText, style: slackeyStyle),
+                        child: const Text(
+                          'Kaidose',
+                          style: TextStyle(
+                            fontFamily: 'Slackey',
+                            fontSize: 64,
+                            color: Colors.cyan,
+                          ),
+                        ),
                       ),
                     ),
                   );
@@ -211,6 +189,7 @@ class _OpeningScreenState extends State<OpeningScreen>
             ),
           ),
 
+          // The Login Form
           if (showForm)
             FadeTransition(
               opacity: _formOpacity,
@@ -221,111 +200,83 @@ class _OpeningScreenState extends State<OpeningScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 16.0),
-                        child: Text(
-                          'Login to Kaidose',
-                          style: formTitleStyle,
+                      const Text(
+                        'Login to Kaidose',
+                        style: TextStyle(
+                          fontFamily: 'Slackey',
+                          fontSize: 24,
+                          color: Colors.cyan,
                         ),
                       ),
+                      const SizedBox(height: 24),
 
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 40),
-                        child: TextField(
-                          controller: _usernameController,
-                          cursorColor: Colors.black,
-                          decoration: InputDecoration(
-                            hintText: 'Username or Email',
-                            focusedBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Colors.black,
-                                )),
-                            border: OutlineInputBorder(
-                              borderSide: BorderSide(
-                                color: Colors.black,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
+                      _buildTextField(_usernameController, 'Username or Email', false),
+                      const SizedBox(height: 16),
+                      _buildTextField(_passwordController, 'Password', true),
 
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 40),
-                        child: TextField(
-                          controller: _passwordController,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            hintText: 'Password',
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(
-                                color: Colors.black,
-                              ),
+                      // Forgot Password Link
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 45.0, top: 8.0),
+                          child: GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
                             ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                            child: const Text(
+                              'Forgot password?',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                                decoration: TextDecoration.underline,
+                              ),
                             ),
                           ),
                         ),
                       ),
 
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 24),
 
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueAccent),
+                            backgroundColor: Colors.blueAccent,
+                            minimumSize: const Size(double.infinity, 50),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
                           onPressed: _attemptLogin,
-                          child: const Text('Login',
-                              style: TextStyle(color: Colors.white)),
+                          child: const Text('Login', style: TextStyle(color: Colors.white)),
                         ),
                       ),
 
-                      if (loginError.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          loginError,
-                          style: const TextStyle(color: Colors.red),
+                      if (loginError.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12.0),
+                          child: Text(loginError, style: const TextStyle(color: Colors.red)),
                         ),
-                      ],
 
                       const SizedBox(height: 20),
-
-                      const Divider(
-                        color: Colors.grey,
-                        thickness: 1,
-                        indent: 40,
-                        endIndent: 40,
-                      ),
-
+                      const Divider(color: Colors.grey, thickness: 1, indent: 40, endIndent: 40),
                       const SizedBox(height: 20),
 
-                      TextButton(
-                        onPressed: () {
-                          // TODO: Add forgot password functionality
-                        },
-                        child: const Text(
-                          'Forgot password?',
-                          style: TextStyle(color: Colors.blue),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            minimumSize: const Size(double.infinity, 50),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const CreateAccount()),
+                            );
+                          },
+                          child: const Text('Create Account', style: TextStyle(color: Colors.white)),
                         ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => const CreateAccount()),
-                          );
-                        },
-                        child: const Text('Create Account',
-                            style: TextStyle(color: Colors.white)),
                       ),
                     ],
                   ),
@@ -333,6 +284,28 @@ class _OpeningScreenState extends State<OpeningScreen>
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController controller, String hint, bool obscure) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40),
+      child: TextField(
+        controller: controller,
+        obscureText: obscure,
+        cursorColor: Colors.black,
+        decoration: InputDecoration(
+          hintText: hint,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          focusedBorder: OutlineInputBorder(
+            borderSide: const BorderSide(color: Colors.black),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
       ),
     );
   }

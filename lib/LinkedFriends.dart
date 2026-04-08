@@ -162,20 +162,39 @@ class LinkedFriends {
     }
   }
 
-  // Check if a friend is linked (and accepted)
+  // Check if a friend is linked (and accepted) by name
   static bool isLinked(String name) {
     return _linkedFriends.any((f) => f.name == name && f.status == LinkStatus.accepted);
   }
 
-  // Check if there's a pending request for this friend
+  // Check if there's a pending request for this friend by name
   static bool isPending(String name) {
     return _linkedFriends.any((f) => f.name == name && f.status == LinkStatus.pending);
   }
 
-  // Get a specific linked friend
+  // Check if a friend is linked by userId (for Firebase users)
+  static bool isLinkedByUserId(String userId) {
+    return _linkedFriends.any((f) => f.userId == userId && f.status == LinkStatus.accepted);
+  }
+
+  // Check if there's a pending request by userId (for Firebase users)
+  static bool isPendingByUserId(String userId) {
+    return _linkedFriends.any((f) => f.userId == userId && f.status == LinkStatus.pending);
+  }
+
+  // Get a specific linked friend by name
   static LinkedFriend? getLinkedFriend(String name) {
     try {
       return _linkedFriends.firstWhere((f) => f.name == name);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Get a specific linked friend by userId
+  static LinkedFriend? getLinkedFriendByUserId(String userId) {
+    try {
+      return _linkedFriends.firstWhere((f) => f.userId == userId);
     } catch (e) {
       return null;
     }
