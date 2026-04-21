@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'chat_reactions.dart';
 
 enum MessageType {
   chat,        // 1-on-1 chat between friends
@@ -15,7 +16,9 @@ class Message {
   final DateTime timestamp;
   final bool read;
   final MessageType type;
-  final Map<String, dynamic>? metadata; // For extra data like daily info, attachments, etc.
+  final Map<String, dynamic>? metadata;
+  final String? parentMessageId; // NEW
+  final String? parentText;      // NEW
 
   Message({
     required this.id,
@@ -26,6 +29,8 @@ class Message {
     this.read = false,
     required this.type,
     this.metadata,
+    this.parentMessageId, // Added to constructor
+    this.parentText,      // Added to constructor
   });
 
   factory Message.fromFirestore(DocumentSnapshot doc) {
@@ -42,6 +47,8 @@ class Message {
         orElse: () => MessageType.chat,
       ),
       metadata: data['metadata'] as Map<String, dynamic>?,
+      parentMessageId: data['parentMessageId'], // Map from Firestore
+      parentText: data['parentText'],           // Map from Firestore
     );
   }
 
@@ -54,6 +61,8 @@ class Message {
       'read': read,
       'type': type.toString().split('.').last,
       'metadata': metadata,
+      'parentMessageId': parentMessageId, // Save to Firestore
+      'parentText': parentText,           // Save to Firestore
     };
   }
 }
@@ -64,19 +73,18 @@ class MessageService {
 
   String? get currentUserId => _auth.currentUser?.uid;
 
-  // ==================== CHAT MESSAGES (1-on-1) ====================
-
-  // Generate conversation ID for 1-on-1 chat (alphabetically sorted)
   String getChatConversationId(String userId1, String userId2) {
     final sortedIds = [userId1, userId2]..sort();
     return '${sortedIds[0]}_${sortedIds[1]}';
   }
 
-  // Send a chat message (1-on-1)
+  // UPDATED: Added parent parameters to allow replies
   Future<bool> sendChatMessage({
     required String recipientUserId,
     required String text,
     required String senderUsername,
+    String? parentMessageId,
+    String? parentText,
     Map<String, dynamic>? metadata,
   }) async {
     try {
@@ -94,6 +102,8 @@ class MessageService {
         read: false,
         type: MessageType.chat,
         metadata: metadata,
+        parentMessageId: parentMessageId,
+        parentText: parentText,
       );
 
       await _firestore
@@ -102,7 +112,6 @@ class MessageService {
           .collection('messages')
           .add(message.toJson());
 
-      // Update conversation metadata (last message, timestamp)
       await _firestore.collection('chats').doc(conversationId).set({
         'participants': [currentUid, recipientUserId],
         'lastMessage': text,
@@ -110,7 +119,6 @@ class MessageService {
         'lastMessageSender': currentUid,
       }, SetOptions(merge: true));
 
-      print('Chat message sent to $recipientUserId');
       return true;
     } catch (e) {
       print('Error sending chat message: $e');
@@ -118,11 +126,9 @@ class MessageService {
     }
   }
 
-  // Get chat messages stream (1-on-1)
   Stream<List<Message>> getChatMessages(String recipientUserId) {
     final currentUid = currentUserId;
     if (currentUid == null) return Stream.value([]);
-
     final conversationId = getChatConversationId(currentUid, recipientUserId);
 
     return _firestore
@@ -136,12 +142,10 @@ class MessageService {
     });
   }
 
-  // Mark chat messages as read
   Future<void> markChatMessagesAsRead(String recipientUserId) async {
     try {
       final currentUid = currentUserId;
       if (currentUid == null) return;
-
       final conversationId = getChatConversationId(currentUid, recipientUserId);
 
       final unreadMessages = await _firestore
@@ -156,13 +160,78 @@ class MessageService {
         await doc.reference.update({'read': true});
       }
     } catch (e) {
-      print('Error marking chat messages as read: $e');
+      print('Error marking messages as read: $e');
     }
   }
 
-  // ==================== DAILY MESSAGES ====================
+  // UPDATED: Removed change/remove logic. User is now "stuck" with the reaction.
+  Future<bool> addReaction({
+    required String recipientUserId,
+    required String messageId,
+    required String emoji,
+    required String username,
+  }) async {
+    try {
+      final currentUid = currentUserId;
+      if (currentUid == null) return false;
 
-  // Send a daily message
+      final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+      final existingReactions = await _firestore
+          .collection('chats')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .collection('reactions')
+          .doc(currentUid)
+          .get();
+
+      if (existingReactions.exists) return false;
+
+      final reaction = {
+        'emoji': emoji,
+        'user_id': currentUid,
+        'username': username,
+        'timestamp': FieldValue.serverTimestamp(),
+      };
+
+      await _firestore
+          .collection('chats')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .collection('reactions')
+          .doc(currentUid)
+          .set(reaction);
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Stream<List<ChatReaction>> getMessageReactions({
+    required String recipientUserId,
+    required String messageId,
+  }) {
+    final currentUid = currentUserId;
+    if (currentUid == null) return Stream.value([]);
+    final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+    return _firestore
+        .collection('chats')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .collection('reactions')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => ChatReaction.fromJson(doc.data())).toList();
+    });
+  }
+
+  // ==================== DAILY MESSAGES (Included for completeness) ====================
+
   Future<bool> sendDailyMessage({
     required String dailyId,
     required String text,
@@ -190,22 +259,12 @@ class MessageService {
           .collection('messages')
           .add(message.toJson());
 
-      // Update daily metadata
-      await _firestore.collection('dailies').doc(dailyId).set({
-        'lastMessage': text,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'lastMessageSender': currentUid,
-      }, SetOptions(merge: true));
-
-      print('Daily message sent to daily $dailyId');
       return true;
     } catch (e) {
-      print('Error sending daily message: $e');
       return false;
     }
   }
 
-  // Get daily messages stream
   Stream<List<Message>> getDailyMessages(String dailyId) {
     return _firestore
         .collection('dailies')
@@ -218,12 +277,10 @@ class MessageService {
     });
   }
 
-  // Mark daily messages as read
   Future<void> markDailyMessagesAsRead(String dailyId) async {
     try {
       final currentUid = currentUserId;
       if (currentUid == null) return;
-
       final unreadMessages = await _firestore
           .collection('dailies')
           .doc(dailyId)
@@ -236,13 +293,10 @@ class MessageService {
         await doc.reference.update({'read': true});
       }
     } catch (e) {
-      print('Error marking daily messages as read: $e');
+      print(e);
     }
   }
 
-  // ==================== UTILITY METHODS ====================
-
-  // Delete a message (works for both chat and daily)
   Future<bool> deleteMessage({
     required String messageId,
     required String conversationId,
@@ -250,22 +304,18 @@ class MessageService {
   }) async {
     try {
       final collection = type == MessageType.daily ? 'dailies' : 'chats';
-
       await _firestore
           .collection(collection)
           .doc(conversationId)
           .collection('messages')
           .doc(messageId)
           .delete();
-
       return true;
     } catch (e) {
-      print('Error deleting message: $e');
       return false;
     }
   }
 
-  // Get unread message count for a conversation
   Future<int> getUnreadCount({
     required String conversationId,
     required MessageType type,
@@ -273,7 +323,6 @@ class MessageService {
     try {
       final currentUid = currentUserId;
       if (currentUid == null) return 0;
-
       final collection = type == MessageType.daily ? 'dailies' : 'chats';
 
       final unreadMessages = await _firestore
@@ -286,7 +335,6 @@ class MessageService {
 
       return unreadMessages.docs.length;
     } catch (e) {
-      print('Error getting unread count: $e');
       return 0;
     }
   }

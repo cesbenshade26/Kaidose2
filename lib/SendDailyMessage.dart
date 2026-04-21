@@ -4,39 +4,41 @@ import 'ArchiveStorage.dart';
 import 'SelectArchiveFolder.dart';
 import 'SavedItemStorage.dart';
 import 'MessageComments.dart';
+import 'chat_reactions.dart';
+import 'message_service.dart';
 import 'package:video_player/video_player.dart';
 import 'VideoClipPlayer.dart';
 
 class DailyMessage {
   final String? text;
   final String? imagePath;
-  final String? videoPath; // NEW: Support for video messages
+  final String? videoPath;
   final DateTime timestamp;
-  final String userId; // For future API integration
-  final String messageId; // For future API integration
-  final String dailyId; // ID of the daily this message belongs to
-  bool isLiked;
+  final String userId;
+  final String messageId;
+  final String dailyId;
   bool isSaved;
-  final bool isFromPrompt; // Track if message was from daily entry prompt
-  int likeCount; // Number of likes
+  final bool isFromPrompt;
+  List<ChatReaction> reactions;
+  final String? username; // NEW: Store username
 
   DailyMessage({
     this.text,
     this.imagePath,
-    this.videoPath, // NEW
+    this.videoPath,
     required this.timestamp,
     String? userId,
     String? messageId,
     String? dailyId,
-    this.isLiked = false,
     this.isSaved = false,
     this.isFromPrompt = false,
-    this.likeCount = 0,
-  })  : userId = userId ?? 'current_user', // Placeholder for current user
+    List<ChatReaction>? reactions,
+    this.username, // NEW
+  })  : userId = userId ?? 'current_user',
         messageId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        dailyId = dailyId ?? 'unknown_daily';
+        dailyId = dailyId ?? 'unknown_daily',
+        reactions = reactions ?? [];
 
-  // For future API integration - convert to JSON
   Map<String, dynamic> toJson() {
     return {
       'message_id': messageId,
@@ -44,57 +46,58 @@ class DailyMessage {
       'daily_id': dailyId,
       'text': text,
       'image_path': imagePath,
-      'video_path': videoPath, // NEW
+      'video_path': videoPath,
       'timestamp': timestamp.toIso8601String(),
-      'is_liked': isLiked,
       'is_saved': isSaved,
       'is_from_prompt': isFromPrompt,
-      'like_count': likeCount,
+      'reactions': reactions.map((r) => r.toJson()).toList(),
+      'username': username, // NEW
     };
   }
 
-  // For future API integration - create from JSON
   factory DailyMessage.fromJson(Map<String, dynamic> json) {
     return DailyMessage(
       text: json['text'],
       imagePath: json['image_path'],
-      videoPath: json['video_path'], // NEW
+      videoPath: json['video_path'],
       timestamp: DateTime.parse(json['timestamp']),
       userId: json['user_id'],
       messageId: json['message_id'],
       dailyId: json['daily_id'] ?? 'unknown_daily',
-      isLiked: json['is_liked'] ?? false,
       isSaved: json['is_saved'] ?? false,
       isFromPrompt: json['is_from_prompt'] ?? false,
-      likeCount: json['like_count'] ?? 0,
+      reactions: (json['reactions'] as List?)
+          ?.map((r) => ChatReaction.fromJson(r))
+          .toList() ?? [],
+      username: json['username'], // NEW
     );
   }
 
   bool get hasContent => (text != null && text!.trim().isNotEmpty) || imagePath != null || videoPath != null;
 
-  // Check if this message belongs to the current user
-  bool isFromCurrentUser() {
-    // TODO: Replace with actual current user ID from auth system
-    return userId == 'current_user';
-  }
+  bool isFromCurrentUser() => userId == 'current_user';
+
+  int get reactionCount => reactions.length;
+
+  bool get hasUserReacted => reactions.any((r) => r.userId == 'current_user');
 }
 
 class DailyMessageWidget extends StatefulWidget {
   final DailyMessage message;
   final bool isCurrentUser;
   final VoidCallback? onReply;
-  final Function(String)? onEdit; // Callback for editing message
-  final VoidCallback? onLikeToggle; // Callback when like is toggled
-  final VoidCallback? onSaveToggle; // Callback when save is toggled
+  final Function(String)? onEdit;
+  final VoidCallback? onSaveToggle;
+  final Function(String)? onReactionAdded;
 
   const DailyMessageWidget({
     Key? key,
     required this.message,
-    this.isCurrentUser = true, // Default to current user for now
+    this.isCurrentUser = true,
     this.onReply,
     this.onEdit,
-    this.onLikeToggle,
     this.onSaveToggle,
+    this.onReactionAdded,
   }) : super(key: key);
 
   @override
@@ -105,6 +108,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   bool _showOptionsMenu = false;
   bool _showComments = false;
   int _commentCount = 0;
+  final MessageService _messageService = MessageService();
 
   @override
   void initState() {
@@ -112,142 +116,171 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     _loadCommentCount();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   Future<void> _loadCommentCount() async {
     final count = await CommentStorage.getCommentCount(widget.message.messageId);
-    if (mounted) {
-      setState(() {
-        _commentCount = count;
-      });
-    }
+    if (mounted) setState(() => _commentCount = count);
   }
 
-  String _formatLikeCount(int count) {
-    if (count < 1000) return count.toString();
-    if (count < 1000000) {
-      final k = count / 1000;
-      if (k == k.floor()) return '${k.toInt()}k';
-      return '${k.toStringAsFixed(k < 10 ? 1 : 0)}k';
-    }
-    final m = count / 1000000;
-    return '${m.toInt()}m';
+  void _showReactionPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ReactionPicker(
+                  onReactionSelected: (emoji) {
+                    _addReaction(emoji);
+                    Navigator.pop(context);
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
-  void _toggleLike() {
+  void _addReaction(String emoji) {
     setState(() {
-      widget.message.isLiked = !widget.message.isLiked;
+      final currentUserId = 'current_user';
+      final existingIdx = widget.message.reactions.indexWhere(
+              (r) => r.userId == currentUserId
+      );
+
+      if (existingIdx != -1) {
+        final existingReaction = widget.message.reactions[existingIdx];
+        if (existingReaction.emoji == emoji) {
+          widget.message.reactions.removeAt(existingIdx);
+        } else {
+          widget.message.reactions[existingIdx] = ChatReaction(
+            emoji: emoji,
+            userId: currentUserId,
+            username: 'You',
+            timestamp: DateTime.now(),
+          );
+        }
+      } else {
+        widget.message.reactions.add(ChatReaction(
+          emoji: emoji,
+          userId: currentUserId,
+          username: 'You',
+          timestamp: DateTime.now(),
+        ));
+      }
     });
-    if (widget.onLikeToggle != null) {
-      widget.onLikeToggle!();
+
+    if (widget.onReactionAdded != null) {
+      widget.onReactionAdded!(emoji);
     }
-    // TODO: Send like status to API
-    print('Message ${widget.message.messageId} liked: ${widget.message.isLiked}');
+  }
+
+  void _toggleReaction(String emoji, List<ChatReaction> reactions) {
+    final currentUserId = 'current_user';
+    final userHasThisEmoji = reactions.any(
+            (r) => r.userId == currentUserId && r.emoji == emoji
+    );
+
+    if (userHasThisEmoji) {
+      setState(() {
+        widget.message.reactions.removeWhere(
+                (r) => r.userId == currentUserId && r.emoji == emoji
+        );
+      });
+    } else {
+      _addReaction(emoji);
+    }
+
+    if (widget.onReactionAdded != null) {
+      widget.onReactionAdded!(emoji);
+    }
   }
 
   void _toggleSave() async {
-    setState(() {
-      widget.message.isSaved = !widget.message.isSaved;
-    });
-
+    setState(() => widget.message.isSaved = !widget.message.isSaved);
     if (widget.message.isSaved) {
-      // Load archives to check how many exist
       await ArchiveStorage.loadFromStorage();
       final archives = ArchiveStorage.archives;
-
       if (archives.length == 1) {
-        // Only one archive, save directly
-        final SelectArchiveFolderScreen selector = SelectArchiveFolderScreen(message: widget.message);
-        // Auto-save to the only archive without showing selection screen
         await SavedItemStorage.saveItem(archives[0].id, widget.message);
-        print('Auto-saved to ${archives[0].name}');
-      } else {
-        // Multiple archives, show selection screen
-        if (context.mounted) {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SelectArchiveFolderScreen(message: widget.message),
-            ),
-          );
-        }
+      } else if (context.mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SelectArchiveFolderScreen(message: widget.message),
+          ),
+        );
       }
     }
-
-    if (widget.onSaveToggle != null) {
-      widget.onSaveToggle!();
-    }
-    // TODO: Send save status to API
-    print('Message ${widget.message.messageId} saved: ${widget.message.isSaved}');
+    if (widget.onSaveToggle != null) widget.onSaveToggle!();
   }
 
-  void _handleReply() {
-    setState(() {
-      _showComments = !_showComments;
-    });
-  }
+  void _handleReply() => setState(() => _showComments = !_showComments);
 
-  void _toggleOptionsMenu() {
-    setState(() {
-      _showOptionsMenu = !_showOptionsMenu;
-    });
-  }
-
-  void _handleEdit() {
-    setState(() {
-      _showOptionsMenu = false;
-    });
-    if (widget.onEdit != null) {
-      widget.onEdit!(widget.message.messageId);
-    }
-    // TODO: Implement edit functionality
-    print('Edit message ${widget.message.messageId}');
-  }
+  void _toggleOptionsMenu() => setState(() => _showOptionsMenu = !_showOptionsMenu);
 
   String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final difference = now.difference(timestamp);
-
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
-    } else {
-      // Format as date
-      return '${timestamp.month}/${timestamp.day}/${timestamp.year}';
-    }
+    final diff = DateTime.now().difference(timestamp);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${timestamp.month}/${timestamp.day}/${timestamp.year}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final messageWidth = screenWidth * 0.85;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Message container with card-like design
+          // Username label above message
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 4),
+            child: Text(
+              widget.message.username ?? (widget.isCurrentUser ? 'You' : 'Unknown'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
           Stack(
+            clipBehavior: Clip.none,
             children: [
               Container(
+                width: messageWidth,
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.cyan.withOpacity(0.3),
-                    width: 2,
-                  ),
+                  border: Border.all(color: Colors.cyan.withOpacity(0.3), width: 2),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.cyan.withOpacity(0.1),
                       blurRadius: 8,
-                      spreadRadius: 1,
                       offset: const Offset(0, 2),
                     ),
                   ],
@@ -255,42 +288,20 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Image if present
                     if (widget.message.imagePath != null)
                       ClipRRect(
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(14),
-                          topRight: Radius.circular(14),
-                        ),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                         child: Image.file(
                           File(widget.message.imagePath!),
-                          width: double.infinity,
+                          width: messageWidth,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              height: 200,
-                              color: Colors.grey[200],
-                              child: Center(
-                                child: Icon(
-                                  Icons.error_outline,
-                                  color: Colors.grey[400],
-                                  size: 48,
-                                ),
-                              ),
-                            );
-                          },
                         ),
                       ),
-
-                    // Video if present
                     if (widget.message.videoPath != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(widget.message.imagePath == null ? 14 : 0),
-                          topRight: Radius.circular(widget.message.imagePath == null ? 14 : 0),
-                        ),
+                      SizedBox(
+                        width: messageWidth,
                         child: AspectRatio(
-                          aspectRatio: 9 / 16, // Standard vertical video ratio
+                          aspectRatio: 9 / 16,
                           child: VideoClipPlayer(
                             videoFile: File(widget.message.videoPath!),
                             autoPlay: true,
@@ -299,11 +310,9 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                           ),
                         ),
                       ),
-
-                    // Text if present
-                    if (widget.message.text != null && widget.message.text!.trim().isNotEmpty)
+                    if (widget.message.text != null && widget.message.text!.isNotEmpty)
                       Padding(
-                        padding: EdgeInsets.all(widget.message.imagePath != null ? 16 : 16),
+                        padding: const EdgeInsets.all(16),
                         child: Text(
                           widget.message.text!,
                           style: const TextStyle(
@@ -314,108 +323,62 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                         ),
                       ),
 
-                    // Timestamp and action buttons bar at bottom
+                    if (widget.message.reactions.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: MessageReactionsDisplay(
+                          reactions: widget.message.reactions,
+                          currentUserId: 'current_user',
+                          onReactionTap: (emoji) => _toggleReaction(emoji, widget.message.reactions),
+                        ),
+                      ),
+
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         color: Colors.cyan.withOpacity(0.05),
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(14),
-                          bottomRight: Radius.circular(14),
-                        ),
+                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Timestamp
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.access_time,
-                                size: 13,
-                                color: Colors.grey[600],
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _formatTimestamp(widget.message.timestamp),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
+                          Text(
+                            _formatTimestamp(widget.message.timestamp),
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                           ),
-                          // Action buttons
                           Row(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              // Like button
                               GestureDetector(
-                                onTap: _toggleLike,
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        widget.message.isLiked ? Icons.favorite : Icons.favorite_border,
-                                        size: 20,
-                                        color: widget.message.isLiked ? Colors.red : Colors.grey[600],
-                                      ),
-                                      if (widget.message.likeCount > 0) ...[
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _formatLikeCount(widget.message.likeCount),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
+                                onTap: _showReactionPicker,
+                                child: Icon(
+                                  Icons.add_reaction_outlined,
+                                  size: 20,
+                                  color: Colors.grey[600],
                                 ),
                               ),
-                              const SizedBox(width: 4),
-                              // Comment button
+                              const SizedBox(width: 12),
                               GestureDetector(
                                 onTap: _handleReply,
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.comment_outlined,
-                                        size: 20,
-                                        color: Colors.grey[600],
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.comment_outlined, size: 20, color: Colors.grey[600]),
+                                    if (_commentCount > 0) ...[
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '$_commentCount',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                                       ),
-                                      if (_commentCount > 0) ...[
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '$_commentCount',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
                                     ],
-                                  ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 4),
-                              // Save button
+                              const SizedBox(width: 12),
                               GestureDetector(
                                 onTap: _toggleSave,
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  child: Icon(
-                                    widget.message.isSaved ? Icons.bookmark : Icons.bookmark_border,
-                                    size: 20,
-                                    color: widget.message.isSaved ? Colors.cyan : Colors.grey[600],
-                                  ),
+                                child: Icon(
+                                  widget.message.isSaved ? Icons.bookmark : Icons.bookmark_border,
+                                  size: 20,
+                                  color: widget.message.isSaved ? Colors.cyan : Colors.grey[600],
                                 ),
                               ),
                             ],
@@ -423,8 +386,6 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                         ],
                       ),
                     ),
-
-                    // Comments section (expandable, inside message card)
                     if (_showComments)
                       MessageCommentsSection(
                         messageId: widget.message.messageId,
@@ -433,85 +394,41 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                   ],
                 ),
               ),
-              // Three dots menu button (top right)
+
               Positioned(
                 top: 8,
                 right: 8,
-                child: GestureDetector(
-                  onTap: _toggleOptionsMenu,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.9),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.more_vert,
-                      size: 20,
-                      color: Colors.grey[700],
-                    ),
+                child: IconButton(
+                  icon: const CircleAvatar(
+                    backgroundColor: Colors.white,
+                    radius: 14,
+                    child: Icon(Icons.more_vert, size: 18, color: Colors.black54),
                   ),
+                  onPressed: _toggleOptionsMenu,
                 ),
               ),
-              // Options menu dropdown
+
               if (_showOptionsMenu)
                 Positioned(
                   top: 40,
                   right: 8,
                   child: Material(
-                    color: Colors.transparent,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.15),
-                            blurRadius: 10,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Edit option (only for current user's messages)
-                          if (widget.isCurrentUser)
-                            InkWell(
-                              onTap: _handleEdit,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.edit,
-                                      size: 18,
-                                      color: Colors.grey[700],
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      'Edit',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey[800],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Column(
+                      children: [
+                        if (widget.isCurrentUser)
+                          InkWell(
+                            onTap: () {
+                              setState(() => _showOptionsMenu = false);
+                              widget.onEdit?.call(widget.message.messageId);
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Text("Edit"),
                             ),
-                          // More options will go here in the future
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -520,157 +437,5 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
         ],
       ),
     );
-  }
-}
-
-// Message list widget for displaying all messages
-class DailyMessageList extends StatelessWidget {
-  final List<DailyMessage> messages;
-  final ScrollController? scrollController;
-  final Function(String)? onEdit;
-  final VoidCallback? onMessageUpdate; // Called when any message is updated
-
-  const DailyMessageList({
-    Key? key,
-    required this.messages,
-    this.scrollController,
-    this.onEdit,
-    this.onMessageUpdate,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    if (messages.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.chat_bubble_outline,
-              size: 80,
-              color: Colors.grey[300],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No messages yet',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey[500],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Be the first to share something!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[400],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      controller: scrollController,
-      padding: const EdgeInsets.only(top: 16, bottom: 16),
-      itemCount: messages.length,
-      itemBuilder: (context, index) {
-        return DailyMessageWidget(
-          message: messages[index],
-          isCurrentUser: messages[index].isFromCurrentUser(),
-          onEdit: onEdit,
-          onLikeToggle: onMessageUpdate,
-          onSaveToggle: onMessageUpdate,
-        );
-      },
-    );
-  }
-}
-
-// API Service class for future implementation
-class DailyMessageService {
-  // Placeholder for future API endpoint
-  static const String apiEndpoint = 'YOUR_API_ENDPOINT_HERE';
-
-  // TODO: Implement when API is ready
-  static Future<bool> sendMessage(DailyMessage message, String dailyId) async {
-    try {
-      // Placeholder for API call
-      // final response = await http.post(
-      //   Uri.parse('$apiEndpoint/dailies/$dailyId/messages'),
-      //   headers: {'Content-Type': 'application/json'},
-      //   body: json.encode(message.toJson()),
-      // );
-      // return response.statusCode == 200;
-
-      print('Sending message to API: ${message.toJson()}');
-      print('Daily ID: $dailyId');
-      return true; // Simulated success
-    } catch (e) {
-      print('Error sending message: $e');
-      return false;
-    }
-  }
-
-  // TODO: Implement when API is ready
-  static Future<bool> updateMessage(DailyMessage message, String dailyId) async {
-    try {
-      // Placeholder for API call
-      // final response = await http.put(
-      //   Uri.parse('$apiEndpoint/dailies/$dailyId/messages/${message.messageId}'),
-      //   headers: {'Content-Type': 'application/json'},
-      //   body: json.encode(message.toJson()),
-      // );
-      // return response.statusCode == 200;
-
-      print('Updating message in API: ${message.toJson()}');
-      print('Daily ID: $dailyId');
-      return true; // Simulated success
-    } catch (e) {
-      print('Error updating message: $e');
-      return false;
-    }
-  }
-
-  // TODO: Implement when API is ready
-  static Future<List<DailyMessage>> fetchMessages(String dailyId) async {
-    try {
-      // Placeholder for API call
-      // final response = await http.get(
-      //   Uri.parse('$apiEndpoint/dailies/$dailyId/messages'),
-      // );
-      // if (response.statusCode == 200) {
-      //   final List<dynamic> data = json.decode(response.body);
-      //   return data.map((json) => DailyMessage.fromJson(json)).toList();
-      // }
-
-      print('Fetching messages from API for daily: $dailyId');
-      return []; // Simulated empty response
-    } catch (e) {
-      print('Error fetching messages: $e');
-      return [];
-    }
-  }
-
-  // TODO: Implement image upload when API is ready
-  static Future<String?> uploadImage(String imagePath, String dailyId) async {
-    try {
-      // Placeholder for image upload
-      // This should upload the image and return the URL/path from server
-      // final request = http.MultipartRequest(
-      //   'POST',
-      //   Uri.parse('$apiEndpoint/dailies/$dailyId/upload-image'),
-      // );
-      // request.files.add(await http.MultipartFile.fromPath('image', imagePath));
-      // final response = await request.send();
-
-      print('Uploading image: $imagePath for daily: $dailyId');
-      return imagePath; // For now, return local path
-    } catch (e) {
-      print('Error uploading image: $e');
-      return null;
-    }
   }
 }

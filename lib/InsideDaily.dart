@@ -27,7 +27,7 @@ class InsideDaily extends StatefulWidget {
 class InsideDailyState extends State<InsideDaily> with SingleTickerProviderStateMixin {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  DateTime? _selectedDate; // null means "any time"
+  DateTime? _selectedDate;
   bool _showOptionsMenu = false;
   bool _showAttachMenu = false;
   bool _filterOnlyPromptMessages = false;
@@ -39,10 +39,9 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   late Animation<double> _optionsAnimation;
   Function()? _messageStorageListener;
 
-  // Edit mode variables
   bool _isEditingMessage = false;
   String? _editingMessageId;
-  XFile? _originalImage; // Store original image during edit
+  XFile? _originalImage;
 
   @override
   void initState() {
@@ -57,10 +56,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       curve: Curves.easeOutCubic,
     );
 
-    // Load saved messages
     _loadMessages();
 
-    // Listen for new messages from other sources (like AddDailyMessage)
     _messageStorageListener = () {
       if (mounted) _loadMessages();
     };
@@ -73,7 +70,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       _messages = messages;
     });
 
-    // Scroll to bottom if there are messages
     if (messages.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 100), () {
         if (_scrollController.hasClients) {
@@ -87,7 +83,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
     await MessageStorage.saveMessages(widget.daily.id, _messages);
   }
 
-  // Method to add prompt message from daily entry overlay
   void addPromptMessage(String messageText) {
     if (messageText.trim().isEmpty) return;
 
@@ -95,17 +90,15 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       text: messageText,
       timestamp: DateTime.now(),
       dailyId: widget.daily.id,
-      isFromPrompt: true, // Mark as from prompt
+      isFromPrompt: true,
     );
 
     setState(() {
       _messages.add(promptMessage);
     });
 
-    // Save messages
     _saveMessages();
 
-    // Scroll to bottom after adding message
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -115,10 +108,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         );
       }
     });
-
   }
 
-  // Method to add prompt message with media from daily entry overlay
   void addPromptMessageWithMedia(String messageText, String? imagePath, String? videoPath) {
     final promptMessage = DailyMessage(
       text: messageText.trim().isNotEmpty ? messageText : null,
@@ -126,17 +117,15 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       videoPath: videoPath,
       timestamp: DateTime.now(),
       dailyId: widget.daily.id,
-      isFromPrompt: true, // Mark as from prompt
+      isFromPrompt: true,
     );
 
     setState(() {
       _messages.add(promptMessage);
     });
 
-    // Save messages
     _saveMessages();
 
-    // Scroll to bottom after adding message
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -160,7 +149,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   }
 
   Future<void> _selectDate(BuildContext context) async {
-    // Show custom dialog with "Any time" option first
     final result = await showDialog<dynamic>(
       context: context,
       builder: (BuildContext context) {
@@ -273,7 +261,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       );
 
       if (video != null) {
-        // Dispose old video controller if exists
         await _videoController?.dispose();
         _videoController = null;
 
@@ -292,7 +279,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
         setState(() {
           _selectedVideo = video;
-          _selectedImage = null; // Clear image if video selected
+          _selectedImage = null;
           _showAttachMenu = false;
         });
       }
@@ -322,7 +309,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
     );
 
     if (drawingFile != null) {
-      // Convert File to XFile
       final XFile drawing = XFile(drawingFile.path);
       setState(() {
         _selectedImage = drawing;
@@ -339,7 +325,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   }
 
   void _startEditingMessage(String messageId) {
-    // Find the message to edit
     final message = _messages.firstWhere(
           (msg) => msg.messageId == messageId,
       orElse: () => _messages.first,
@@ -350,7 +335,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       _editingMessageId = messageId;
       _messageController.text = message.text ?? '';
 
-      // Load image if present
       if (message.imagePath != null) {
         _selectedImage = XFile(message.imagePath!);
         _originalImage = _selectedImage;
@@ -378,7 +362,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
     final text = _messageController.text.trim();
 
-    // Don't allow completely empty messages
     if (text.isEmpty && _selectedImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -390,7 +373,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       return;
     }
 
-    // Find and update the message
     final messageIndex = _messages.indexWhere((msg) => msg.messageId == _editingMessageId);
 
     if (messageIndex != -1) {
@@ -398,12 +380,12 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       final updatedMessage = DailyMessage(
         text: text.isNotEmpty ? text : null,
         imagePath: _selectedImage?.path,
-        timestamp: oldMessage.timestamp, // Keep original timestamp
+        timestamp: oldMessage.timestamp,
         userId: oldMessage.userId,
         messageId: oldMessage.messageId,
         dailyId: oldMessage.dailyId,
-        isLiked: oldMessage.isLiked,
         isSaved: oldMessage.isSaved,
+        reactions: oldMessage.reactions,
       );
 
       setState(() {
@@ -415,11 +397,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         _originalImage = null;
       });
 
-      // Save messages
       _saveMessages();
-
-      // TODO: Send update to API
-      // await DailyMessageService.updateMessage(updatedMessage, widget.daily.id);
 
       print('Message updated: ${updatedMessage.toJson()}');
 
@@ -434,7 +412,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   }
 
   Future<void> _sendMessage() async {
-    // If in edit mode, update instead of send
     if (_isEditingMessage) {
       await _updateMessage();
       return;
@@ -442,7 +419,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
     final text = _messageController.text.trim();
 
-    // Don't allow empty messages (no text, no image, and no video)
     if (text.isEmpty && _selectedImage == null && _selectedVideo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -454,7 +430,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       return;
     }
 
-    // Create message
     final message = DailyMessage(
       text: text.isNotEmpty ? text : null,
       imagePath: _selectedImage?.path,
@@ -463,7 +438,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       dailyId: widget.daily.id,
     );
 
-    // Add message to local list
     setState(() {
       _messages.add(message);
       _messageController.clear();
@@ -471,14 +445,11 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       _selectedVideo = null;
     });
 
-    // Dispose video controller
     await _videoController?.dispose();
     _videoController = null;
 
-    // Save messages
     _saveMessages();
 
-    // Scroll to bottom after adding message
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -488,12 +459,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         );
       }
     });
-
-    // TODO: Send to API when ready
-    // final success = await DailyMessageService.sendMessage(message, widget.daily.id);
-    // if (!success) {
-    //   // Handle error - maybe show retry option
-    // }
 
     print('Message sent: ${message.toJson()}');
   }
@@ -519,7 +484,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   List<DailyMessage> _getFilteredMessages() {
     List<DailyMessage> filtered = _messages;
 
-    // Filter by date if selected
     if (_selectedDate != null) {
       filtered = filtered.where((message) {
         final messageDate = message.timestamp;
@@ -529,7 +493,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       }).toList();
     }
 
-    // Filter by prompt messages only if enabled
     if (_filterOnlyPromptMessages) {
       filtered = filtered.where((message) => message.isFromPrompt).toList();
     }
@@ -540,7 +503,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   Widget _buildOptionsMenu() {
     return Positioned(
       bottom: _selectedImage != null || _selectedVideo != null ? 407 : 195,
-      left: 16, // Changed from right to left
+      left: 16,
       child: FadeTransition(
         opacity: _optionsAnimation,
         child: SlideTransition(
@@ -567,7 +530,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
               children: [
                 _buildOptionItem(Icons.bookmark_outline, 'Saved'),
                 Divider(height: 1, color: Colors.grey[300]),
-                _buildOptionItem(Icons.favorite_outline, 'Liked'),
+                _buildOptionItem(Icons.add_reaction_outlined, 'Reacted'),
                 Divider(height: 1, color: Colors.grey[300]),
                 _buildOptionItem(Icons.comment_outlined, 'Comments'),
                 Divider(height: 1, color: Colors.grey[300]),
@@ -592,7 +555,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
               builder: (context) => DailySavedScreen(daily: widget.daily),
             ),
           );
-        } else if (label == 'Liked') {
+        } else if (label == 'Reacted') {
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -711,7 +674,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         if (onTapCallback != null) {
           onTapCallback();
         }
-        // TODO: Implement functionality for other buttons
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -813,7 +775,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                             ],
                           ),
                         ),
-                      // Video preview
                       if (_selectedVideo != null)
                         Container(
                           margin: const EdgeInsets.only(bottom: 12),
@@ -874,7 +835,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                             ],
                           ),
                         ),
-                      // Edit mode banner
                       if (_isEditingMessage)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -991,10 +951,9 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
           if (_showOptionsMenu) _buildOptionsMenu(),
           if (_showAttachMenu) _buildAttachMenu(),
 
-          // FAB moved to bottom left
           Positioned(
             bottom: _selectedImage != null || _selectedVideo != null ? 347 : 135,
-            left: 16, // Changed from right to left
+            left: 16,
             child: GestureDetector(
               onTap: _toggleOptionsMenu,
               child: AnimatedRotation(
@@ -1024,7 +983,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
             ),
           ),
 
-          // Floating date filter button (bottom right)
           Positioned(
             bottom: _selectedImage != null || _selectedVideo != null ? 347 : 135,
             right: 16,
@@ -1032,7 +990,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Clear filter button (if date selected)
                 if (_selectedDate != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
@@ -1064,7 +1021,6 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
                       ),
                     ),
                   ),
-                // Date picker button
                 GestureDetector(
                   onTap: () => _selectDate(context),
                   child: Container(
@@ -1092,6 +1048,76 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
           ),
         ],
       ),
+    );
+  }
+}
+
+class DailyMessageList extends StatelessWidget {
+  final List<DailyMessage> messages;
+  final ScrollController scrollController;
+  final Function(String)? onEdit;
+  final VoidCallback? onMessageUpdate;
+
+  const DailyMessageList({
+    Key? key,
+    required this.messages,
+    required this.scrollController,
+    this.onEdit,
+    this.onMessageUpdate,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (messages.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 80,
+              color: Colors.grey[300],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No messages yet',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey[500],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Send a message to get started!',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[400],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: scrollController,
+      padding: const EdgeInsets.only(top: 16, bottom: 16),
+      itemCount: messages.length,
+      itemBuilder: (context, index) {
+        final message = messages[index];
+        return DailyMessageWidget(
+          message: message,
+          isCurrentUser: message.isFromCurrentUser(),
+          onEdit: onEdit,
+          onSaveToggle: onMessageUpdate,
+          onReactionAdded: (emoji) {
+            if (onMessageUpdate != null) {
+              onMessageUpdate!();
+            }
+          },
+        );
+      },
     );
   }
 }

@@ -6,6 +6,7 @@ import 'CamRoll.dart';
 import 'DrawPad.dart';
 import 'UseCam.dart';
 import 'SelectDailiesScreen.dart';
+import 'NewDaily.dart';
 
 class AddDailyMessage extends StatefulWidget {
   const AddDailyMessage({Key? key}) : super(key: key);
@@ -164,6 +165,42 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: const Text(
+          'Compose Message',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: Colors.black87,
+          ),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const NewDailyScreen(),
+                  ),
+                );
+              },
+              child: const Text(
+                "Create New",
+                style: TextStyle(
+                  color: Colors.cyan,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
@@ -172,20 +209,6 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 20),
-
-                  // Title
-                  const Text(
-                    'Compose Message',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
                   Text(
                     'Send a message to multiple dailies at once',
                     style: TextStyle(

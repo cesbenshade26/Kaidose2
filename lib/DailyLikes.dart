@@ -3,6 +3,7 @@ import 'dart:io';
 import 'DailyData.dart';
 import 'MessageStorage.dart';
 import 'SendDailyMessage.dart';
+import 'chat_reactions.dart';
 
 class DailyLikesScreen extends StatefulWidget {
   final DailyData daily;
@@ -17,44 +18,32 @@ class DailyLikesScreen extends StatefulWidget {
 }
 
 class _DailyLikesScreenState extends State<DailyLikesScreen> {
-  List<DailyMessage> _likedMessages = [];
+  List<DailyMessage> _reactedMessages = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadLikedMessages();
+    _loadReactedMessages();
   }
 
-  Future<void> _loadLikedMessages() async {
-    // Load all messages in this daily
+  Future<void> _loadReactedMessages() async {
     final messages = await MessageStorage.loadMessages(widget.daily.id);
 
-    // Filter to only liked messages
-    final likedMessages = messages.where((msg) => msg.isLiked).toList();
+    // Filter to messages where current user has reacted
+    final reactedMessages = messages.where(
+            (msg) => msg.reactions.any((r) => r.userId == 'current_user')
+    ).toList();
 
     // Sort by newest first
-    likedMessages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    reactedMessages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
     if (mounted) {
       setState(() {
-        _likedMessages = likedMessages;
+        _reactedMessages = reactedMessages;
         _isLoading = false;
       });
     }
-  }
-
-  Future<void> _toggleLike(DailyMessage message) async {
-    setState(() {
-      message.isLiked = !message.isLiked;
-    });
-
-    // Update in storage
-    final allMessages = await MessageStorage.loadMessages(widget.daily.id);
-    await MessageStorage.saveMessages(widget.daily.id, allMessages);
-
-    // Reload to update the list (remove if unliked)
-    await _loadLikedMessages();
   }
 
   String _formatTimestamp(DateTime timestamp) {
@@ -66,21 +55,9 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
 
-    // Format as date
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[timestamp.month - 1]} ${timestamp.day}';
-  }
-
-  String _formatLikeCount(int count) {
-    if (count < 1000) return count.toString();
-    if (count < 1000000) {
-      final k = count / 1000;
-      if (k == k.floor()) return '${k.toInt()}k';
-      return '${k.toStringAsFixed(k < 10 ? 1 : 0)}k';
-    }
-    final m = count / 1000000;
-    return '${m.toInt()}m';
   }
 
   @override
@@ -98,7 +75,7 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Liked Messages',
+              'Reacted Messages',
               style: TextStyle(
                 color: Colors.black,
                 fontSize: 18,
@@ -125,19 +102,19 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
   }
 
   Widget _buildContent() {
-    if (_likedMessages.isEmpty) {
+    if (_reactedMessages.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.favorite_border,
+              Icons.add_reaction_outlined,
               size: 80,
               color: Colors.grey[300],
             ),
             const SizedBox(height: 16),
             Text(
-              'No Liked Messages',
+              'No Reacted Messages',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -146,7 +123,7 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Messages you like will appear here',
+              'Messages you react to will appear here',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[500],
@@ -159,10 +136,10 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
 
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 16),
-      itemCount: _likedMessages.length,
+      itemCount: _reactedMessages.length,
       separatorBuilder: (context, index) => const SizedBox(height: 16),
       itemBuilder: (context, index) {
-        final message = _likedMessages[index];
+        final message = _reactedMessages[index];
         return _buildMessageItem(message);
       },
     );
@@ -191,7 +168,6 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image if present
             if (message.imagePath != null && File(message.imagePath!).existsSync())
               ClipRRect(
                 borderRadius: const BorderRadius.only(
@@ -218,7 +194,6 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
                 ),
               ),
 
-            // Text if present
             if (message.text != null && message.text!.trim().isNotEmpty)
               Padding(
                 padding: EdgeInsets.all(message.imagePath != null ? 16 : 16),
@@ -232,7 +207,17 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
                 ),
               ),
 
-            // Bottom bar with timestamp and actions
+            // Show reactions
+            if (message.reactions.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: MessageReactionsDisplay(
+                  reactions: message.reactions,
+                  currentUserId: 'current_user',
+                  onReactionTap: null, // Read-only in this view
+                ),
+              ),
+
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -245,7 +230,6 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Timestamp
                   Row(
                     children: [
                       Icon(
@@ -264,33 +248,6 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
                       ),
                     ],
                   ),
-                  // Like button
-                  GestureDetector(
-                    onTap: () => _toggleLike(message),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      child: Row(
-                        children: [
-                          Icon(
-                            message.isLiked ? Icons.favorite : Icons.favorite_border,
-                            size: 20,
-                            color: message.isLiked ? Colors.red : Colors.grey[600],
-                          ),
-                          if (message.likeCount > 0) ...[
-                            const SizedBox(width: 4),
-                            Text(
-                              _formatLikeCount(message.likeCount),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -300,27 +257,3 @@ class _DailyLikesScreenState extends State<DailyLikesScreen> {
     );
   }
 }
-
-/*
- * TODO: Future API Integration Points
- *
- * 1. Multi-user support:
- *    - Filter messages by current user's likes
- *    - API endpoint: GET /api/dailies/{dailyId}/messages?likedBy={currentUserId}
- *    - Response: List of messages liked by the user
- *
- * 2. Like sync:
- *    - When user unlikes, sync to server
- *    - API endpoints:
- *      - POST /api/messages/{messageId}/like
- *      - DELETE /api/messages/{messageId}/like
- *    - Update likeCount in real-time from server response
- *
- * 3. Real-time updates:
- *    - WebSocket or polling for like count updates from other users
- *    - Update UI when others like the same messages
- *
- * 4. Message interactions:
- *    - Add ability to jump to original message in daily
- *    - Show comment count on liked messages
- */

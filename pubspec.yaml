@@ -41,6 +41,7 @@ dependencies:
   firebase_auth: ^5.5.1        # Updated
   cloud_firestore: ^5.6.2      # Updated
   firebase_storage: ^12.4.3
+  lottie: ^3.1.0
 
 dev_dependencies:
   flutter_test:
@@ -65,7 +66,8 @@ flutter:
   uses-material-design: true
   
   assets:
-    - assets/fonts/  # ✅ (optional if fonts are inside this folder)
+    - assets/fonts/
+    - assets/animations/  # ✅ (optional if fonts are inside this folder)
 
   fonts:
     - family: Slackey
