@@ -20,7 +20,7 @@ class DailyMessage {
   bool isSaved;
   final bool isFromPrompt;
   List<ChatReaction> reactions;
-  final String? username; // NEW: Store username
+  final String? username;
 
   DailyMessage({
     this.text,
@@ -33,7 +33,7 @@ class DailyMessage {
     this.isSaved = false,
     this.isFromPrompt = false,
     List<ChatReaction>? reactions,
-    this.username, // NEW
+    this.username,
   })  : userId = userId ?? 'current_user',
         messageId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString(),
         dailyId = dailyId ?? 'unknown_daily',
@@ -51,7 +51,7 @@ class DailyMessage {
       'is_saved': isSaved,
       'is_from_prompt': isFromPrompt,
       'reactions': reactions.map((r) => r.toJson()).toList(),
-      'username': username, // NEW
+      'username': username,
     };
   }
 
@@ -69,7 +69,7 @@ class DailyMessage {
       reactions: (json['reactions'] as List?)
           ?.map((r) => ChatReaction.fromJson(r))
           .toList() ?? [],
-      username: json['username'], // NEW
+      username: json['username'],
     );
   }
 
@@ -168,25 +168,24 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
       );
 
       if (existingIdx != -1) {
-        final existingReaction = widget.message.reactions[existingIdx];
-        if (existingReaction.emoji == emoji) {
-          widget.message.reactions.removeAt(existingIdx);
-        } else {
-          widget.message.reactions[existingIdx] = ChatReaction(
-            emoji: emoji,
-            userId: currentUserId,
-            username: 'You',
-            timestamp: DateTime.now(),
-          );
-        }
-      } else {
-        widget.message.reactions.add(ChatReaction(
-          emoji: emoji,
-          userId: currentUserId,
-          username: 'You',
-          timestamp: DateTime.now(),
-        ));
+        // User already reacted - show message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You can only react once per message'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
       }
+
+      // Add new reaction
+      widget.message.reactions.add(ChatReaction(
+        emoji: emoji,
+        userId: currentUserId,
+        username: 'You',
+        timestamp: DateTime.now(),
+      ));
     });
 
     if (widget.onReactionAdded != null) {
@@ -196,22 +195,36 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   void _toggleReaction(String emoji, List<ChatReaction> reactions) {
     final currentUserId = 'current_user';
-    final userHasThisEmoji = reactions.any(
-            (r) => r.userId == currentUserId && r.emoji == emoji
+    final userReaction = reactions.firstWhere(
+          (r) => r.userId == currentUserId,
+      orElse: () => ChatReaction(emoji: '', userId: '', username: '', timestamp: DateTime.now()),
     );
 
-    if (userHasThisEmoji) {
-      setState(() {
-        widget.message.reactions.removeWhere(
-                (r) => r.userId == currentUserId && r.emoji == emoji
-        );
-      });
-    } else {
-      _addReaction(emoji);
-    }
+    if (userReaction.emoji.isNotEmpty) {
+      if (userReaction.emoji == emoji) {
+        // Tapped their own reaction - remove it
+        setState(() {
+          widget.message.reactions.removeWhere(
+                  (r) => r.userId == currentUserId
+          );
+        });
 
-    if (widget.onReactionAdded != null) {
-      widget.onReactionAdded!(emoji);
+        if (widget.onReactionAdded != null) {
+          widget.onReactionAdded!(emoji);
+        }
+      } else {
+        // User already reacted with different emoji - show message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You can only react once per message'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } else {
+      // No existing reaction - add it
+      _addReaction(emoji);
     }
   }
 

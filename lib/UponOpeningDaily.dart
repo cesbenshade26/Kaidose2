@@ -61,11 +61,14 @@ class _UponOpeningDailyState extends State<UponOpeningDaily> {
 
   void _handleSend() {
     final message = _entryController.text.trim();
-    if (message.isNotEmpty || _selectedImage != null || _selectedVideo != null) {
-      setState(() {
-        _showOverlay = false;
-      });
 
+    // Close overlay immediately
+    setState(() {
+      _showOverlay = false;
+    });
+
+    // If there's content, add it to the daily
+    if (message.isNotEmpty || _selectedImage != null || _selectedVideo != null) {
       // Add message with media to InsideDaily after overlay closes
       Future.delayed(const Duration(milliseconds: 100), () {
         _insideDailyKey.currentState?.addPromptMessageWithMedia(
@@ -87,26 +90,32 @@ class _UponOpeningDailyState extends State<UponOpeningDaily> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        InsideDaily(
-          key: _insideDailyKey,
-          daily: widget.daily,
-        ),
-        if (_showOverlay)
-          DailyPromptOverlay(
-            dailyTitle: widget.daily.title,
-            dailyEntryPrompt: widget.daily.dailyEntryPrompt,
-            entryController: _entryController,
-            onSend: _handleSend,
-            onBack: _handleBack,
-            selectedImage: _selectedImage,
-            selectedVideo: _selectedVideo,
-            videoController: _videoController,
-            onMediaRemove: _handleMediaRemove,
-            onMediaAttach: _handleMediaAttach,
+    return WillPopScope(
+      onWillPop: () async {
+        await DailyList.unmarkAsViewed(widget.daily.id);
+        return true;
+      },
+      child: Stack(
+        children: [
+          InsideDaily(
+            key: _insideDailyKey,
+            daily: widget.daily,
           ),
-      ],
+          if (_showOverlay)
+            DailyPromptOverlay(
+              dailyTitle: widget.daily.title,
+              dailyEntryPrompt: widget.daily.dailyEntryPrompt,
+              entryController: _entryController,
+              onSend: _handleSend,
+              onBack: _handleBack,
+              selectedImage: _selectedImage,
+              selectedVideo: _selectedVideo,
+              videoController: _videoController,
+              onMediaRemove: _handleMediaRemove,
+              onMediaAttach: _handleMediaAttach,
+            ),
+        ],
+      ),
     );
   }
 }

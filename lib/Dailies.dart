@@ -10,6 +10,7 @@ import 'UponOpeningDaily.dart';
 import 'InsideDaily.dart';
 import 'SkipCount.dart';
 import 'dart:io';
+import 'package:google_fonts/google_fonts.dart';
 
 class DailiesWidget extends StatefulWidget {
   final Function(int)? onNavigateToTab;
@@ -247,6 +248,34 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   bool _isUserCreatedDaily(DailyData daily) {
     return true;
   }
+  TextStyle _getFontForDaily(DailyData daily) {
+    final fontFamily = daily.titleFont ?? 'Default';
+
+    switch (fontFamily) {
+      case 'Roboto':
+        return GoogleFonts.roboto();
+      case 'Playfair Display':
+        return GoogleFonts.playfairDisplay();
+      case 'Pacifico':
+        return GoogleFonts.pacifico();
+      case 'Bebas Neue':
+        return GoogleFonts.bebasNeue();
+      case 'Caveat':
+        return GoogleFonts.caveat();
+      case 'Permanent Marker':
+        return GoogleFonts.permanentMarker();
+      case 'Righteous':
+        return GoogleFonts.righteous();
+      case 'Lobster':
+        return GoogleFonts.lobster();
+      case 'Dancing Script':
+        return GoogleFonts.dancingScript();
+      case 'Bangers':
+        return GoogleFonts.bangers();
+      default:
+        return const TextStyle();
+    }
+  }
 
   Widget _buildProfilePicButton() {
     bool hasPhotos = _todaysPhotos.isNotEmpty;
@@ -373,7 +402,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                       Expanded(
                         child: Text(
                           daily.title,
-                          style: const TextStyle(
+                          style: _getFontForDaily(daily).copyWith(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             color: Colors.black87,

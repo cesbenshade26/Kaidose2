@@ -40,13 +40,10 @@ class DailyPromptOverlay extends StatefulWidget {
 }
 
 class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _blurAnimation;
   int _remainingSkips = 0;
   int _totalSkips = 0;
   bool _showAttachMenu = false;
+  bool _isProcessingSkip = false; // NEW: Prevent multiple skip calls
 
   @override
   void initState() {
@@ -59,10 +56,12 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
     await SkipCount.checkAndResetIfNewWeek();
 
     int numDailies = DailyList.dailies.length;
-    setState(() {
-      _totalSkips = SkipCount.calculateTotalSkips(numDailies);
-      _remainingSkips = SkipCount.getRemainingSkips(numDailies);
-    });
+    if (mounted) {
+      setState(() {
+        _totalSkips = SkipCount.calculateTotalSkips(numDailies);
+        _remainingSkips = SkipCount.getRemainingSkips(numDailies);
+      });
+    }
   }
 
   void _toggleAttachMenu() {
@@ -160,12 +159,26 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
   }
 
   Future<void> _handleSkip() async {
+    // FIXED: Prevent multiple skip calls
+    if (_isProcessingSkip) return;
+
+    setState(() {
+      _isProcessingSkip = true;
+    });
+
     int numDailies = DailyList.dailies.length;
     bool success = await SkipCount.useSkip(numDailies);
 
+    if (!mounted) return;
+
     if (success) {
-      widget.onSend(); // Close overlay and show chat
+      // Close the overlay and navigate to InsideDaily
+      widget.onSend();
     } else {
+      setState(() {
+        _isProcessingSkip = false;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('No skips remaining this week!'),
@@ -527,14 +540,14 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             GestureDetector(
-                              onTap: _handleSkip,
+                              onTap: _isProcessingSkip ? null : _handleSkip,
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 10,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey[300],
+                                  color: _isProcessingSkip ? Colors.grey[200] : Colors.grey[300],
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Row(
@@ -543,15 +556,15 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
                                     Icon(
                                       Icons.skip_next,
                                       size: 18,
-                                      color: Colors.grey[700],
+                                      color: _isProcessingSkip ? Colors.grey[400] : Colors.grey[700],
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      'Skip Today',
+                                      _isProcessingSkip ? 'Skipping...' : 'Skip Today',
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color: Colors.grey[700],
+                                        color: _isProcessingSkip ? Colors.grey[400] : Colors.grey[700],
                                       ),
                                     ),
                                   ],

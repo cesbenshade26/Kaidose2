@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 import 'EditDaily.dart' as edit_daily;
@@ -139,7 +140,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                     Flexible(
                       child: Text(
                         _currentDaily.title,
-                        style: const TextStyle(
+                        style: _getFontForDaily(_currentDaily).copyWith(
                           fontSize: 24,
                           fontWeight: FontWeight.w700,
                           color: Colors.black87,
@@ -307,6 +308,35 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
     );
   }
 
+  TextStyle _getFontForDaily(DailyData daily) {
+    final fontFamily = daily.titleFont ?? 'Default';
+
+    switch (fontFamily) {
+      case 'Roboto':
+        return GoogleFonts.roboto();
+      case 'Playfair Display':
+        return GoogleFonts.playfairDisplay();
+      case 'Pacifico':
+        return GoogleFonts.pacifico();
+      case 'Bebas Neue':
+        return GoogleFonts.bebasNeue();
+      case 'Caveat':
+        return GoogleFonts.caveat();
+      case 'Permanent Marker':
+        return GoogleFonts.permanentMarker();
+      case 'Righteous':
+        return GoogleFonts.righteous();
+      case 'Lobster':
+        return GoogleFonts.lobster();
+      case 'Dancing Script':
+        return GoogleFonts.dancingScript();
+      case 'Bangers':
+        return GoogleFonts.bangers();
+      default:
+        return const TextStyle();
+    }
+  }
+
   Widget _getTabContent() {
     switch (_selectedTabIndex) {
       case 0:
@@ -345,8 +375,23 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
   late TextEditingController _titleController;
   late IconData _selectedIcon;
   late Color _selectedColor;
+  late String _selectedFont;
   File? _customIcon;
   final ImagePicker _picker = ImagePicker();
+
+  final List<String> _fontOptions = [
+    'Default',
+    'Roboto',
+    'Playfair Display',
+    'Pacifico',
+    'Bebas Neue',
+    'Caveat',
+    'Permanent Marker',
+    'Righteous',
+    'Lobster',
+    'Dancing Script',
+    'Bangers',
+  ];
 
   final List<IconData> _presetIcons = [
     Icons.star,
@@ -386,6 +431,7 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
     _titleController = TextEditingController(text: widget.daily.title);
     _selectedIcon = widget.daily.icon;
     _selectedColor = Color(widget.daily.iconColor ?? 0xFF00BCD4);
+    _selectedFont = widget.daily.titleFont ?? 'Default';
     if (widget.daily.customIconPath != null) {
       _customIcon = File(widget.daily.customIconPath!);
     }
@@ -406,6 +452,33 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
     }
   }
 
+  TextStyle _getFontStyle(String fontFamily) {
+    switch (fontFamily) {
+      case 'Roboto':
+        return GoogleFonts.roboto();
+      case 'Playfair Display':
+        return GoogleFonts.playfairDisplay();
+      case 'Pacifico':
+        return GoogleFonts.pacifico();
+      case 'Bebas Neue':
+        return GoogleFonts.bebasNeue();
+      case 'Caveat':
+        return GoogleFonts.caveat();
+      case 'Permanent Marker':
+        return GoogleFonts.permanentMarker();
+      case 'Righteous':
+        return GoogleFonts.righteous();
+      case 'Lobster':
+        return GoogleFonts.lobster();
+      case 'Dancing Script':
+        return GoogleFonts.dancingScript();
+      case 'Bangers':
+        return GoogleFonts.bangers();
+      default:
+        return const TextStyle();
+    }
+  }
+
   Future<void> _saveChanges() async {
     final updatedDaily = DailyData(
       id: widget.daily.id,
@@ -423,6 +496,8 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
       isPinned: widget.daily.isPinned,
       tierAssignments: widget.daily.tierAssignments,
       tierPrivileges: widget.daily.tierPrivileges,
+      titleFont: _selectedFont,
+      dailyEntryPrompt: widget.daily.dailyEntryPrompt,
     );
 
     await DailyList.updateDaily(updatedDaily);
@@ -432,7 +507,7 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
       widget.onSave(updatedDaily);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Icon and title updated!'),
+          content: const Text('Icon, title, and font updated!'),
           backgroundColor: _selectedColor,
           duration: const Duration(seconds: 2),
         ),
@@ -447,7 +522,7 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Container(
-        constraints: const BoxConstraints(maxHeight: 600),
+        constraints: const BoxConstraints(maxHeight: 700),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -524,11 +599,56 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                           vertical: 14,
                         ),
                       ),
-                      style: const TextStyle(
+                      style: _getFontStyle(_selectedFont).copyWith(
                         fontSize: 16,
                         color: Colors.black87,
                       ),
                       maxLength: 50,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Font selection
+                    const Text(
+                      'Title Font',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: DropdownButton<String>(
+                        value: _selectedFont,
+                        isExpanded: true,
+                        underline: const SizedBox(),
+                        icon: Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
+                        items: _fontOptions.map((String font) {
+                          return DropdownMenuItem<String>(
+                            value: font,
+                            child: Text(
+                              font,
+                              style: _getFontStyle(font).copyWith(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (String? newFont) {
+                          if (newFont != null) {
+                            setState(() {
+                              _selectedFont = newFont;
+                            });
+                          }
+                        },
+                      ),
                     ),
                     const SizedBox(height: 16),
 

@@ -16,7 +16,8 @@ class DailyData {
   final bool isPinned;
   final Map<int, List<String>>? tierAssignments;
   final Map<int, Map<String, bool>>? tierPrivileges;
-  final String dailyEntryPrompt; // NEW FIELD
+  final String dailyEntryPrompt;
+  final String? titleFont; // NEW FIELD
 
   DailyData({
     required this.id,
@@ -34,7 +35,8 @@ class DailyData {
     this.isPinned = false,
     this.tierAssignments,
     this.tierPrivileges,
-    this.dailyEntryPrompt = '', // NEW FIELD WITH DEFAULT
+    this.dailyEntryPrompt = '',
+    this.titleFont, // NEW FIELD
   }) : foundingMemberIds = foundingMemberIds ?? List<String>.from(invitedFriendIds);
 
   Map<String, dynamic> toJson() {
@@ -61,7 +63,8 @@ class DailyData {
       'isPinned': isPinned,
       'tierAssignments': tierAssignments?.map((key, value) => MapEntry(key.toString(), value)),
       'tierPrivileges': tierPrivilegesJson,
-      'dailyEntryPrompt': dailyEntryPrompt, // NEW FIELD
+      'dailyEntryPrompt': dailyEntryPrompt,
+      'titleFont': titleFont, // NEW FIELD
     };
   }
 
@@ -130,7 +133,8 @@ class DailyData {
       isPinned: json['isPinned'] ?? false,
       tierAssignments: tierAssignments,
       tierPrivileges: tierPrivileges,
-      dailyEntryPrompt: json['dailyEntryPrompt'] ?? '', // NEW FIELD WITH DEFAULT
+      dailyEntryPrompt: json['dailyEntryPrompt'] ?? '',
+      titleFont: json['titleFont'], // NEW FIELD
     );
   }
 }

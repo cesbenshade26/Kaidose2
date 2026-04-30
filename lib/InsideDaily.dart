@@ -11,6 +11,7 @@ import 'UseCam.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:video_player/video_player.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
@@ -499,6 +500,34 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
 
     return filtered;
   }
+  TextStyle _getFontForDaily(DailyData daily) {
+    final fontFamily = daily.titleFont ?? 'Default';
+
+    switch (fontFamily) {
+      case 'Roboto':
+        return GoogleFonts.roboto();
+      case 'Playfair Display':
+        return GoogleFonts.playfairDisplay();
+      case 'Pacifico':
+        return GoogleFonts.pacifico();
+      case 'Bebas Neue':
+        return GoogleFonts.bebasNeue();
+      case 'Caveat':
+        return GoogleFonts.caveat();
+      case 'Permanent Marker':
+        return GoogleFonts.permanentMarker();
+      case 'Righteous':
+        return GoogleFonts.righteous();
+      case 'Lobster':
+        return GoogleFonts.lobster();
+      case 'Dancing Script':
+        return GoogleFonts.dancingScript();
+      case 'Bangers':
+        return GoogleFonts.bangers();
+      default:
+        return const TextStyle();
+    }
+  }
 
   Widget _buildOptionsMenu() {
     return Positioned(
@@ -687,7 +716,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFFFFFFF),
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
@@ -697,7 +727,7 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
         ),
         title: Text(
           widget.daily.title,
-          style: const TextStyle(
+          style: _getFontForDaily(widget.daily).copyWith(
             color: Colors.black,
             fontSize: 18,
             fontWeight: FontWeight.w600,
