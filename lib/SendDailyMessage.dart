@@ -8,6 +8,7 @@ import 'chat_reactions.dart';
 import 'message_service.dart';
 import 'package:video_player/video_player.dart';
 import 'VideoClipPlayer.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class DailyMessage {
   final String? text;
@@ -33,11 +34,12 @@ class DailyMessage {
     this.isSaved = false,
     this.isFromPrompt = false,
     List<ChatReaction>? reactions,
-    this.username,
+    String? username,
   })  : userId = userId ?? 'current_user',
         messageId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString(),
         dailyId = dailyId ?? 'unknown_daily',
-        reactions = reactions ?? [];
+        reactions = reactions ?? [],
+        username = username ?? 'You';
 
   Map<String, dynamic> toJson() {
     return {
@@ -162,7 +164,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   void _addReaction(String emoji) {
     setState(() {
-      final currentUserId = 'current_user';
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
       final existingIdx = widget.message.reactions.indexWhere(
               (r) => r.userId == currentUserId
       );
@@ -194,7 +196,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   }
 
   void _toggleReaction(String emoji, List<ChatReaction> reactions) {
-    final currentUserId = 'current_user';
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
     final userReaction = reactions.firstWhere(
           (r) => r.userId == currentUserId,
       orElse: () => ChatReaction(emoji: '', userId: '', username: '', timestamp: DateTime.now()),
@@ -308,6 +310,27 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                           File(widget.message.imagePath!),
                           width: messageWidth,
                           fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: messageWidth,
+                              height: 200,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey[400]),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Image no longer available',
+                                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ),
                     if (widget.message.videoPath != null)
@@ -338,8 +361,8 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
                     if (widget.message.reactions.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: MessageReactionsDisplay(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        child: DailyMessageReactionsDisplay(
                           reactions: widget.message.reactions,
                           currentUserId: 'current_user',
                           onReactionTap: (emoji) => _toggleReaction(emoji, widget.message.reactions),
@@ -449,6 +472,83 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// CUSTOM LARGER REACTIONS DISPLAY FOR DAILY MESSAGES
+class DailyMessageReactionsDisplay extends StatelessWidget {
+  final List<ChatReaction> reactions;
+  final String currentUserId;
+  final Function(String)? onReactionTap;
+
+  const DailyMessageReactionsDisplay({
+    Key? key,
+    required this.reactions,
+    required this.currentUserId,
+    this.onReactionTap,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (reactions.isEmpty) return const SizedBox.shrink();
+
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+
+    // Group reactions by emoji
+    Map<String, List<ChatReaction>> groupedReactions = {};
+    for (var reaction in reactions) {
+      groupedReactions.putIfAbsent(reaction.emoji, () => []).add(reaction);
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: groupedReactions.entries.map((entry) {
+        final emoji = entry.key;
+        final reactionList = entry.value;
+        final count = reactionList.length;
+        final hasUserReacted = reactionList.any((r) => r.userId == currentUserId);
+
+        return GestureDetector(
+          onTap: onReactionTap != null ? () => onReactionTap!(emoji) : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: hasUserReacted
+                  ? Colors.cyan.withOpacity(0.15)
+                  : Colors.grey[100],
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: hasUserReacted
+                    ? Colors.cyan
+                    : Colors.grey[300]!,
+                width: hasUserReacted ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  emoji,
+                  style: const TextStyle(fontSize: 20),
+                ),
+                if (count > 1) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: hasUserReacted ? Colors.cyan[700] : Colors.grey[700],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

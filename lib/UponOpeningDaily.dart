@@ -59,8 +59,11 @@ class _UponOpeningDailyState extends State<UponOpeningDaily> {
     _videoController = null;
   }
 
-  void _handleSend() {
+  void _handleSend() async {
     final message = _entryController.text.trim();
+
+    // Mark as viewed when they submit the prompt
+    await DailyList.markAsViewed(widget.daily.id);
 
     // Close overlay immediately
     setState(() {

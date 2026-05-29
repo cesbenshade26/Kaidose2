@@ -30,7 +30,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   bool _isAnimating = false;
   File? _profilePic;
   Set<String> _viewedPhotosPaths = {};
-  List<DailyData> _publishedDailies = [];
 
   late AnimationController _slideController;
   late Animation<double> _slideAnimation;
@@ -38,7 +37,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   VoidCallback? _dailyPhotoListener;
   VoidCallback? _trackerListener;
   VoidCallback? _profilePicListener;
-  VoidCallback? _dailyListListener;
 
   @override
   bool get wantKeepAlive => true;
@@ -85,16 +83,10 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       }
     };
 
-    _dailyListListener = () {
-      if (mounted) {
-        _loadDailies();
-      }
-    };
 
     DailyPhotoManager.addListener(_dailyPhotoListener!);
     DailyPhotoTracker.addListener(_trackerListener!);
     ProfilePicManager.addListener(_profilePicListener!);
-    DailyList.addListener(_dailyListListener!);
   }
 
   @override
@@ -109,9 +101,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     }
     if (_profilePicListener != null) {
       ProfilePicManager.removeListener(_profilePicListener!);
-    }
-    if (_dailyListListener != null) {
-      DailyList.removeListener(_dailyListListener!);
     }
     super.dispose();
   }
@@ -135,14 +124,12 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     await DailyPhotoManager.loadDailyPhotoFromStorage();
     await ProfilePicManager.loadProfilePicFromStorage();
     await DailyList.loadFromStorage();
-    await SkipCount.loadFromStorage();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
       });
     }
     _loadPhotos();
-    _loadDailies();
   }
 
   Future<void> _checkForNewDay() async {
@@ -171,11 +158,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     });
   }
 
-  void _loadDailies() {
-    setState(() {
-      _publishedDailies = DailyList.dailies;
-    });
-  }
 
   void _checkViewingStatus() {
     int viewedCount = 0;
@@ -318,18 +300,17 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     );
   }
 
-  Widget _buildDailyCard(DailyData daily) {
+  Widget _buildDailyCard(DailyData daily, Set<String> viewedSet) {
     bool isUserCreated = _isUserCreatedDaily(daily);
-    bool hasBeenViewed = DailyList.hasBeenViewedToday(daily.id);
+    bool hasBeenViewed = viewedSet.contains(daily.id);
     final dailyColor = Color(daily.iconColor ?? 0xFF00BCD4);
 
     return GestureDetector(
       onTap: () async {
         bool wasUnviewed = !hasBeenViewed;
 
-        await DailyList.markAsViewed(daily.id);
-
         if (wasUnviewed && daily.dailyEntryPrompt.isNotEmpty) {
+          // Mark as viewed AFTER showing the prompt (moved inside UponOpeningDaily)
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -339,6 +320,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
             ),
           );
         } else {
+          await DailyList.markAsViewed(daily.id);
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -884,134 +866,160 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                 color: Colors.cyan,
               ),
             )
-                : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, right: 16, top: 60, bottom: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Dailies',
-                        style: TextStyle(
-                          fontFamily: 'Slackey',
-                          fontSize: 32,
-                          color: Colors.cyan,
-                          fontWeight: FontWeight.normal,
+                : StreamBuilder<List<DailyData>>(
+              stream: DailyList.getDailiesStream(),
+              builder: (context, dailiesSnapshot) {
+                if (dailiesSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.cyan),
+                  );
+                }
+
+                if (dailiesSnapshot.hasError) {
+                  return Center(
+                    child: Text('Error: ${dailiesSnapshot.error}'),
+                  );
+                }
+
+                final publishedDailies = dailiesSnapshot.data ?? [];
+
+                return StreamBuilder<Set<String>>(
+                  stream: DailyList.getViewedDailiesStream(),
+                  builder: (context, viewedSnapshot) {
+                    final viewedToday = viewedSnapshot.data ?? {};
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, right: 16, top: 60, bottom: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Dailies',
+                                style: TextStyle(
+                                  fontFamily: 'Slackey',
+                                  fontSize: 32,
+                                  color: Colors.cyan,
+                                  fontWeight: FontWeight.normal,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.search, color: Colors.black, size: 28),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const SearchScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.search, color: Colors.black, size: 28),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const SearchScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildProfilePicButton(),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Your story',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.black87,
-                          fontWeight: FontWeight.w500,
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildProfilePicButton(),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Your story',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-                if (_publishedDailies.isEmpty && _todaysPhotos.isEmpty)
-                  Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.photo_camera_outlined,
-                            size: 80,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No Dailies Yet!',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Start your day by posting your first daily',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[600],
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 24),
-                          GestureDetector(
-                            onTap: _navigateToAddDaily,
-                            child: Container(
-                              width: 70,
-                              height: 70,
-                              decoration: BoxDecoration(
-                                color: Colors.cyan,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.cyan.withOpacity(0.4),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 4),
+                        const SizedBox(height: 24),
+                        if (publishedDailies.isEmpty && _todaysPhotos.isEmpty)
+                          Expanded(
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.photo_camera_outlined,
+                                    size: 80,
+                                    color: Colors.grey[400],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No Dailies Yet!',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Start your day by posting your first daily',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[600],
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 24),
+                                  GestureDetector(
+                                    onTap: _navigateToAddDaily,
+                                    child: Container(
+                                      width: 70,
+                                      height: 70,
+                                      decoration: BoxDecoration(
+                                        color: Colors.cyan,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.cyan.withOpacity(0.4),
+                                            spreadRadius: 2,
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.add,
+                                        color: Colors.white,
+                                        size: 40,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Add a Daily!',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[700],
+                                    ),
                                   ),
                                 ],
                               ),
-                              child: const Icon(
-                                Icons.add,
-                                color: Colors.white,
-                                size: 40,
-                              ),
+                            ),
+                          )
+                        else
+                          Expanded(
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: publishedDailies.length,
+                              itemBuilder: (context, index) {
+                                return _buildDailyCard(publishedDailies[index], viewedToday);
+                              },
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Add a Daily!',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _publishedDailies.length,
-                      itemBuilder: (context, index) {
-                        return _buildDailyCard(_publishedDailies[index]);
-                      },
-                    ),
-                  ),
-              ],
+                      ],
+                    );
+                  },
+                );
+              },
             ),
           ),
           if (_showPhotoCarousel && _todaysPhotos.isNotEmpty)

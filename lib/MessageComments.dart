@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class MessageComment {
   final String id;
   final String messageId; // Parent message ID
   final String text;
   final DateTime timestamp;
+  final String userId;
+  final String? username;
   bool isLiked;
   int likeCount;
 
@@ -15,15 +18,20 @@ class MessageComment {
     required this.messageId,
     required this.text,
     required this.timestamp,
+    String? userId,
+    this.username,
     this.isLiked = false,
     this.likeCount = 0,
-  }) : id = id ?? DateTime.now().millisecondsSinceEpoch.toString();
+  })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        userId = userId ?? 'current_user';
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'message_id': messageId,
     'text': text,
     'timestamp': timestamp.toIso8601String(),
+    'user_id': userId,
+    'username': username,
     'is_liked': isLiked,
     'like_count': likeCount,
   };
@@ -33,6 +41,8 @@ class MessageComment {
     messageId: json['message_id'],
     text: json['text'],
     timestamp: DateTime.parse(json['timestamp']),
+    userId: json['user_id'] ?? 'current_user',
+    username: json['username'],
     isLiked: json['is_liked'] ?? false,
     likeCount: json['like_count'] ?? 0,
   );
@@ -113,10 +123,14 @@ class _MessageCommentsSectionState extends State<MessageCommentsSection> {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
 
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+
     final comment = MessageComment(
       messageId: widget.messageId,
       text: text,
       timestamp: DateTime.now(),
+      userId: currentUid,
+      username: 'You',
     );
 
     setState(() {
@@ -186,54 +200,72 @@ class _MessageCommentsSectionState extends State<MessageCommentsSection> {
               itemCount: _comments.length,
               itemBuilder: (context, index) {
                 final comment = _comments[index];
+                final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+                final isCurrentUser = comment.userId == currentUid;
+
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Timestamp
+                      // Username
                       Text(
-                        _formatTimestamp(comment.timestamp),
+                        isCurrentUser ? 'You' : (comment.username ?? 'User'),
                         style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey[400],
-                          fontWeight: FontWeight.w400,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[700],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      // Comment text
-                      Expanded(
-                        child: Text(
-                          comment.text,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[800],
-                          ),
-                        ),
-                      ),
-                      // Like button
-                      GestureDetector(
-                        onTap: () => _toggleLike(index),
-                        child: Row(
-                          children: [
-                            if (comment.likeCount > 0) ...[
-                              Text(
-                                _formatLikeCount(comment.likeCount),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey[500],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            Icon(
-                              comment.isLiked ? Icons.favorite : Icons.favorite_border,
-                              size: 16,
-                              color: comment.isLiked ? Colors.red : Colors.grey[400],
+                      const SizedBox(height: 2),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Timestamp
+                          Text(
+                            _formatTimestamp(comment.timestamp),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey[400],
+                              fontWeight: FontWeight.w400,
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Comment text
+                          Expanded(
+                            child: Text(
+                              comment.text,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800],
+                              ),
+                            ),
+                          ),
+                          // Like button
+                          GestureDetector(
+                            onTap: () => _toggleLike(index),
+                            child: Row(
+                              children: [
+                                if (comment.likeCount > 0) ...[
+                                  Text(
+                                    _formatLikeCount(comment.likeCount),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey[500],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                Icon(
+                                  comment.isLiked ? Icons.favorite : Icons.favorite_border,
+                                  size: 16,
+                                  color: comment.isLiked ? Colors.red : Colors.grey[400],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

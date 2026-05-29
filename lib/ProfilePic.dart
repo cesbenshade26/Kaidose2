@@ -9,6 +9,7 @@ import 'ProfilePicManager.dart';
 import 'DrawPad.dart';
 import 'CamRoll.dart';
 import 'UseCam.dart';
+import 'ProfilePicService.dart';
 
 class ProfilePicEditor extends StatefulWidget {
   final File imageFile;
@@ -336,6 +337,14 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
   void initState() {
     super.initState();
     _selectedImage = ProfilePicManager.globalProfilePic;
+// Refresh from Firebase in case another device updated it
+    ProfilePicManager.forceRefresh().then((_) {
+      if (mounted) {
+        setState(() {
+          _selectedImage = ProfilePicManager.globalProfilePic;
+        });
+      }
+    });
   }
 
   Future<void> _openCameraRoll() async {

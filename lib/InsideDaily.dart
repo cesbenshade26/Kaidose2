@@ -12,6 +12,8 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:video_player/video_player.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'user_service.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
@@ -39,14 +41,19 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   late AnimationController _optionsAnimationController;
   late Animation<double> _optionsAnimation;
   Function()? _messageStorageListener;
+  final UserService _userService = UserService();
+  String? _currentUsername;
 
   bool _isEditingMessage = false;
   String? _editingMessageId;
   XFile? _originalImage;
 
   @override
+  @override
   void initState() {
     super.initState();
+    _loadCurrentUser(); // NEW: Load username first
+
     _optionsAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -63,6 +70,17 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       if (mounted) _loadMessages();
     };
     MessageStorage.addListener(_messageStorageListener!);
+  }
+  Future<void> _loadCurrentUser() async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid != null) {
+      final user = await _userService.getUserById(currentUid);
+      if (mounted) {
+        setState(() {
+          _currentUsername = user?.username ?? 'You';
+        });
+      }
+    }
   }
 
   Future<void> _loadMessages() async {
@@ -87,11 +105,15 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   void addPromptMessage(String messageText) {
     if (messageText.trim().isEmpty) return;
 
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+
     final promptMessage = DailyMessage(
       text: messageText,
       timestamp: DateTime.now(),
       dailyId: widget.daily.id,
       isFromPrompt: true,
+      userId: currentUid,
+      username: _currentUsername ?? 'You',
     );
 
     setState(() {
@@ -112,6 +134,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
   }
 
   void addPromptMessageWithMedia(String messageText, String? imagePath, String? videoPath) {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+
     final promptMessage = DailyMessage(
       text: messageText.trim().isNotEmpty ? messageText : null,
       imagePath: imagePath,
@@ -119,6 +143,8 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       timestamp: DateTime.now(),
       dailyId: widget.daily.id,
       isFromPrompt: true,
+      userId: currentUid,
+      username: _currentUsername ?? 'You',
     );
 
     setState(() {
@@ -431,12 +457,16 @@ class InsideDailyState extends State<InsideDaily> with SingleTickerProviderState
       return;
     }
 
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+
     final message = DailyMessage(
       text: text.isNotEmpty ? text : null,
       imagePath: _selectedImage?.path,
       videoPath: _selectedVideo?.path,
       timestamp: DateTime.now(),
       dailyId: widget.daily.id,
+      userId: currentUid,
+      username: _currentUsername ?? 'You',
     );
 
     setState(() {
@@ -1136,9 +1166,11 @@ class DailyMessageList extends StatelessWidget {
       itemCount: messages.length,
       itemBuilder: (context, index) {
         final message = messages[index];
+        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+
         return DailyMessageWidget(
           message: message,
-          isCurrentUser: message.isFromCurrentUser(),
+          isCurrentUser: message.userId == currentUid,
           onEdit: onEdit,
           onSaveToggle: onMessageUpdate,
           onReactionAdded: (emoji) {

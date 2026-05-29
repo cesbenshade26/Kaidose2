@@ -3,89 +3,95 @@ import 'DailyList.dart';
 import 'DailyData.dart';
 import 'dart:io';
 import 'NewDaily.dart';
+import 'daily_invitation_service.dart';
+import 'user_service.dart';
 
 class AddToDailyScreen extends StatefulWidget {
   final String friendName;
+  final String friendUserId;
 
-  const AddToDailyScreen({Key? key, required this.friendName}) : super(key: key);
+  const AddToDailyScreen({
+    Key? key,
+    required this.friendName,
+    required this.friendUserId,
+  }) : super(key: key);
 
   @override
   State<AddToDailyScreen> createState() => _AddToDailyScreenState();
 }
 
 class _AddToDailyScreenState extends State<AddToDailyScreen> {
-  List<DailyData> _allDailies = [];
-  List<DailyData> _filteredDailies = [];
+  final DailyInvitationService _invitationService = DailyInvitationService();
+  final UserService _userService = UserService();
   final TextEditingController _searchController = TextEditingController();
   Set<String> _pendingInvites = {};
-  VoidCallback? _dailyListListener;
+  String? _currentUsername;
+  List<DailyData> _filteredDailies = [];
 
   @override
   void initState() {
     super.initState();
-    _loadDailies();
-    _searchController.addListener(_filterDailies);
-    _dailyListListener = () {
-      if (mounted) _loadDailies();
-    };
-    DailyList.addListener(_dailyListListener!);
+    _loadCurrentUser();
+    _searchController.addListener(() => setState(() {}));
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final user = await _userService.getUserById(_invitationService.currentUserId ?? '');
+    if (mounted) {
+      setState(() {
+        _currentUsername = user?.username ?? 'Someone';
+      });
+    }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    if (_dailyListListener != null) {
-      DailyList.removeListener(_dailyListListener!);
-    }
     super.dispose();
   }
 
-  void _loadDailies() {
-    setState(() {
-      _allDailies = DailyList.dailies;
-      _filteredDailies = List.from(_allDailies);
-      for (var daily in _allDailies) {
-        if (daily.invitedFriendIds.contains(widget.friendName)) {
-          _pendingInvites.add(daily.id);
-        }
-      }
-    });
-  }
-
-  void _filterDailies() {
+  List<DailyData> _filterDailies(List<DailyData> allDailies) {
     final query = _searchController.text.toLowerCase();
-    setState(() {
-      _filteredDailies = query.isEmpty
-          ? List.from(_allDailies)
-          : _allDailies.where((daily) {
-        return daily.title.toLowerCase().contains(query) ||
-            daily.description.toLowerCase().contains(query);
-      }).toList();
-    });
+    if (query.isEmpty) {
+      return allDailies;
+    }
+    return allDailies.where((daily) {
+      return daily.title.toLowerCase().contains(query) ||
+          daily.description.toLowerCase().contains(query);
+    }).toList();
   }
 
   Future<void> _inviteFriendToDaily(DailyData daily) async {
-    if (daily.invitedFriendIds.contains(widget.friendName)) return;
+    if (_currentUsername == null) return;
 
-    final updatedInvitedFriends = List<String>.from(daily.invitedFriendIds)..add(widget.friendName);
-    final updatedDaily = DailyData(
-      id: daily.id,
-      title: daily.title,
-      description: daily.description,
-      privacy: daily.privacy,
-      keywords: daily.keywords,
-      managementTiers: daily.managementTiers,
-      icon: daily.icon,
-      iconColor: daily.iconColor,
-      customIconPath: daily.customIconPath,
-      invitedFriendIds: updatedInvitedFriends,
-      createdAt: daily.createdAt,
-      isPinned: daily.isPinned,
-      dailyEntryPrompt: daily.dailyEntryPrompt,
+    final result = await _invitationService.sendDailyInvitation(
+      dailyId: daily.id,
+      dailyTitle: daily.title,
+      toUserId: widget.friendUserId,
+      toUsername: widget.friendName,
+      fromUsername: _currentUsername!,
     );
 
-    await DailyList.updateDaily(updatedDaily);
-    setState(() => _pendingInvites.add(daily.id));
+    if (mounted) {
+      if (result['success']) {
+        setState(() => _pendingInvites.add(daily.id));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Invited ${widget.friendName} to ${daily.title}!'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error'] ?? 'Failed to send invitation'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -162,12 +168,32 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
             ),
           ),
           Expanded(
-            child: _filteredDailies.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _filteredDailies.length,
-              itemBuilder: (context, index) => _buildDailyItem(_filteredDailies[index]),
+            child: StreamBuilder<List<DailyData>>(
+              stream: DailyList.getDailiesStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.cyan),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+
+                final allDailies = snapshot.data ?? [];
+                _filteredDailies = _filterDailies(allDailies);
+
+                if (_filteredDailies.isEmpty) {
+                  return _buildEmptyState();
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _filteredDailies.length,
+                  itemBuilder: (context, index) => _buildDailyItem(_filteredDailies[index]),
+                );
+              },
             ),
           ),
         ],

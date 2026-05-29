@@ -4,6 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 import 'InviteFriends.dart';
+import 'daily_invitation_service.dart';
+import 'user_service.dart';
 
 class NewDailyScreen extends StatefulWidget {
   const NewDailyScreen({Key? key}) : super(key: key);
@@ -731,8 +733,39 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
       body: Column(
         children: [
           Expanded(
-            child: InviteFriends(
-              onInvitedFriendsChanged: _handleInvitedFriendsChanged,
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.people_outline,
+                      size: 80,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Friend invitations will be sent after publishing',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'You\'ll be able to invite friends once your daily is created',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           Container(
@@ -847,8 +880,11 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
   }
 
   Future<void> _publishDaily() async {
+    // Create daily with real Firebase ID
+    final dailyId = DateTime.now().millisecondsSinceEpoch.toString();
+
     final daily = DailyData(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: dailyId,
       title: widget.title,
       description: widget.description,
       privacy: widget.privacy,
@@ -859,10 +895,38 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
       customIconPath: _customIcon?.path,
       invitedFriendIds: widget.selectedFriendIds,
       createdAt: DateTime.now(),
-      dailyEntryPrompt: widget.dailyEntryPrompt, // SAVE PROMPT
+      dailyEntryPrompt: widget.dailyEntryPrompt,
     );
 
+    // Save daily to Firebase FIRST
     await DailyList.addDaily(daily);
+
+    // NOW send invitations with the real daily ID
+    if (widget.selectedFriendIds.isNotEmpty) {
+      final invitationService = DailyInvitationService();
+      final userService = UserService();
+
+      // Get current user's username
+      final currentUser = await userService.getUserById(
+          invitationService.currentUserId ?? ''
+      );
+      final currentUsername = currentUser?.username ?? 'Someone';
+
+      // Send invitation to each friend
+      for (String friendUserId in widget.selectedFriendIds) {
+        // Get friend's username
+        final friendUser = await userService.getUserById(friendUserId);
+        if (friendUser != null) {
+          await invitationService.sendDailyInvitation(
+            dailyId: dailyId, // Real ID, not temp!
+            dailyTitle: widget.title,
+            toUserId: friendUserId,
+            toUsername: friendUser.username,
+            fromUsername: currentUsername,
+          );
+        }
+      }
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

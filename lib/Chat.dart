@@ -3,6 +3,7 @@ import 'friend_request_service.dart';
 import 'user_service.dart';
 import 'AddToDaily.dart';
 import 'ChatScreen.dart';
+import 'ManageChat.dart';
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -14,7 +15,7 @@ class ChatWidget extends StatefulWidget {
 class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMixin {
   List<FriendRequest> _acceptedFriends = [];
   List<FriendRequest> _filteredFriends = [];
-  Set<String> _pinnedFriends = {}; // Track pinned friends by userId
+  Set<String> _pinnedFriends = {};
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   final FriendRequestService _friendRequestService = FriendRequestService();
@@ -35,7 +36,6 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
   }
 
   void _sortAndFilterFriends() {
-    // Sort friends: pinned ones first, then others
     final pinnedList = _acceptedFriends.where((f) {
       final friendUserId = f.fromUserId == _friendRequestService.currentUserId
           ? f.toUserId
@@ -59,7 +59,6 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       if (query.isEmpty) {
         _sortAndFilterFriends();
       } else {
-        // Filter and maintain pin order
         final filtered = _acceptedFriends.where((friend) {
           final friendName = friend.fromUserId == _friendRequestService.currentUserId
               ? friend.toUsername
@@ -337,7 +336,20 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => AddToDailyScreen(friendName: friendName),
+                            builder: (context) => AddToDailyScreen(
+                              friendName: friendName,
+                              friendUserId: friendUserId, // ADDED: Pass friendUserId
+                            ),
+                          ),
+                        );
+                      } else if (value == 'manage') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ManageChatScreen(
+                              friendUserId: friendUserId,
+                              friendUsername: friendName,
+                            ),
                           ),
                         );
                       }
@@ -356,6 +368,22 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                             Text(
                               isPinned ? 'Unpin' : 'Pin',
                               style: const TextStyle(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'manage',
+                        child: Row(
+                          children: [
+                            Icon(Icons.settings_outlined, size: 20, color: Colors.black87),
+                            SizedBox(width: 12),
+                            Text(
+                              'Manage Chat',
+                              style: TextStyle(
                                 fontSize: 16,
                                 color: Colors.black87,
                               ),

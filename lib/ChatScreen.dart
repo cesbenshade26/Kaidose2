@@ -33,7 +33,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadCurrentUser() async {
     final user = await _userService.getUserById(_messageService.currentUserId ?? '');
-    if (mounted) setState(() { _currentUsername = user?.username ?? 'You'; _isLoading = false; });
+    if (mounted) {
+      setState(() {
+        _currentUsername = user?.username ?? 'You';
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -42,6 +47,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     _chatInputFocusNode.dispose();
+
+    // Clean up "on close" messages when leaving chat
+    // Can't await in dispose, so just fire and forget
+    _messageService.cleanupOnCloseMessages(widget.friendUserId);
+
     super.dispose();
   }
 
@@ -81,8 +91,17 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        title: Text(widget.friendUsername, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+        title: Text(
+          widget.friendUsername,
+          style: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Column(
         children: [
@@ -120,7 +139,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildInputArea() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.grey.shade100))),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey.shade100)),
+      ),
       child: SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -129,11 +151,24 @@ class _ChatScreenState extends State<ChatScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12), border: const Border(left: BorderSide(color: Colors.cyan, width: 4))),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: const Border(left: BorderSide(color: Colors.cyan, width: 4)),
+                ),
                 child: Row(
                   children: [
-                    Expanded(child: Text("Replying to: ${_replyingTo!.text}", maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _replyingTo = null)),
+                    Expanded(
+                      child: Text(
+                        "Replying to: ${_replyingTo!.text}",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 16),
+                      onPressed: () => setState(() => _replyingTo = null),
+                    ),
                   ],
                 ),
               ),
@@ -143,11 +178,25 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: TextField(
                     controller: _messageController,
                     focusNode: _chatInputFocusNode,
-                    decoration: InputDecoration(hintText: 'Message...', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none)),
+                    decoration: InputDecoration(
+                      hintText: 'Message...',
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                CircleAvatar(backgroundColor: Colors.cyan, child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 18), onPressed: _sendMessage)),
+                CircleAvatar(
+                  backgroundColor: Colors.cyan,
+                  child: IconButton(
+                    icon: const Icon(Icons.send, color: Colors.white, size: 18),
+                    onPressed: _sendMessage,
+                  ),
+                ),
               ],
             ),
           ],
@@ -165,28 +214,89 @@ class ChatMessageWidget extends StatelessWidget {
   final MessageService messageService;
   final VoidCallback onReply;
 
-  const ChatMessageWidget({Key? key, required this.message, required this.isMe, required this.friendUserId, required this.currentUsername, required this.messageService, required this.onReply}) : super(key: key);
+  const ChatMessageWidget({
+    Key? key,
+    required this.message,
+    required this.isMe,
+    required this.friendUserId,
+    required this.currentUsername,
+    required this.messageService,
+    required this.onReply,
+  }) : super(key: key);
 
   void _showMenu(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ReactionPicker(onReactionSelected: (emoji) {
-              messageService.addReaction(recipientUserId: friendUserId, messageId: message.id, emoji: emoji, username: currentUsername);
-              Navigator.pop(context);
-            }),
-            ListTile(leading: const Icon(Icons.reply), title: const Text("Reply"), onTap: () { Navigator.pop(context); onReply(); }),
-          ],
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(top: 12, bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ReactionPicker(
+                onReactionSelected: (emoji) {
+                  messageService.addReaction(
+                    recipientUserId: friendUserId,
+                    messageId: message.id,
+                    emoji: emoji,
+                    username: currentUsername,
+                  );
+                  Navigator.pop(context);
+                },
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.reply, color: Colors.black87),
+                title: const Text("Reply"),
+                onTap: () {
+                  Navigator.pop(context);
+                  onReply();
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  String _getDeleteTimeRemaining() {
+    if (message.deleteAfter == null) return '';
+
+    final remaining = message.deleteAfter!.difference(DateTime.now());
+
+    if (remaining.isNegative) return '';
+
+    if (remaining.inHours >= 24) {
+      final days = remaining.inDays;
+      return '🕐 ${days}d';
+    } else if (remaining.inHours > 0) {
+      return '🕐 ${remaining.inHours}h';
+    } else if (remaining.inMinutes > 0) {
+      return '🕐 ${remaining.inMinutes}m';
+    } else {
+      return '🕐 <1m';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final deleteTimer = _getDeleteTimeRemaining();
+
     return GestureDetector(
       onLongPress: () => _showMenu(context),
       child: Padding(
@@ -195,7 +305,9 @@ class ChatMessageWidget extends StatelessWidget {
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             Container(
-              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
+              ),
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -211,21 +323,58 @@ class ChatMessageWidget extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (message.parentText != null)
-                    Text(message.parentText!, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey)),
-                  Text(message.text, style: const TextStyle(fontSize: 15)),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        message.parentText!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.grey,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  Text(
+                    message.text,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                  if (deleteTimer.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        deleteTimer,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
             StreamBuilder<List<ChatReaction>>(
-              stream: messageService.getMessageReactions(recipientUserId: friendUserId, messageId: message.id),
+              stream: messageService.getMessageReactions(
+                recipientUserId: friendUserId,
+                messageId: message.id,
+              ),
               builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const SizedBox.shrink();
+                }
                 return Align(
                   alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: MessageReactionsDisplay(
                     reactions: snapshot.data!,
                     currentUserId: messageService.currentUserId ?? '',
-                    onReactionTap: (emoji) => messageService.addReaction(recipientUserId: friendUserId, messageId: message.id, emoji: emoji, username: currentUsername),
+                    onReactionTap: (emoji) => messageService.addReaction(
+                      recipientUserId: friendUserId,
+                      messageId: message.id,
+                      emoji: emoji,
+                      username: currentUsername,
+                    ),
                   ),
                 );
               },

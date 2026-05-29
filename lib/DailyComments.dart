@@ -3,6 +3,7 @@ import 'DailyData.dart';
 import 'MessageStorage.dart';
 import 'SendDailyMessage.dart';
 import 'MessageComments.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class CommentWithContext {
   final MessageComment comment;
@@ -28,9 +29,9 @@ class DailyCommentsScreen extends StatefulWidget {
 
 class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
   List<CommentWithContext> _myComments = [];
-  List<CommentWithContext> _savedComments = []; // For future implementation
+  List<CommentWithContext> _savedComments = [];
   bool _isLoading = true;
-  String _selectedFilter = 'My Comments'; // 'My Comments' or 'Saved Comments'
+  String _selectedFilter = 'My Comments';
 
   @override
   void initState() {
@@ -41,6 +42,7 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
   Future<void> _loadComments() async {
     // Load all messages in this daily
     final messages = await MessageStorage.loadMessages(widget.daily.id);
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
 
     List<CommentWithContext> myComments = [];
 
@@ -48,13 +50,14 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
     for (final message in messages) {
       final comments = await CommentStorage.loadComments(message.messageId);
 
-      // TODO: When multi-user support is added, filter by current user ID
-      // For now, all comments are "mine" since it's single-user
+      // Filter to only comments from current user
       for (final comment in comments) {
-        myComments.add(CommentWithContext(
-          comment: comment,
-          parentMessage: message,
-        ));
+        if (comment.userId == currentUid) {
+          myComments.add(CommentWithContext(
+            comment: comment,
+            parentMessage: message,
+          ));
+        }
       }
     }
 
@@ -70,7 +73,6 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
     }
   }
 
-  // TODO: Implement when saved comments feature is added
   Future<void> _loadSavedComments() async {
     // This will load comments that the user has saved
     // Will be implemented when comment saving is added
@@ -186,7 +188,6 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
                       setState(() {
                         _selectedFilter = 'Saved Comments';
                       });
-                      // TODO: Load saved comments when feature is implemented
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -356,6 +357,15 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    item.comment.username ?? 'You',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
                     item.comment.text,
                     style: const TextStyle(
                       fontSize: 15,
@@ -393,11 +403,9 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
                         // Like button
                         GestureDetector(
                           onTap: () {
-                            // TODO: When API is ready, sync like status to server
                             setState(() {
                               item.comment.isLiked = !item.comment.isLiked;
                             });
-                            // Save updated comment
                             CommentStorage.loadComments(item.comment.messageId).then((comments) {
                               CommentStorage.saveComments(item.comment.messageId, comments);
                             });
@@ -439,35 +447,3 @@ class _DailyCommentsScreenState extends State<DailyCommentsScreen> {
     );
   }
 }
-
-/*
- * TODO: Future API Integration Points
- *
- * 1. Multi-user support:
- *    - Filter comments by current user ID in _loadComments()
- *    - API endpoint: GET /api/dailies/{dailyId}/comments?userId={currentUserId}
- *    - Response: List of comments with parent message context
- *
- * 2. Saved comments feature:
- *    - Implement _loadSavedComments() to fetch saved comments
- *    - API endpoint: GET /api/users/{userId}/saved-comments?dailyId={dailyId}
- *    - Add save/unsave functionality on each comment
- *    - API endpoints:
- *      - POST /api/comments/{commentId}/save
- *      - DELETE /api/comments/{commentId}/save
- *
- * 3. Comment likes sync:
- *    - When user likes/unlikes, sync to server
- *    - API endpoints:
- *      - POST /api/comments/{commentId}/like
- *      - DELETE /api/comments/{commentId}/like
- *    - Update likeCount in real-time from server response
- *
- * 4. Real-time updates:
- *    - WebSocket or polling for new comments from others
- *    - Update UI when new comments arrive
- *
- * 5. Comment from other users:
- *    - Display user avatar/name
- *    - Different styling for current user vs others
- */

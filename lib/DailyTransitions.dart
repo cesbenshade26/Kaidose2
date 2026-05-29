@@ -57,9 +57,10 @@ class _DailyPromptOverlayState extends State<DailyPromptOverlay> {
 
     int numDailies = DailyList.dailies.length;
     if (mounted) {
+      final remaining = await SkipCount.getRemainingSkips(numDailies);
       setState(() {
         _totalSkips = SkipCount.calculateTotalSkips(numDailies);
-        _remainingSkips = SkipCount.getRemainingSkips(numDailies);
+        _remainingSkips = remaining;
       });
     }
   }

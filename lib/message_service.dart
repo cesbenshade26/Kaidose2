@@ -17,8 +17,11 @@ class Message {
   final bool read;
   final MessageType type;
   final Map<String, dynamic>? metadata;
-  final String? parentMessageId; // NEW
-  final String? parentText;      // NEW
+  final String? parentMessageId;
+  final String? parentText;
+  final DateTime? deleteAfter; // NEW
+  final bool hasBeenViewed; // NEW
+  final bool isSaved; // NEW
 
   Message({
     required this.id,
@@ -29,8 +32,11 @@ class Message {
     this.read = false,
     required this.type,
     this.metadata,
-    this.parentMessageId, // Added to constructor
-    this.parentText,      // Added to constructor
+    this.parentMessageId,
+    this.parentText,
+    this.deleteAfter,
+    this.hasBeenViewed = false,
+    this.isSaved = false,
   });
 
   factory Message.fromFirestore(DocumentSnapshot doc) {
@@ -47,8 +53,11 @@ class Message {
         orElse: () => MessageType.chat,
       ),
       metadata: data['metadata'] as Map<String, dynamic>?,
-      parentMessageId: data['parentMessageId'], // Map from Firestore
-      parentText: data['parentText'],           // Map from Firestore
+      parentMessageId: data['parentMessageId'],
+      parentText: data['parentText'],
+      deleteAfter: (data['deleteAfter'] as Timestamp?)?.toDate(),
+      hasBeenViewed: data['hasBeenViewed'] ?? false,
+      isSaved: data['isSaved'] ?? false,
     );
   }
 
@@ -61,9 +70,44 @@ class Message {
       'read': read,
       'type': type.toString().split('.').last,
       'metadata': metadata,
-      'parentMessageId': parentMessageId, // Save to Firestore
-      'parentText': parentText,           // Save to Firestore
+      'parentMessageId': parentMessageId,
+      'parentText': parentText,
+      'deleteAfter': deleteAfter != null ? Timestamp.fromDate(deleteAfter!) : null,
+      'hasBeenViewed': hasBeenViewed,
+      'isSaved': isSaved,
     };
+  }
+
+  Message copyWith({
+    String? id,
+    String? senderId,
+    String? senderUsername,
+    String? text,
+    DateTime? timestamp,
+    bool? read,
+    MessageType? type,
+    Map<String, dynamic>? metadata,
+    String? parentMessageId,
+    String? parentText,
+    DateTime? deleteAfter,
+    bool? hasBeenViewed,
+    bool? isSaved,
+  }) {
+    return Message(
+      id: id ?? this.id,
+      senderId: senderId ?? this.senderId,
+      senderUsername: senderUsername ?? this.senderUsername,
+      text: text ?? this.text,
+      timestamp: timestamp ?? this.timestamp,
+      read: read ?? this.read,
+      type: type ?? this.type,
+      metadata: metadata ?? this.metadata,
+      parentMessageId: parentMessageId ?? this.parentMessageId,
+      parentText: parentText ?? this.parentText,
+      deleteAfter: deleteAfter ?? this.deleteAfter,
+      hasBeenViewed: hasBeenViewed ?? this.hasBeenViewed,
+      isSaved: isSaved ?? this.isSaved,
+    );
   }
 }
 
@@ -78,7 +122,37 @@ class MessageService {
     return '${sortedIds[0]}_${sortedIds[1]}';
   }
 
-  // UPDATED: Added parent parameters to allow replies
+  // Get delete duration for a chat
+  Future<Duration?> _getDeleteDuration(String recipientUserId) async {
+    try {
+      final currentUid = currentUserId;
+      if (currentUid == null) return null;
+
+      final conversationId = getChatConversationId(currentUid, recipientUserId);
+      final chatDoc = await _firestore.collection('chats').doc(conversationId).get();
+
+      if (!chatDoc.exists) return null;
+
+      final data = chatDoc.data();
+      final deleteOption = data?['deleteOption'] as String?;
+
+      switch (deleteOption) {
+        case '24h':
+          return const Duration(hours: 24);
+        case '7d':
+          return const Duration(days: 7);
+        case 'on_close':
+          return null; // Handled separately
+        default:
+          return null; // Permanent
+      }
+    } catch (e) {
+      print('Error getting delete duration: $e');
+      return null;
+    }
+  }
+
+  // Send a chat message with disappearing message support
   Future<bool> sendChatMessage({
     required String recipientUserId,
     required String text,
@@ -92,6 +166,7 @@ class MessageService {
       if (currentUid == null) return false;
 
       final conversationId = getChatConversationId(currentUid, recipientUserId);
+      final deleteDuration = await _getDeleteDuration(recipientUserId);
 
       final message = Message(
         id: '',
@@ -104,6 +179,11 @@ class MessageService {
         metadata: metadata,
         parentMessageId: parentMessageId,
         parentText: parentText,
+        deleteAfter: deleteDuration != null
+            ? DateTime.now().add(deleteDuration)
+            : null,
+        hasBeenViewed: false,
+        isSaved: false,
       );
 
       await _firestore
@@ -126,6 +206,7 @@ class MessageService {
     }
   }
 
+  // Get chat messages (filtered to exclude expired ones)
   Stream<List<Message>> getChatMessages(String recipientUserId) {
     final currentUid = currentUserId;
     if (currentUid == null) return Stream.value([]);
@@ -137,11 +218,38 @@ class MessageService {
         .collection('messages')
         .orderBy('timestamp', descending: false)
         .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) => Message.fromFirestore(doc)).toList();
+        .asyncMap((snapshot) async {
+      final messages = snapshot.docs
+          .map((doc) => Message.fromFirestore(doc))
+          .toList();
+
+      // Filter out expired messages (not saved)
+      final now = DateTime.now();
+      final validMessages = messages.where((msg) {
+        if (msg.isSaved) return true; // Saved messages never delete
+        if (msg.deleteAfter == null) return true; // Permanent messages
+        return now.isBefore(msg.deleteAfter!); // Not expired yet
+      }).toList();
+
+      // Delete expired messages from Firestore
+      for (var msg in messages) {
+        if (!msg.isSaved &&
+            msg.deleteAfter != null &&
+            now.isAfter(msg.deleteAfter!)) {
+          await _firestore
+              .collection('chats')
+              .doc(conversationId)
+              .collection('messages')
+              .doc(msg.id)
+              .delete();
+        }
+      }
+
+      return validMessages;
     });
   }
 
+  // Mark messages as viewed and set delete timers
   Future<void> markChatMessagesAsRead(String recipientUserId) async {
     try {
       final currentUid = currentUserId;
@@ -156,15 +264,120 @@ class MessageService {
           .where('read', isEqualTo: false)
           .get();
 
+      final deleteDuration = await _getDeleteDuration(recipientUserId);
+
       for (var doc in unreadMessages.docs) {
-        await doc.reference.update({'read': true});
+        final Map<String, dynamic> updateData = {'read': true}; // FIXED: Explicit type
+
+        // If message hasn't been viewed yet and has a delete duration, set timer
+        final msgData = doc.data();
+        if (msgData['hasBeenViewed'] != true && deleteDuration != null) {
+          updateData['hasBeenViewed'] = true;
+          updateData['deleteAfter'] = Timestamp.fromDate(
+              DateTime.now().add(deleteDuration)
+          );
+        }
+
+        await doc.reference.update(updateData);
       }
     } catch (e) {
       print('Error marking messages as read: $e');
     }
   }
 
-  // UPDATED: Removed change/remove logic. User is now "stuck" with the reaction.
+  // Toggle message saved status
+  Future<void> toggleMessageSaved({
+    required String recipientUserId,
+    required String messageId,
+    required bool isSaved,
+  }) async {
+    try {
+      final currentUid = currentUserId;
+      if (currentUid == null) return;
+      final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+      await _firestore
+          .collection('chats')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .update({'isSaved': isSaved});
+    } catch (e) {
+      print('Error toggling message saved: $e');
+    }
+  }
+
+  // Save chat settings (delete option)
+  Future<void> saveChatSettings({
+    required String recipientUserId,
+    required String deleteOption,
+  }) async {
+    try {
+      final currentUid = currentUserId;
+      if (currentUid == null) return;
+      final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+      await _firestore.collection('chats').doc(conversationId).set({
+        'deleteOption': deleteOption,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('Error saving chat settings: $e');
+    }
+  }
+
+  // Get chat settings
+  Future<String> getChatSettings(String recipientUserId) async {
+    try {
+      final currentUid = currentUserId;
+      if (currentUid == null) return 'off';
+      final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+      final doc = await _firestore.collection('chats').doc(conversationId).get();
+      if (!doc.exists) return 'off';
+
+      final data = doc.data();
+      return data?['deleteOption'] as String? ?? 'off';
+    } catch (e) {
+      print('Error getting chat settings: $e');
+      return 'off';
+    }
+  }
+
+  // Clean up "on close" messages
+  Future<void> cleanupOnCloseMessages(String recipientUserId) async {
+    try {
+      final currentUid = currentUserId;
+      if (currentUid == null) return;
+      final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+      // Check if "on_close" is enabled
+      final chatDoc = await _firestore.collection('chats').doc(conversationId).get();
+      if (!chatDoc.exists) return;
+
+      final data = chatDoc.data();
+      final deleteOption = data?['deleteOption'] as String?;
+
+      if (deleteOption != 'on_close') return;
+
+      // Delete all non-saved messages
+      final messages = await _firestore
+          .collection('chats')
+          .doc(conversationId)
+          .collection('messages')
+          .where('isSaved', isEqualTo: false)
+          .get();
+
+      for (var doc in messages.docs) {
+        await doc.reference.delete();
+      }
+
+      print('Cleaned up on-close messages for $conversationId');
+    } catch (e) {
+      print('Error cleaning up on-close messages: $e');
+    }
+  }
+
+  // Add reaction (unchanged from original)
   Future<bool> addReaction({
     required String recipientUserId,
     required String messageId,
@@ -230,7 +443,7 @@ class MessageService {
     });
   }
 
-  // ==================== DAILY MESSAGES (Included for completeness) ====================
+  // ==================== DAILY MESSAGES (Unchanged) ====================
 
   Future<bool> sendDailyMessage({
     required String dailyId,

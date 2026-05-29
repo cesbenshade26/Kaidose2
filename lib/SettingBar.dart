@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'Customization.dart';
 import 'SecurityInfo.dart';
 import 'auth_service.dart';
+import 'ProfilePicManager.dart';
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -52,87 +53,45 @@ class ProfileSettingsSection extends StatelessWidget {
         const SizedBox(height: 8),
         // Customization Option
         ListTile(
-          leading: const Icon(
-            Icons.palette,
-            color: Colors.grey,
-            size: 28,
-          ),
+          leading: const Icon(Icons.palette, color: Colors.grey, size: 28),
           title: const Text(
             'Customization',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
-          trailing: const Icon(
-            Icons.chevron_right,
-            color: Colors.grey,
-          ),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
           onTap: () {
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const CustomizationScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const CustomizationScreen()),
             );
           },
         ),
-        const Divider(
-          color: Colors.grey,
-          thickness: 0.5,
-        ),
+        const Divider(color: Colors.grey, thickness: 0.5),
         // Security Info Option
         ListTile(
-          leading: const Icon(
-            Icons.security,
-            color: Colors.grey,
-            size: 28,
-          ),
+          leading: const Icon(Icons.security, color: Colors.grey, size: 28),
           title: const Text(
             'Security Info',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
-          trailing: const Icon(
-            Icons.chevron_right,
-            color: Colors.grey,
-          ),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
           onTap: () {
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const SecurityInfoScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const SecurityInfoScreen()),
             );
           },
         ),
-        const Divider(
-          color: Colors.grey,
-          thickness: 0.5,
-        ),
+        const Divider(color: Colors.grey, thickness: 0.5),
         // Logout Option
         ListTile(
-          leading: const Icon(
-            Icons.logout,
-            color: Colors.red,
-            size: 28,
-          ),
+          leading: const Icon(Icons.logout, color: Colors.red, size: 28),
           title: const Text(
             'Logout',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: Colors.red,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.red),
           ),
-          trailing: const Icon(
-            Icons.chevron_right,
-            color: Colors.red,
-          ),
+          trailing: const Icon(Icons.chevron_right, color: Colors.red),
           onTap: () async {
-            // Show confirmation dialog
             final shouldLogout = await showDialog<bool>(
               context: context,
               builder: (BuildContext context) {
@@ -146,9 +105,7 @@ class ProfileSettingsSection extends StatelessWidget {
                     ),
                     TextButton(
                       onPressed: () => Navigator.of(context).pop(true),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.red,
-                      ),
+                      style: TextButton.styleFrom(foregroundColor: Colors.red),
                       child: const Text('Logout'),
                     ),
                   ],
@@ -157,10 +114,11 @@ class ProfileSettingsSection extends StatelessWidget {
             );
 
             if (shouldLogout == true && context.mounted) {
-              // Logout from Firebase
+              // Clear profile pic state before signing out so it
+              // doesn't bleed into the next account's session
+              ProfilePicManager.clearForLogout();
               await AuthService().logout();
 
-              // Navigate to opening screen and remove all previous routes
               Navigator.pushNamedAndRemoveUntil(
                 context,
                 '/opening',
@@ -169,10 +127,7 @@ class ProfileSettingsSection extends StatelessWidget {
             }
           },
         ),
-        const Divider(
-          color: Colors.grey,
-          thickness: 0.5,
-        ),
+        const Divider(color: Colors.grey, thickness: 0.5),
       ],
     );
   }

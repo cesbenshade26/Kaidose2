@@ -64,7 +64,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     _loadFromStorage();
 
     _profilePicListener = () {
-      print('ProfileWidget: Profile pic changed!');
       if (mounted) {
         setState(() {
           _profilePic = ProfilePicManager.globalProfilePic;
@@ -73,7 +72,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     };
 
     _backgroundPicListener = () {
-      print('ProfileWidget: Background pic or settings changed!');
       if (mounted) {
         setState(() {
           _backgroundPic = BackgroundPicManager.globalBackgroundPic;
@@ -84,7 +82,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     };
 
     _bioListener = () {
-      print('ProfileWidget: Bio listener triggered');
       if (mounted) {
         setState(() {
           _loadBioData();
@@ -93,7 +90,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     };
 
     _usernameListener = () {
-      print('ProfileWidget: Username listener triggered');
       if (mounted) {
         setState(() {
           _loadUsernameData();
@@ -102,7 +98,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     };
 
     _followersListener = () {
-      print('ProfileWidget: Followers listener triggered');
       if (mounted) {
         setState(() {
           _loadFollowersData();
@@ -111,7 +106,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     };
 
     _followingListener = () {
-      print('ProfileWidget: Following listener triggered');
       if (mounted) {
         setState(() {
           _loadFollowingData();
@@ -160,12 +154,10 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
 
   void _loadFollowersData() {
     _followersCount = UserFollowers.followersCount;
-    print('Followers count loaded in ProfileWidget: $_followersCount');
   }
 
   void _loadFollowingData() {
     _followingCount = UserFollowing.followingCount;
-    print('Following count loaded in ProfileWidget: $_followingCount');
   }
 
   @override
@@ -177,6 +169,8 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   }
 
   Future<void> _loadFromStorage() async {
+    // loadProfilePicFromStorage is now UID-aware — loads the correct
+    // user's local cache and refreshes from Firebase in the background
     await ProfilePicManager.loadProfilePicFromStorage();
     await BackgroundPicManager.loadBackgroundPicFromStorage();
     await BioManager.loadBioFromStorage();
@@ -200,24 +194,12 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (_profilePicListener != null) {
-      ProfilePicManager.removeListener(_profilePicListener!);
-    }
-    if (_backgroundPicListener != null) {
-      BackgroundPicManager.removeListener(_backgroundPicListener!);
-    }
-    if (_bioListener != null) {
-      BioManager.removeListener(_bioListener!);
-    }
-    if (_usernameListener != null) {
-      UserManager.removeListener(_usernameListener!);
-    }
-    if (_followersListener != null) {
-      UserFollowers.removeListener(_followersListener!);
-    }
-    if (_followingListener != null) {
-      UserFollowing.removeListener(_followingListener!);
-    }
+    if (_profilePicListener != null) ProfilePicManager.removeListener(_profilePicListener!);
+    if (_backgroundPicListener != null) BackgroundPicManager.removeListener(_backgroundPicListener!);
+    if (_bioListener != null) BioManager.removeListener(_bioListener!);
+    if (_usernameListener != null) UserManager.removeListener(_usernameListener!);
+    if (_followersListener != null) UserFollowers.removeListener(_followersListener!);
+    if (_followingListener != null) UserFollowing.removeListener(_followingListener!);
     super.dispose();
   }
 
@@ -230,7 +212,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Container(
           width: double.infinity,
-          padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey[300]!, width: 1),
             borderRadius: BorderRadius.circular(8),
@@ -272,7 +254,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       default:
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(width: double.infinity, child: bioText),
+          child: SizedBox(width: double.infinity, child: bioText),
         );
     }
   }
@@ -389,7 +371,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           child: _buildBioText(screenWidth),
         ),
         const SizedBox(height: 16),
-        Container(
+        SizedBox(
           width: double.infinity,
           child: Column(
             children: [
@@ -397,11 +379,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedTabIndex = 0;
-                        });
-                      },
+                      onTap: () => setState(() => _selectedTabIndex = 0),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Icon(
@@ -414,24 +392,20 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                   ),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedTabIndex = 1;
-                        });
-                      },
+                      onTap: () => setState(() => _selectedTabIndex = 1),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Icon(Icons.videocam_outlined, size: 24, color: _selectedTabIndex == 1 ? Colors.black : Colors.grey),
+                        child: Icon(
+                          Icons.videocam_outlined,
+                          size: 24,
+                          color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
+                        ),
                       ),
                     ),
                   ),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedTabIndex = 2;
-                        });
-                      },
+                      onTap: () => setState(() => _selectedTabIndex = 2),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Icon(
@@ -444,7 +418,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                   ),
                 ],
               ),
-              Container(
+              SizedBox(
                 height: 2,
                 child: Stack(
                   children: [
@@ -505,7 +479,6 @@ class _ProfilePageState extends State<ProfilePage> {
     };
 
     BackgroundPicManager.addListener(_backgroundPicListener!);
-
     _loadInitialData();
   }
 
@@ -632,7 +605,6 @@ class _ProfilePageState extends State<ProfilePage> {
                     builder: (context, snapshot) {
                       final count = snapshot.data ?? 0;
                       if (count == 0) return const SizedBox();
-
                       return Positioned(
                         right: 8,
                         top: 8,
@@ -642,10 +614,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             color: Colors.red,
                             shape: BoxShape.circle,
                           ),
-                          constraints: const BoxConstraints(
-                            minWidth: 16,
-                            minHeight: 16,
-                          ),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                           child: Text(
                             '$count',
                             style: const TextStyle(
@@ -716,10 +685,7 @@ class DefaultProfilePic extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.grey[300],
-        border: Border.all(
-          color: Colors.grey[400]!,
-          width: borderWidth,
-        ),
+        border: Border.all(color: Colors.grey[400]!, width: borderWidth),
       ),
       child: ClipOval(
         child: Stack(
@@ -730,10 +696,7 @@ class DefaultProfilePic extends StatelessWidget {
               child: Container(
                 width: size * 0.3125,
                 height: size * 0.3125,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.grey[600],
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[600]),
               ),
             ),
             Positioned(
