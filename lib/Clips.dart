@@ -1,317 +1,421 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import 'package:video_player/video_player.dart';
-import 'ClipManager.dart';
-import 'ClipTracker.dart';
-import 'AddClip.dart';
+import 'clip_service.dart';
+import 'ClipSideBar.dart';
+import 'ClipCommentSheet.dart';
 
 class ClipsWidget extends StatefulWidget {
-  const ClipsWidget({Key? key}) : super(key: key);
+  final bool isTabActive;
+
+  const ClipsWidget({Key? key, this.isTabActive = true}) : super(key: key);
 
   @override
   State<ClipsWidget> createState() => _ClipsWidgetState();
 }
 
 class _ClipsWidgetState extends State<ClipsWidget> {
-  File? _selectedVideo;
-  File? _currentDisplayVideo;
-  int _currentVideoIndex = -1;
-  List<File> _todaysVideos = [];
-  VoidCallback? _trackerListener;
-  VideoPlayerController? _videoController;
-  bool _isInitializing = false;
-  String? _errorMessage;
-  bool _isLiked = false;
+  late PageController _pageController;
+  int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
-
-    _initializeTracker();
-
-    _trackerListener = () {
-      if (mounted) {
-        setState(() {
-          _todaysVideos = ClipTracker.todaysClips;
-          if (_todaysVideos.isNotEmpty && _currentVideoIndex == -1 && _selectedVideo == null) {
-            _currentVideoIndex = _todaysVideos.length - 1;
-            _currentDisplayVideo = _todaysVideos[_currentVideoIndex];
-            _initializeVideo(_currentDisplayVideo!);
-          }
-        });
-      }
-    };
-
-    ClipTracker.addListener(_trackerListener!);
+    _pageController = PageController();
   }
 
   @override
   void dispose() {
-    _videoController?.dispose();
-    if (_trackerListener != null) {
-      ClipTracker.removeListener(_trackerListener!);
-    }
+    _pageController.dispose();
     super.dispose();
   }
-
-  Future<void> _initializeVideo(File videoFile) async {
-    print('========== CLIPS VIDEO INITIALIZATION START ==========');
-    print('Video file path: ${videoFile.path}');
-    print('Video file exists: ${videoFile.existsSync()}');
-
-    setState(() {
-      _isInitializing = true;
-      _errorMessage = null;
-    });
-
-    try {
-      // Dispose of old controller if exists
-      await _videoController?.dispose();
-      _videoController = null;
-
-      print('Creating VideoPlayerController...');
-      _videoController = VideoPlayerController.file(videoFile);
-
-      // Add listener to detect when video is ready
-      _videoController!.addListener(() {
-        if (mounted) {
-          setState(() {});
-        }
-      });
-
-      print('Initializing controller...');
-      await _videoController!.initialize();
-
-      print('Controller initialized successfully!');
-      print('Video duration: ${_videoController!.value.duration}');
-      print('Video size: ${_videoController!.value.size}');
-
-      // Set looping BEFORE setState
-      _videoController!.setLooping(true);
-
-      if (mounted) {
-        setState(() {
-          _isInitializing = false;
-        });
-
-        // Play after setState completes
-        await Future.delayed(const Duration(milliseconds: 50));
-        _videoController!.play();
-
-        // Force another setState to ensure playing state is reflected
-        await Future.delayed(const Duration(milliseconds: 50));
-        setState(() {});
-      }
-
-      print('Video is now playing: ${_videoController!.value.isPlaying}');
-    } catch (e, stackTrace) {
-      print('ERROR initializing video: $e');
-      print('Stack trace: $stackTrace');
-
-      if (mounted) {
-        setState(() {
-          _isInitializing = false;
-          _errorMessage = 'Failed to load video: $e';
-        });
-      }
-    }
-    print('========== CLIPS VIDEO INITIALIZATION END ==========');
-  }
-
-  Future<void> _initializeTracker() async {
-    await ClipTracker.initialize();
-    if (mounted) {
-      setState(() {
-        _todaysVideos = ClipTracker.todaysClips;
-        if (_todaysVideos.isNotEmpty) {
-          _currentVideoIndex = _todaysVideos.length - 1;
-          _currentDisplayVideo = _todaysVideos[_currentVideoIndex];
-          _initializeVideo(_currentDisplayVideo!);
-        }
-      });
-    }
-  }
-
-  void _navigateVideos(int direction) {
-    if (_todaysVideos.isEmpty) return;
-
-    int newIndex;
-    if (_currentVideoIndex == -1) {
-      if (direction > 0) {
-        newIndex = 0;
-      } else {
-        return;
-      }
-    } else {
-      newIndex = (_currentVideoIndex + direction).clamp(0, _todaysVideos.length - 1);
-    }
-
-    if (newIndex >= 0 && newIndex < _todaysVideos.length) {
-      setState(() {
-        _currentVideoIndex = newIndex;
-        _currentDisplayVideo = _todaysVideos[_currentVideoIndex];
-        _selectedVideo = null;
-        _isLiked = false; // Reset like state when changing videos
-      });
-      _initializeVideo(_currentDisplayVideo!);
-    }
-  }
-
-  void _toggleLike() {
-    setState(() {
-      _isLiked = !_isLiked;
-    });
-  }
-
-  bool get _canNavigateLeft => _todaysVideos.isNotEmpty && _currentVideoIndex > 0;
-  bool get _canNavigateRight => _todaysVideos.isNotEmpty && _currentVideoIndex < _todaysVideos.length - 1;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      extendBody: true,
-      body: Stack(
+      body: StreamBuilder<List<ClipData>>(
+        stream: ClipService.getOtherUsersClips(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.cyan),
+            );
+          }
+
+          final clips = snapshot.data ?? [];
+
+          if (clips.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.videocam_off_outlined,
+                      size: 80, color: Colors.grey[600]),
+                  const SizedBox(height: 16),
+                  Text('No clips yet',
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[400])),
+                  const SizedBox(height: 8),
+                  Text('Clips from other users will show up here',
+                      style:
+                      TextStyle(fontSize: 14, color: Colors.grey[600])),
+                ],
+              ),
+            );
+          }
+
+          return PageView.builder(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            onPageChanged: (index) => setState(() => _currentPage = index),
+            itemCount: clips.length,
+            itemBuilder: (context, index) {
+              return _ClipPage(
+                clip: clips[index],
+                isActive: index == _currentPage && widget.isTabActive,
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ClipPage extends StatefulWidget {
+  final ClipData clip;
+  final bool isActive;
+
+  const _ClipPage({required this.clip, required this.isActive});
+
+  @override
+  State<_ClipPage> createState() => _ClipPageState();
+}
+
+class _ClipPageState extends State<_ClipPage>
+    with SingleTickerProviderStateMixin {
+  VideoPlayerController? _controller;
+  bool _isLoading = true;
+  bool _hasError = false;
+  bool _userPaused = false;
+
+  LikeTrigger? _likeTrigger;
+
+  // Comment sheet state
+  bool _showComments = false;
+  late AnimationController _commentAnimController;
+  late Animation<double> _commentAnimation;
+
+  // Floating heart
+  late AnimationController _floatingHeartController;
+  late Animation<double> _floatingHeartScale;
+  late Animation<double> _floatingHeartOpacity;
+  Offset _floatingHeartPosition = Offset.zero;
+  bool _showFloatingHeart = false;
+
+  // Sheet height = 55% of screen
+  static const double _sheetFraction = 0.55;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVideo();
+
+    _commentAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _commentAnimation = CurvedAnimation(
+      parent: _commentAnimController,
+      curve: Curves.easeOutCubic,
+    );
+
+    _floatingHeartController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _floatingHeartScale = TweenSequence([
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.0, end: 1.3), weight: 40),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.3, end: 1.0), weight: 20),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: 1.0), weight: 40),
+    ]).animate(_floatingHeartController);
+    _floatingHeartOpacity = TweenSequence([
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.0, end: 1.0), weight: 20),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: 1.0), weight: 40),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: 0.0), weight: 40),
+    ]).animate(_floatingHeartController);
+  }
+
+  @override
+  void didUpdateWidget(_ClipPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      if (widget.isActive && !_userPaused) {
+        _controller?.play();
+      } else {
+        _controller?.pause();
+      }
+    }
+  }
+
+  Future<void> _loadVideo() async {
+    try {
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.clip.videoUrl),
+      );
+      await controller.initialize();
+      controller.setLooping(true);
+      if (mounted) {
+        setState(() {
+          _controller = controller;
+          _isLoading = false;
+        });
+        if (widget.isActive) controller.play();
+      } else {
+        controller.dispose();
+      }
+    } catch (e) {
+      print('_ClipPage: load error: $e');
+      if (mounted) setState(() { _hasError = true; _isLoading = false; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _commentAnimController.dispose();
+    _floatingHeartController.dispose();
+    super.dispose();
+  }
+
+  void _openComments() {
+    setState(() => _showComments = true);
+    _commentAnimController.forward();
+  }
+
+  void _closeComments() {
+    _commentAnimController.reverse().then((_) {
+      if (mounted) setState(() => _showComments = false);
+    });
+  }
+
+  void _onSingleTap(Offset position) {
+    if (_showComments) { _closeComments(); return; }
+    final size = MediaQuery.of(context).size;
+    if (position.dx > size.width / 3 &&
+        position.dx < size.width * 2 / 3 &&
+        position.dy > size.height / 3 &&
+        position.dy < size.height * 2 / 3) {
+      if (_controller == null) return;
+      setState(() {
+        if (_controller!.value.isPlaying) {
+          _controller!.pause();
+          _userPaused = true;
+        } else {
+          _controller!.play();
+          _userPaused = false;
+        }
+      });
+    }
+  }
+
+  void _onDoubleTap(Offset position) {
+    _likeTrigger?.call();
+    setState(() {
+      _floatingHeartPosition = position;
+      _showFloatingHeart = true;
+    });
+    _floatingHeartController.forward(from: 0).then((_) {
+      if (mounted) setState(() => _showFloatingHeart = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final sheetHeight = screenHeight * _sheetFraction;
+
+    return GestureDetector(
+      onTapUp: (details) => _onSingleTap(details.globalPosition),
+      onDoubleTapDown: (details) => _onDoubleTap(details.globalPosition),
+      onDoubleTap: () {},
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          // Full screen video display
-          Positioned.fill(
-            top: 0,
-            bottom: 0,
-            child: _buildVideoDisplay(),
+          // ── Black background always fills screen ──
+          Container(color: Colors.black),
+
+          // ── Clip area — shrinks when comments open ──
+          AnimatedBuilder(
+            animation: _commentAnimation,
+            builder: (context, child) {
+              final shrinkFraction = _commentAnimation.value;
+              final availableHeight = screenHeight - sheetHeight * shrinkFraction;
+              final clipHeight = availableHeight;
+              final clipWidth = MediaQuery.of(context).size.width *
+                  (1 - 0.15 * shrinkFraction); // gentle width shrink
+
+              return Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: clipHeight,
+                child: Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(
+                        12 * shrinkFraction),
+                    child: SizedBox(
+                      width: clipWidth,
+                      height: clipHeight,
+                      child: child,
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: _buildVideoContent(),
           ),
 
-          // Navigation arrows
-          if (_canNavigateLeft)
-            Positioned(
-              left: 20,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: () => _navigateVideos(-1),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 24),
-                  ),
-                ),
-              ),
+          // ── Comment sheet ──
+          if (_showComments)
+            AnimatedBuilder(
+              animation: _commentAnimation,
+              builder: (context, child) {
+                final offset = (1 - _commentAnimation.value) * sheetHeight;
+                return Positioned(
+                  bottom: -offset,
+                  left: 0,
+                  right: 0,
+                  height: sheetHeight,
+                  child: child!,
+                );
+              },
+              child: ClipCommentSheet(onClose: _closeComments),
             ),
 
-          if (_canNavigateRight)
-            Positioned(
-              right: 20,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: () => _navigateVideos(1),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 24),
-                  ),
-                ),
-              ),
+          // ── Side buttons (always on top) ──
+          Positioned(
+            right: 12,
+            bottom: 80,
+            child: ClipSideBar(
+              clipId: widget.clip.id,
+              onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
+              onCommentTap: _openComments,
             ),
+          ),
 
-          // Video counter
-          if (_todaysVideos.isNotEmpty && _currentVideoIndex >= 0)
-            Positioned(
-              top: 60,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'Clip ${_currentVideoIndex + 1} of ${_todaysVideos.length}',
-                    style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ),
-            ),
-
-          // Social interaction buttons (Like, Comment, Share)
-          if (_todaysVideos.isNotEmpty && _currentVideoIndex >= 0)
-            Positioned(
-              right: 16,
-              bottom: 120,
-              child: Column(
-                children: [
-                  // Like button
-                  GestureDetector(
-                    onTap: _toggleLike,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                      padding: const EdgeInsets.all(10),
+          // ── Username + caption ──
+          AnimatedBuilder(
+            animation: _commentAnimation,
+            builder: (context, child) {
+              final bottomOffset =
+                  60 + sheetHeight * _commentAnimation.value;
+              return Positioned(
+                bottom: bottomOffset,
+                left: 16,
+                right: 72,
+                child: child!,
+              );
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.cyan.withOpacity(0.3),
                         shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
                       ),
-                      child: Icon(
-                        _isLiked ? Icons.favorite : Icons.favorite_border,
-                        color: _isLiked ? Colors.red : Colors.white,
-                        size: 30,
+                      child: Center(
+                        child: Text(
+                          widget.clip.creatorUsername.isNotEmpty
+                              ? widget.clip.creatorUsername[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Comment button
-                  GestureDetector(
-                    onTap: () {
-                      print('Comment button tapped');
-                      // TODO: Implement comment functionality
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.mode_comment_outlined,
+                    const SizedBox(width: 8),
+                    Text(
+                      '@${widget.clip.creatorUsername}',
+                      style: const TextStyle(
                         color: Colors.white,
-                        size: 30,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Share button
-                  GestureDetector(
-                    onTap: () {
-                      print('Share button tapped');
-                      // TODO: Implement share functionality
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.send_outlined,
-                        color: Colors.white,
-                        size: 30,
-                      ),
+                  ],
+                ),
+                if (widget.clip.caption.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.clip.caption,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
                     ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
+              ],
+            ),
+          ),
+
+          // ── Floating heart ──
+          if (_showFloatingHeart)
+            Positioned(
+              left: _floatingHeartPosition.dx - 45,
+              top: _floatingHeartPosition.dy - 45,
+              child: AnimatedBuilder(
+                animation: _floatingHeartController,
+                builder: (context, child) => Opacity(
+                  opacity: _floatingHeartOpacity.value,
+                  child: Transform.scale(
+                    scale: _floatingHeartScale.value,
+                    child: const Icon(Icons.favorite,
+                        color: Colors.red,
+                        size: 90,
+                        shadows: [
+                          Shadow(color: Colors.black38, blurRadius: 8)
+                        ]),
+                  ),
+                ),
+              ),
+            ),
+
+          // ── Progress bar ──
+          if (_controller != null && _controller!.value.isInitialized)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: VideoProgressIndicator(
+                _controller!,
+                allowScrubbing: true,
+                colors: const VideoProgressColors(
+                  playedColor: Colors.cyan,
+                  bufferedColor: Colors.white30,
+                  backgroundColor: Colors.white10,
+                ),
               ),
             ),
         ],
@@ -319,110 +423,52 @@ class _ClipsWidgetState extends State<ClipsWidget> {
     );
   }
 
-  Widget _buildVideoDisplay() {
-    if (_errorMessage != null) {
+  Widget _buildVideoContent() {
+    if (_isLoading) {
       return Container(
-        color: Colors.grey[900],
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.error_outline, size: 80, color: Colors.red[400]),
-                const SizedBox(height: 16),
-                Text(
-                  'Video Error',
-                  style: TextStyle(fontSize: 24, color: Colors.red[400], fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _errorMessage!,
-                  style: TextStyle(fontSize: 14, color: Colors.grey[400]),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
+        color: Colors.black,
+        child: const Center(
+            child: CircularProgressIndicator(color: Colors.cyan)),
       );
     }
-
-    if (_currentDisplayVideo != null && _currentDisplayVideo!.existsSync()) {
-      if (_isInitializing) {
-        return Container(
-          color: Colors.grey[900],
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(
-                  color: Colors.white,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Loading video...',
-                  style: TextStyle(color: Colors.grey[400], fontSize: 16),
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-
-      if (_videoController != null && _videoController!.value.isInitialized) {
-        return SizedBox.expand(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: _videoController!.value.size.width,
-              height: _videoController!.value.size.height,
-              child: VideoPlayer(_videoController!),
-            ),
-          ),
-        );
-      }
-
-      // Fallback state
+    if (_hasError) {
       return Container(
-        color: Colors.grey[900],
+        color: Colors.black,
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.video_file, size: 80, color: Colors.grey[600]),
-              const SizedBox(height: 16),
-              Text(
-                'Video not ready',
-                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-              ),
+              Icon(Icons.error_outline, color: Colors.grey[600], size: 48),
+              const SizedBox(height: 12),
+              Text('Could not load clip',
+                  style: TextStyle(color: Colors.grey[500])),
             ],
           ),
         ),
       );
     }
-
-    // No video selected
-    return Container(
-      color: Colors.grey[900],
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.videocam_outlined, size: 80, color: Colors.grey[600]),
-            const SizedBox(height: 16),
-            Text(
-              'No Clips Yet',
-              style: TextStyle(fontSize: 24, color: Colors.grey[600], fontWeight: FontWeight.w500),
+    if (_controller != null && _controller!.value.isInitialized) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _controller!.value.size.width,
+                height: _controller!.value.size.height,
+                child: VideoPlayer(_controller!),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Post your first clip from the Add tab',
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+          ),
+          if (!_controller!.value.isPlaying && _userPaused)
+            const Center(
+              child: Icon(Icons.play_arrow_rounded,
+                  color: Colors.white70, size: 72),
             ),
-          ],
-        ),
-      ),
-    );
+        ],
+      );
+    }
+    return Container(color: Colors.black);
   }
 }

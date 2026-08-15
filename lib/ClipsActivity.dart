@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
-import 'VideoClipPlayer.dart';
+import 'clip_service.dart';
+import 'ClipSideBar.dart';
+import 'ClipCommentSheet.dart';
 
 class ClipsActivity extends StatefulWidget {
   const ClipsActivity({Key? key}) : super(key: key);
@@ -12,275 +12,137 @@ class ClipsActivity extends StatefulWidget {
 }
 
 class _ClipsActivityState extends State<ClipsActivity> {
-  Map<String, List<File>> _clipsByDate = {};
-  List<String> _sortedDates = [];
-  bool _isLoading = true;
-  DateTime? _selectedDate;
+  late Stream<List<ClipData>> _stream;
 
   @override
   void initState() {
     super.initState();
-    _loadAllClips();
-  }
-
-  Future<void> _selectDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.cyan,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        _selectedDate = picked;
-      });
-    }
-  }
-
-  void _clearDateFilter() {
-    setState(() {
-      _selectedDate = null;
-    });
-  }
-
-  List<String> _getFilteredDates() {
-    if (_selectedDate == null) return _sortedDates;
-
-    final dateStr = _selectedDate!.toIso8601String().split('T')[0];
-    return _sortedDates.where((date) => date == dateStr).toList();
-  }
-
-  Future<void> _loadAllClips() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final dailyClipsDir = Directory('${directory.path}/daily_clips');
-
-      if (await dailyClipsDir.exists()) {
-        final List<FileSystemEntity> entities = await dailyClipsDir.list().toList();
-        Map<String, List<File>> clipsByDate = {};
-
-        for (var entity in entities) {
-          if (entity is Directory) {
-            final dirName = entity.path.split('/').last;
-            if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dirName)) {
-              final files = await entity.list().toList();
-              List<File> clips = [];
-
-              for (var file in files) {
-                if (file is File && file.path.endsWith('.mp4')) {
-                  clips.add(file);
-                }
-              }
-
-              if (clips.isNotEmpty) {
-                clips.sort((a, b) => a.path.compareTo(b.path));
-                clipsByDate[dirName] = clips;
-              }
-            }
-          }
-        }
-
-        List<String> sortedDates = clipsByDate.keys.toList();
-        sortedDates.sort((a, b) => b.compareTo(a));
-
-        setState(() {
-          _clipsByDate = clipsByDate;
-          _sortedDates = sortedDates;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading clips: $e');
-      setState(() {
-        _isLoading = false;
-      });
-    }
+    _stream = ClipService.getMyClips();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.purple),
-      );
-    }
+    return StreamBuilder<List<ClipData>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.cyan),
+          );
+        }
 
-    if (_clipsByDate.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.videocam_outlined, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'No Clips Yet',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
+        if (snapshot.hasError) {
+          print('ClipsActivity error: ${snapshot.error}');
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Error loading clips',
+                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Start posting clips to see them here!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
+          );
+        }
+
+        final clips = snapshot.data ?? [];
+
+        if (clips.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.videocam_outlined,
+                    size: 80, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text(
+                  'No Clips Yet',
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your posted clips will show up here',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+              ],
             ),
-          ],
-        ),
-      );
-    }
+          );
+        }
 
-    final filteredDates = _getFilteredDates();
-
-    return Stack(
-      children: [
-        GridView.builder(
+        return GridView.builder(
           padding: EdgeInsets.zero,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            crossAxisSpacing: 0,
-            mainAxisSpacing: 0,
-            childAspectRatio: 0.56,
+            crossAxisSpacing: 1,
+            mainAxisSpacing: 1,
+            childAspectRatio: 9 / 16,
           ),
-          itemCount: filteredDates.length,
+          itemCount: clips.length,
           itemBuilder: (context, index) {
-            final date = filteredDates[index];
-            final clips = _clipsByDate[date]!;
-            final firstClip = clips.first;
-
-            return GestureDetector(
+            return _ClipThumbnail(
+              clip: clips[index],
               onTap: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => ClipsViewer(
-                      allDates: _sortedDates,
-                      clipsByDate: _clipsByDate,
-                      initialDateIndex: _sortedDates.indexOf(date),
+                    builder: (context) => _MyClipViewer(
+                      clips: clips,
+                      initialIndex: index,
                     ),
                   ),
                 );
               },
-              child: ClipThumbnail(videoFile: firstClip),
             );
           },
-        ),
-
-        Positioned(
-          bottom: 16,
-          right: 16,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (_selectedDate != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: GestureDetector(
-                    onTap: _clearDateFilter,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.9),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.clear,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ),
-              GestureDetector(
-                onTap: _selectDate,
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.cyan.withOpacity(0.95),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.calendar_today,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
-class ClipThumbnail extends StatefulWidget {
-  final File videoFile;
+// ─── Thumbnail — shows first frame, no play button ───────────────────────────
 
-  const ClipThumbnail({Key? key, required this.videoFile}) : super(key: key);
+class _ClipThumbnail extends StatefulWidget {
+  final ClipData clip;
+  final VoidCallback onTap;
+
+  const _ClipThumbnail({required this.clip, required this.onTap});
 
   @override
-  State<ClipThumbnail> createState() => _ClipThumbnailState();
+  State<_ClipThumbnail> createState() => _ClipThumbnailState();
 }
 
-class _ClipThumbnailState extends State<ClipThumbnail> {
+class _ClipThumbnailState extends State<_ClipThumbnail> {
   VideoPlayerController? _controller;
-  bool _isInitialized = false;
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeThumbnail();
+    _loadFirstFrame();
   }
 
-  Future<void> _initializeThumbnail() async {
-    _controller = VideoPlayerController.file(widget.videoFile);
+  Future<void> _loadFirstFrame() async {
     try {
-      await _controller!.initialize();
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.clip.videoUrl),
+      );
+      await controller.initialize();
+      await controller.seekTo(Duration.zero);
+      await controller.pause();
       if (mounted) {
         setState(() {
-          _isInitialized = true;
+          _controller = controller;
+          _initialized = true;
         });
+      } else {
+        controller.dispose();
       }
     } catch (e) {
-      print('Error initializing thumbnail: $e');
+      print('_ClipThumbnail: error loading first frame: $e');
     }
   }
 
@@ -292,104 +154,58 @@ class _ClipThumbnailState extends State<ClipThumbnail> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_isInitialized || _controller == null) {
-      return Container(
-        color: Colors.grey[200],
-        child: Center(
-          child: CircularProgressIndicator(color: Colors.purple, strokeWidth: 2),
-        ),
-      );
-    }
-
-    return Container(
-      color: Colors.grey[200],
-      child: FittedBox(
-        fit: BoxFit.cover,
-        child: SizedBox(
-          width: _controller!.value.size.width,
-          height: _controller!.value.size.height,
-          child: VideoPlayer(_controller!),
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
+        color: Colors.black,
+        child: _initialized && _controller != null
+            ? SizedBox.expand(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _controller!.value.size.width,
+              height: _controller!.value.size.height,
+              child: VideoPlayer(_controller!),
+            ),
+          ),
+        )
+            : Container(
+          color: Colors.grey[900],
+          child: Icon(Icons.videocam_outlined,
+              color: Colors.grey[700], size: 32),
         ),
       ),
     );
   }
 }
 
-class ClipsViewer extends StatefulWidget {
-  final List<String> allDates;
-  final Map<String, List<File>> clipsByDate;
-  final int initialDateIndex;
+// ─── Full-screen viewer ───────────────────────────────────────────────────────
 
-  const ClipsViewer({
-    Key? key,
-    required this.allDates,
-    required this.clipsByDate,
-    required this.initialDateIndex,
-  }) : super(key: key);
+class _MyClipViewer extends StatefulWidget {
+  final List<ClipData> clips;
+  final int initialIndex;
+
+  const _MyClipViewer({required this.clips, required this.initialIndex});
 
   @override
-  State<ClipsViewer> createState() => _ClipsViewerState();
+  State<_MyClipViewer> createState() => _MyClipViewerState();
 }
 
-class _ClipsViewerState extends State<ClipsViewer> {
+class _MyClipViewerState extends State<_MyClipViewer> {
   late PageController _pageController;
-  int _currentClipIndex = 0;
-  List<_ClipItem> _allClips = [];
+  int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
-
-    for (final date in widget.allDates) {
-      final clips = widget.clipsByDate[date]!;
-      for (int i = 0; i < clips.length; i++) {
-        _allClips.add(_ClipItem(
-          file: clips[i],
-          date: date,
-          clipNumber: i + 1,
-          totalClips: clips.length,
-        ));
-      }
-    }
-
-    int initialIndex = 0;
-    int clipsSoFar = 0;
-    for (int i = 0; i < widget.initialDateIndex && i < widget.allDates.length; i++) {
-      clipsSoFar += widget.clipsByDate[widget.allDates[i]]!.length;
-    }
-    initialIndex = clipsSoFar;
-
-    _currentClipIndex = initialIndex;
-    _pageController = PageController(initialPage: initialIndex);
+    _currentPage = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
-  }
-
-  String _formatDateForDisplay(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      final months = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-      ];
-      return '${months[date.month - 1]} ${date.day}, ${date.year}';
-    } catch (e) {
-      return dateString;
-    }
-  }
-
-  String _getDayOfWeek(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      return days[date.weekday - 1];
-    } catch (e) {
-      return '';
-    }
   }
 
   @override
@@ -399,108 +215,33 @@ class _ClipsViewerState extends State<ClipsViewer> {
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          Positioned.fill(
-            child: PageView.builder(
-              controller: _pageController,
-              scrollDirection: Axis.vertical,
-              onPageChanged: (index) {
-                setState(() {
-                  _currentClipIndex = index;
-                });
-              },
-              itemCount: _allClips.length,
-              itemBuilder: (context, index) {
-                final clip = _allClips[index];
-                final isActive = index == _currentClipIndex;
-
-                if (isActive) {
-                  return VideoClipPlayer(
-                    key: ValueKey('clip_$index'),
-                    videoFile: clip.file,
-                    autoPlay: true,
-                    looping: true,
-                    fit: BoxFit.cover,
-                  );
-                } else {
-                  return Container(color: Colors.black);
-                }
-              },
-            ),
+          PageView.builder(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            onPageChanged: (index) => setState(() => _currentPage = index),
+            itemCount: widget.clips.length,
+            physics: const ClampingScrollPhysics(),
+            itemBuilder: (context, index) {
+              return _MyClipPage(
+                clip: widget.clips[index],
+                isActive: index == _currentPage,
+              );
+            },
           ),
-
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 60,
-            left: 16,
-            right: 16,
-            child: _allClips.isNotEmpty
-                ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.videocam, color: Colors.white, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _formatDateForDisplay(_allClips[_currentClipIndex].date),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        Text(
-                          _getDayOfWeek(_allClips[_currentClipIndex].date),
-                          style: const TextStyle(fontSize: 13, color: Colors.white70),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${_allClips[_currentClipIndex].clipNumber}/${_allClips[_currentClipIndex].totalClips}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
-                : const SizedBox.shrink(),
-          ),
-
+          // Back arrow
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 8,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
-                onPressed: () => Navigator.pop(context),
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.4),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.arrow_back,
+                    color: Colors.white, size: 24),
               ),
             ),
           ),
@@ -510,16 +251,343 @@ class _ClipsViewerState extends State<ClipsViewer> {
   }
 }
 
-class _ClipItem {
-  final File file;
-  final String date;
-  final int clipNumber;
-  final int totalClips;
+// ─── Single clip page ─────────────────────────────────────────────────────────
 
-  _ClipItem({
-    required this.file,
-    required this.date,
-    required this.clipNumber,
-    required this.totalClips,
-  });
+class _MyClipPage extends StatefulWidget {
+  final ClipData clip;
+  final bool isActive;
+
+  const _MyClipPage({required this.clip, required this.isActive});
+
+  @override
+  State<_MyClipPage> createState() => _MyClipPageState();
+}
+
+class _MyClipPageState extends State<_MyClipPage>
+    with TickerProviderStateMixin {
+  VideoPlayerController? _controller;
+  bool _isLoading = true;
+  bool _hasError = false;
+  bool _userPaused = false;
+
+  LikeTrigger? _likeTrigger;
+
+  // Comment sheet
+  bool _showComments = false;
+  late AnimationController _commentAnimController;
+  late Animation<double> _commentAnimation;
+  static const double _sheetFraction = 0.55;
+
+  // Floating heart
+  late AnimationController _floatingHeartController;
+  late Animation<double> _floatingHeartScale;
+  late Animation<double> _floatingHeartOpacity;
+  Offset _floatingHeartPosition = Offset.zero;
+  bool _showFloatingHeart = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVideo();
+
+    _commentAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _commentAnimation = CurvedAnimation(
+      parent: _commentAnimController,
+      curve: Curves.easeOutCubic,
+    );
+
+    _floatingHeartController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _floatingHeartScale = TweenSequence([
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.0, end: 1.3), weight: 40),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.3, end: 1.0), weight: 20),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: 1.0), weight: 40),
+    ]).animate(_floatingHeartController);
+    _floatingHeartOpacity = TweenSequence([
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 0.0, end: 1.0), weight: 20),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: 1.0), weight: 40),
+      TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: 0.0), weight: 40),
+    ]).animate(_floatingHeartController);
+  }
+
+  @override
+  void didUpdateWidget(_MyClipPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      if (widget.isActive && !_userPaused) {
+        _controller?.play();
+      } else {
+        _controller?.pause();
+      }
+    }
+  }
+
+  Future<void> _loadVideo() async {
+    try {
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.clip.videoUrl),
+      );
+      await controller.initialize();
+      controller.setLooping(true);
+      if (mounted) {
+        setState(() { _controller = controller; _isLoading = false; });
+        if (widget.isActive) controller.play();
+      } else {
+        controller.dispose();
+      }
+    } catch (e) {
+      print('_MyClipPage: load error: $e');
+      if (mounted) setState(() { _hasError = true; _isLoading = false; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _commentAnimController.dispose();
+    _floatingHeartController.dispose();
+    super.dispose();
+  }
+
+  void _openComments() {
+    setState(() => _showComments = true);
+    _commentAnimController.forward();
+  }
+
+  void _closeComments() {
+    _commentAnimController.reverse().then((_) {
+      if (mounted) setState(() => _showComments = false);
+    });
+  }
+
+  void _onSingleTap(Offset position) {
+    if (_showComments) { _closeComments(); return; }
+    final size = MediaQuery.of(context).size;
+    if (position.dx > size.width / 3 &&
+        position.dx < size.width * 2 / 3 &&
+        position.dy > size.height / 3 &&
+        position.dy < size.height * 2 / 3) {
+      if (_controller == null) return;
+      setState(() {
+        if (_controller!.value.isPlaying) {
+          _controller!.pause();
+          _userPaused = true;
+        } else {
+          _controller!.play();
+          _userPaused = false;
+        }
+      });
+    }
+  }
+
+  void _onDoubleTap(Offset position) {
+    _likeTrigger?.call();
+    setState(() {
+      _floatingHeartPosition = position;
+      _showFloatingHeart = true;
+    });
+    _floatingHeartController.forward(from: 0).then((_) {
+      if (mounted) setState(() => _showFloatingHeart = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final sheetHeight = screenHeight * _sheetFraction;
+
+    return GestureDetector(
+      onTapUp: (details) => _onSingleTap(details.globalPosition),
+      onDoubleTapDown: (details) => _onDoubleTap(details.globalPosition),
+      onDoubleTap: () {},
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Black background
+          Container(color: Colors.black),
+
+          // Clip area — shrinks when comments open
+          AnimatedBuilder(
+            animation: _commentAnimation,
+            builder: (context, child) {
+              final shrinkFraction = _commentAnimation.value;
+              final availableHeight =
+                  screenHeight - sheetHeight * shrinkFraction;
+              final clipWidth = MediaQuery.of(context).size.width *
+                  (1 - 0.15 * shrinkFraction);
+
+              return Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: availableHeight,
+                child: Center(
+                  child: ClipRRect(
+                    borderRadius:
+                    BorderRadius.circular(12 * shrinkFraction),
+                    child: SizedBox(
+                      width: clipWidth,
+                      height: availableHeight,
+                      child: child,
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: _buildVideoContent(),
+          ),
+
+          // Comment sheet
+          if (_showComments)
+            AnimatedBuilder(
+              animation: _commentAnimation,
+              builder: (context, child) {
+                final offset =
+                    (1 - _commentAnimation.value) * sheetHeight;
+                return Positioned(
+                  bottom: -offset,
+                  left: 0,
+                  right: 0,
+                  height: sheetHeight,
+                  child: child!,
+                );
+              },
+              child: ClipCommentSheet(onClose: _closeComments),
+            ),
+
+          // Side buttons
+          Positioned(
+            right: 12,
+            bottom: 80,
+            child: ClipSideBar(
+              clipId: widget.clip.id,
+              onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
+              onCommentTap: _openComments,
+            ),
+          ),
+
+          // Caption
+          AnimatedBuilder(
+            animation: _commentAnimation,
+            builder: (context, child) {
+              final bottomOffset =
+                  60 + sheetHeight * _commentAnimation.value;
+              return Positioned(
+                bottom: bottomOffset,
+                left: 16,
+                right: 72,
+                child: child!,
+              );
+            },
+            child: widget.clip.caption.isNotEmpty
+                ? Text(
+              widget.clip.caption,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                shadows: [
+                  Shadow(color: Colors.black54, blurRadius: 4)
+                ],
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            )
+                : const SizedBox(),
+          ),
+
+          // Progress bar
+          if (_controller != null && _controller!.value.isInitialized)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: VideoProgressIndicator(
+                _controller!,
+                allowScrubbing: true,
+                colors: const VideoProgressColors(
+                  playedColor: Colors.cyan,
+                  bufferedColor: Colors.white30,
+                  backgroundColor: Colors.white10,
+                ),
+              ),
+            ),
+
+          // Floating heart
+          if (_showFloatingHeart)
+            Positioned(
+              left: _floatingHeartPosition.dx - 45,
+              top: _floatingHeartPosition.dy - 45,
+              child: AnimatedBuilder(
+                animation: _floatingHeartController,
+                builder: (context, child) => Opacity(
+                  opacity: _floatingHeartOpacity.value,
+                  child: Transform.scale(
+                    scale: _floatingHeartScale.value,
+                    child: const Icon(Icons.favorite,
+                        color: Colors.red,
+                        size: 90,
+                        shadows: [
+                          Shadow(color: Colors.black38, blurRadius: 8)
+                        ]),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoContent() {
+    if (_isLoading) {
+      return Container(
+        color: Colors.black,
+        child: const Center(
+            child: CircularProgressIndicator(color: Colors.cyan)),
+      );
+    }
+    if (_hasError) {
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Text('Could not load clip',
+              style: TextStyle(color: Colors.grey[500])),
+        ),
+      );
+    }
+    if (_controller != null && _controller!.value.isInitialized) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _controller!.value.size.width,
+                height: _controller!.value.size.height,
+                child: VideoPlayer(_controller!),
+              ),
+            ),
+          ),
+          if (!_controller!.value.isPlaying && _userPaused)
+            const Center(
+              child: Icon(Icons.play_arrow_rounded,
+                  color: Colors.white70, size: 72),
+            ),
+        ],
+      );
+    }
+    return Container(color: Colors.black);
+  }
 }

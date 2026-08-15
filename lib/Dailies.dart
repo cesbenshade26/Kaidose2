@@ -11,6 +11,8 @@ import 'InsideDaily.dart';
 import 'SkipCount.dart';
 import 'dart:io';
 import 'package:google_fonts/google_fonts.dart';
+import 'FriendStoryBar.dart';
+
 
 class DailiesWidget extends StatefulWidget {
   final Function(int)? onNavigateToTab;
@@ -25,7 +27,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   List<File> _todaysPhotos = [];
   int _currentPhotoIndex = 0;
   bool _isLoading = true;
-  bool _showPhotoCarousel = false;
   bool _hasViewedAllPhotos = false;
   bool _isAnimating = false;
   File? _profilePic;
@@ -206,20 +207,28 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   void _openPhotoCarousel() {
     if (_todaysPhotos.isNotEmpty) {
+      // Mark first photo as viewed
       setState(() {
-        _showPhotoCarousel = true;
-        _currentPhotoIndex = 0;
         _viewedPhotosPaths.add(_todaysPhotos[0].path);
         _checkViewingStatus();
+      });
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => OwnStoryViewer(photos: _todaysPhotos),
+        ),
+      ).then((_) {
+        // Mark all as viewed once they close the viewer
+        setState(() {
+          for (final photo in _todaysPhotos) {
+            _viewedPhotosPaths.add(photo.path);
+          }
+          _checkViewingStatus();
+        });
       });
     }
   }
 
-  void _closePhotoCarousel() {
-    setState(() {
-      _showPhotoCarousel = false;
-    });
-  }
 
   void _navigateToAddDaily() {
     if (widget.onNavigateToTab != null) {
@@ -257,47 +266,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       default:
         return const TextStyle();
     }
-  }
-
-  Widget _buildProfilePicButton() {
-    bool hasPhotos = _todaysPhotos.isNotEmpty;
-    bool showCyanRing = hasPhotos && !_hasViewedAllPhotos;
-
-    return GestureDetector(
-      onTap: hasPhotos ? _openPhotoCarousel : null,
-      child: Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: showCyanRing ? Colors.cyan : Colors.grey[400]!,
-            width: showCyanRing ? 4 : 3,
-          ),
-        ),
-        child: Container(
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.grey[300],
-          ),
-          child: ClipOval(
-            child: _profilePic != null && _profilePic!.existsSync()
-                ? Image.file(
-              _profilePic!,
-              fit: BoxFit.cover,
-              width: 112,
-              height: 112,
-              key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-              errorBuilder: (context, error, stackTrace) {
-                return const DefaultProfilePic(size: 112, borderWidth: 0);
-              },
-            )
-                : const DefaultProfilePic(size: 112, borderWidth: 0),
-          ),
-        ),
-      ),
-    );
   }
 
   Widget _buildDailyCard(DailyData daily, Set<String> viewedSet) {
@@ -632,222 +600,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     }
   }
 
-  Widget _buildPhotoCarousel() {
-    return Container(
-      color: Colors.black.withOpacity(0.9),
-      child: Stack(
-        children: [
-          Center(
-            child: Container(
-              width: double.infinity,
-              height: 400,
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: AnimatedBuilder(
-                  animation: _slideAnimation,
-                  builder: (context, child) {
-                    return Stack(
-                      children: [
-                        Transform.translate(
-                          offset: Offset(-_slideAnimation.value * MediaQuery.of(context).size.width, 0),
-                          child: Container(
-                            width: double.infinity,
-                            height: double.infinity,
-                            child: Image.file(
-                              _todaysPhotos[_currentPhotoIndex],
-                              fit: BoxFit.cover,
-                              key: ValueKey('current_${_todaysPhotos[_currentPhotoIndex].path}'),
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.grey[800],
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.error_outline,
-                                          size: 48,
-                                          color: Colors.grey[400],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Error loading photo',
-                                          style: TextStyle(
-                                            color: Colors.grey[400],
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        if (_isAnimating && _slideAnimation.value > 0) ...[
-                          Transform.translate(
-                            offset: Offset(
-                              MediaQuery.of(context).size.width - (_slideAnimation.value * MediaQuery.of(context).size.width),
-                              0,
-                            ),
-                            child: Container(
-                              width: double.infinity,
-                              height: double.infinity,
-                              child: _currentPhotoIndex + 1 < _todaysPhotos.length
-                                  ? Image.file(
-                                _todaysPhotos[_currentPhotoIndex + 1],
-                                fit: BoxFit.cover,
-                                key: ValueKey('next_${_todaysPhotos[_currentPhotoIndex + 1].path}'),
-                              )
-                                  : Container(color: Colors.black),
-                            ),
-                          ),
-                        ],
-                        if (_isAnimating && _slideAnimation.value < 0) ...[
-                          Transform.translate(
-                            offset: Offset(
-                              -MediaQuery.of(context).size.width - (_slideAnimation.value * MediaQuery.of(context).size.width),
-                              0,
-                            ),
-                            child: Container(
-                              width: double.infinity,
-                              height: double.infinity,
-                              child: _currentPhotoIndex - 1 >= 0
-                                  ? Image.file(
-                                _todaysPhotos[_currentPhotoIndex - 1],
-                                fit: BoxFit.cover,
-                                key: ValueKey('prev_${_todaysPhotos[_currentPhotoIndex - 1].path}'),
-                              )
-                                  : Container(color: Colors.black),
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-          if (_currentPhotoIndex > 0 && !_isAnimating)
-            Positioned(
-              left: 10,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: () => _navigatePhoto(-1),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.8),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_back_ios,
-                      color: Colors.black,
-                      size: 28,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          if (_currentPhotoIndex < _todaysPhotos.length - 1 && !_isAnimating)
-            Positioned(
-              right: 10,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: () => _navigatePhoto(1),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.8),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.black,
-                      size: 28,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          Positioned(
-            top: 60,
-            right: 20,
-            child: GestureDetector(
-              onTap: _closePhotoCarousel,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.8),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.close,
-                  color: Colors.black,
-                  size: 24,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 100,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${_currentPhotoIndex + 1} of ${_todaysPhotos.length}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (_todaysPhotos.length > 1)
-            Positioned(
-              bottom: 60,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_todaysPhotos.length, (index) {
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: index == _currentPhotoIndex ? 12 : 8,
-                    height: index == _currentPhotoIndex ? 12 : 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index == _currentPhotoIndex
-                          ? Colors.white
-                          : Colors.white.withOpacity(0.5),
-                    ),
-                  );
-                }),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -919,23 +672,10 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                             ],
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildProfilePicButton(),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Your story',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
+                        StoryBar(
+                          onTapOwnStory: _openPhotoCarousel,
+                          hasOwnPhotosToday: _todaysPhotos.isNotEmpty,
+                          hasViewedAllOwnPhotos: _hasViewedAllPhotos,
                         ),
                         const SizedBox(height: 24),
                         if (publishedDailies.isEmpty && _todaysPhotos.isEmpty)
@@ -1022,8 +762,6 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               },
             ),
           ),
-          if (_showPhotoCarousel && _todaysPhotos.isNotEmpty)
-            _buildPhotoCarousel(),
         ],
       ),
     );

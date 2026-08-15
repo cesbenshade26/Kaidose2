@@ -19,6 +19,7 @@ class DailyData {
   final Map<int, Map<String, bool>>? tierPrivileges;
   final String dailyEntryPrompt;
   final String? titleFont;
+  final String? creatorUid; // ← NEW: who created this daily
 
   DailyData({
     required this.id,
@@ -38,17 +39,16 @@ class DailyData {
     this.tierPrivileges,
     this.dailyEntryPrompt = '',
     this.titleFont,
-  }) : foundingMemberIds = foundingMemberIds ?? List<String>.from(invitedFriendIds);
+    this.creatorUid, // ← NEW
+  }) : foundingMemberIds =
+      foundingMemberIds ?? List<String>.from(invitedFriendIds);
 
-  // Convert to JSON for SharedPreferences (legacy support)
   Map<String, dynamic> toJson() {
     Map<String, dynamic>? tierPrivilegesJson;
     if (tierPrivileges != null) {
-      tierPrivilegesJson = tierPrivileges!.map(
-            (key, value) => MapEntry(key.toString(), value),
-      );
+      tierPrivilegesJson = tierPrivileges!
+          .map((key, value) => MapEntry(key.toString(), value));
     }
-
     return {
       'id': id,
       'title': title,
@@ -63,22 +63,21 @@ class DailyData {
       'foundingMemberIds': foundingMemberIds,
       'createdAt': createdAt.toIso8601String(),
       'isPinned': isPinned,
-      'tierAssignments': tierAssignments?.map((key, value) => MapEntry(key.toString(), value)),
+      'tierAssignments': tierAssignments
+          ?.map((key, value) => MapEntry(key.toString(), value)),
       'tierPrivileges': tierPrivilegesJson,
       'dailyEntryPrompt': dailyEntryPrompt,
       'titleFont': titleFont,
+      'creatorUid': creatorUid,
     };
   }
 
-  // Convert to Firestore format
   Map<String, dynamic> toFirestoreJson() {
     Map<String, dynamic>? tierPrivilegesJson;
     if (tierPrivileges != null) {
-      tierPrivilegesJson = tierPrivileges!.map(
-            (key, value) => MapEntry(key.toString(), value),
-      );
+      tierPrivilegesJson = tierPrivileges!
+          .map((key, value) => MapEntry(key.toString(), value));
     }
-
     return {
       'title': title,
       'description': description,
@@ -92,25 +91,28 @@ class DailyData {
       'foundingMemberIds': foundingMemberIds,
       'createdAt': Timestamp.fromDate(createdAt),
       'isPinned': isPinned,
-      'tierAssignments': tierAssignments?.map((key, value) => MapEntry(key.toString(), value)),
+      'tierAssignments': tierAssignments
+          ?.map((key, value) => MapEntry(key.toString(), value)),
       'tierPrivileges': tierPrivilegesJson,
       'dailyEntryPrompt': dailyEntryPrompt,
       'titleFont': titleFont,
+      'creatorUid': creatorUid, // ← always written to Firestore
     };
   }
 
-  // Create from JSON (legacy support)
   factory DailyData.fromJson(Map<String, dynamic> json) {
     Map<int, List<String>>? tierAssignments;
     try {
       if (json['tierAssignments'] != null) {
-        final tierAssignmentsJson = json['tierAssignments'];
-        if (tierAssignmentsJson is Map) {
+        final raw = json['tierAssignments'];
+        if (raw is Map) {
           tierAssignments = {};
-          tierAssignmentsJson.forEach((key, value) {
+          raw.forEach((key, value) {
             try {
-              final intKey = key is int ? key : int.parse(key.toString());
-              final listValue = value is List ? List<String>.from(value) : <String>[];
+              final intKey =
+              key is int ? key : int.parse(key.toString());
+              final listValue =
+              value is List ? List<String>.from(value) : <String>[];
               tierAssignments![intKey] = listValue;
             } catch (e) {
               print('Error parsing tier assignment entry: $e');
@@ -120,21 +122,21 @@ class DailyData {
       }
     } catch (e) {
       print('Error parsing tierAssignments: $e');
-      tierAssignments = null;
     }
 
     Map<int, Map<String, bool>>? tierPrivileges;
     try {
       if (json['tierPrivileges'] != null) {
-        final tierPrivilegesJson = json['tierPrivileges'];
-        if (tierPrivilegesJson is Map) {
+        final raw = json['tierPrivileges'];
+        if (raw is Map) {
           tierPrivileges = {};
-          tierPrivilegesJson.forEach((key, value) {
+          raw.forEach((key, value) {
             try {
-              final intKey = key is int ? key : int.parse(key.toString());
+              final intKey =
+              key is int ? key : int.parse(key.toString());
               if (value is Map) {
-                final privilegesMap = Map<String, bool>.from(value);
-                tierPrivileges![intKey] = privilegesMap;
+                tierPrivileges![intKey] =
+                Map<String, bool>.from(value);
               }
             } catch (e) {
               print('Error parsing tier privileges entry: $e');
@@ -144,7 +146,6 @@ class DailyData {
       }
     } catch (e) {
       print('Error parsing tierPrivileges: $e');
-      tierPrivileges = null;
     }
 
     return DailyData(
@@ -157,7 +158,8 @@ class DailyData {
       icon: IconData(json['icon'], fontFamily: 'MaterialIcons'),
       iconColor: json['iconColor'],
       customIconPath: json['customIconPath'],
-      invitedFriendIds: List<String>.from(json['invitedFriendIds'] ?? []),
+      invitedFriendIds:
+      List<String>.from(json['invitedFriendIds'] ?? []),
       foundingMemberIds: json['foundingMemberIds'] != null
           ? List<String>.from(json['foundingMemberIds'])
           : List<String>.from(json['invitedFriendIds'] ?? []),
@@ -167,23 +169,25 @@ class DailyData {
       tierPrivileges: tierPrivileges,
       dailyEntryPrompt: json['dailyEntryPrompt'] ?? '',
       titleFont: json['titleFont'],
+      creatorUid: json['creatorUid'],
     );
   }
 
-  // Create from Firestore
   factory DailyData.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
 
     Map<int, List<String>>? tierAssignments;
     try {
       if (data['tierAssignments'] != null) {
-        final tierAssignmentsJson = data['tierAssignments'];
-        if (tierAssignmentsJson is Map) {
+        final raw = data['tierAssignments'];
+        if (raw is Map) {
           tierAssignments = {};
-          tierAssignmentsJson.forEach((key, value) {
+          raw.forEach((key, value) {
             try {
-              final intKey = key is int ? key : int.parse(key.toString());
-              final listValue = value is List ? List<String>.from(value) : <String>[];
+              final intKey =
+              key is int ? key : int.parse(key.toString());
+              final listValue =
+              value is List ? List<String>.from(value) : <String>[];
               tierAssignments![intKey] = listValue;
             } catch (e) {
               print('Error parsing tier assignment entry: $e');
@@ -193,21 +197,21 @@ class DailyData {
       }
     } catch (e) {
       print('Error parsing tierAssignments: $e');
-      tierAssignments = null;
     }
 
     Map<int, Map<String, bool>>? tierPrivileges;
     try {
       if (data['tierPrivileges'] != null) {
-        final tierPrivilegesJson = data['tierPrivileges'];
-        if (tierPrivilegesJson is Map) {
+        final raw = data['tierPrivileges'];
+        if (raw is Map) {
           tierPrivileges = {};
-          tierPrivilegesJson.forEach((key, value) {
+          raw.forEach((key, value) {
             try {
-              final intKey = key is int ? key : int.parse(key.toString());
+              final intKey =
+              key is int ? key : int.parse(key.toString());
               if (value is Map) {
-                final privilegesMap = Map<String, bool>.from(value);
-                tierPrivileges![intKey] = privilegesMap;
+                tierPrivileges![intKey] =
+                Map<String, bool>.from(value);
               }
             } catch (e) {
               print('Error parsing tier privileges entry: $e');
@@ -217,7 +221,6 @@ class DailyData {
       }
     } catch (e) {
       print('Error parsing tierPrivileges: $e');
-      tierPrivileges = null;
     }
 
     return DailyData(
@@ -226,20 +229,26 @@ class DailyData {
       description: data['description'] ?? '',
       privacy: data['privacy'] ?? 'Public',
       keywords: List<String>.from(data['keywords'] ?? []),
-      managementTiers: List<String>.from(data['managementTiers'] ?? []),
-      icon: IconData(data['icon'] ?? Icons.star.codePoint, fontFamily: 'MaterialIcons'),
+      managementTiers:
+      List<String>.from(data['managementTiers'] ?? []),
+      icon: IconData(
+          data['icon'] ?? Icons.star.codePoint,
+          fontFamily: 'MaterialIcons'),
       iconColor: data['iconColor'],
       customIconPath: data['customIconPath'],
-      invitedFriendIds: List<String>.from(data['invitedFriendIds'] ?? []),
+      invitedFriendIds:
+      List<String>.from(data['invitedFriendIds'] ?? []),
       foundingMemberIds: data['foundingMemberIds'] != null
           ? List<String>.from(data['foundingMemberIds'])
           : List<String>.from(data['invitedFriendIds'] ?? []),
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt:
+      (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isPinned: data['isPinned'] ?? false,
       tierAssignments: tierAssignments,
       tierPrivileges: tierPrivileges,
       dailyEntryPrompt: data['dailyEntryPrompt'] ?? '',
       titleFont: data['titleFont'],
+      creatorUid: data['creatorUid'] as String?, // ← read from Firestore
     );
   }
 }

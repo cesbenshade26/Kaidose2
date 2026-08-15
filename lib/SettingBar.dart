@@ -3,6 +3,8 @@ import 'Customization.dart';
 import 'SecurityInfo.dart';
 import 'auth_service.dart';
 import 'ProfilePicManager.dart';
+import 'BioManager.dart';
+import 'BackgroundPicManager.dart';
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -117,6 +119,8 @@ class ProfileSettingsSection extends StatelessWidget {
               // Clear profile pic state before signing out so it
               // doesn't bleed into the next account's session
               ProfilePicManager.clearForLogout();
+              BioManager.clearForLogout();
+              BackgroundPicManager.clearForLogout();
               await AuthService().logout();
 
               Navigator.pushNamedAndRemoveUntil(

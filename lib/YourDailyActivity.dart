@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io';
 
 class YourDailyActivity extends StatefulWidget {
   const YourDailyActivity({Key? key}) : super(key: key);
@@ -13,7 +14,7 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
   Map<String, List<File>> _photosByDate = {};
   List<String> _sortedDates = [];
   bool _isLoading = true;
-  DateTime? _selectedDate; // null = show all
+  DateTime? _selectedDate;
 
   @override
   void initState() {
@@ -57,18 +58,25 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
 
   List<String> _getFilteredDates() {
     if (_selectedDate == null) return _sortedDates;
-
     final dateStr = _selectedDate!.toIso8601String().split('T')[0];
     return _sortedDates.where((date) => date == dateStr).toList();
   }
 
   Future<void> _loadAllPhotos() async {
+    // Only load photos for the currently logged-in user
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
     try {
       final directory = await getApplicationDocumentsDirectory();
-      final dailyPhotosDir = Directory('${directory.path}/daily_photos');
+      // UID-scoped path matches DailyPhotoTracker: daily_photos/{uid}/
+      final userPhotosDir = Directory('${directory.path}/daily_photos/$uid');
 
-      if (await dailyPhotosDir.exists()) {
-        final List<FileSystemEntity> entities = await dailyPhotosDir.list().toList();
+      if (await userPhotosDir.exists()) {
+        final List<FileSystemEntity> entities = await userPhotosDir.list().toList();
         Map<String, List<File>> photosByDate = {};
 
         for (var entity in entities) {
@@ -93,7 +101,7 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
         }
 
         List<String> sortedDates = photosByDate.keys.toList();
-        sortedDates.sort((a, b) => b.compareTo(a)); // Newest first
+        sortedDates.sort((a, b) => b.compareTo(a));
 
         setState(() {
           _photosByDate = photosByDate;
@@ -101,23 +109,18 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
           _isLoading = false;
         });
       } else {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      print('YourDailyActivity: Load error: $e');
+      setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.cyan),
-      );
+      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
     }
 
     if (_photosByDate.isEmpty) {
@@ -129,19 +132,12 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
             const SizedBox(height: 16),
             Text(
               'No Daily Photos Yet',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.grey[700]),
             ),
             const SizedBox(height: 8),
             Text(
               'Start taking daily photos to see them here!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
           ],
@@ -151,10 +147,8 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
 
     final filteredDates = _getFilteredDates();
 
-    // Wrap in Stack for floating date button
     return Stack(
       children: [
-        // Grid view of posts
         GridView.builder(
           padding: EdgeInsets.zero,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -188,19 +182,13 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
                     color: Colors.grey[200],
-                    child: Icon(
-                      Icons.broken_image,
-                      color: Colors.grey[400],
-                      size: 40,
-                    ),
+                    child: Icon(Icons.broken_image, color: Colors.grey[400], size: 40),
                   );
                 },
               ),
             );
           },
         ),
-
-        // Floating date filter button
         Positioned(
           bottom: 16,
           right: 16,
@@ -208,7 +196,6 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // Clear filter button (if date selected)
               if (_selectedDate != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -220,22 +207,13 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
                         color: Colors.red.withOpacity(0.9),
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
+                          BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2)),
                         ],
                       ),
-                      child: const Icon(
-                        Icons.clear,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                      child: const Icon(Icons.clear, color: Colors.white, size: 20),
                     ),
                   ),
                 ),
-              // Date picker button
               GestureDetector(
                 onTap: _selectDate,
                 child: Container(
@@ -244,18 +222,10 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
                     color: Colors.cyan.withOpacity(0.95),
                     shape: BoxShape.circle,
                     boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
+                      BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2)),
                     ],
                   ),
-                  child: const Icon(
-                    Icons.calendar_today,
-                    color: Colors.white,
-                    size: 24,
-                  ),
+                  child: const Icon(Icons.calendar_today, color: Colors.white, size: 24),
                 ),
               ),
             ],
@@ -266,8 +236,6 @@ class _YourDailyActivityState extends State<YourDailyActivity> {
   }
 }
 
-
-// Viewer that shows posts in scrollable format (free scrolling)
 class DailyPostsViewer extends StatefulWidget {
   final List<String> allDates;
   final Map<String, List<File>> photosByDate;
@@ -290,12 +258,9 @@ class _DailyPostsViewerState extends State<DailyPostsViewer> {
   @override
   void initState() {
     super.initState();
-    // Scroll to initial post after build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.initialDateIndex > 0) {
-        // Estimate height per post and scroll to position
-        final estimatedHeight = 500.0; // Approximate height per post
-        _scrollController.jumpTo(widget.initialDateIndex * estimatedHeight);
+        _scrollController.jumpTo(widget.initialDateIndex * 500.0);
       }
     });
   }
@@ -338,17 +303,11 @@ class _DailyPostsViewerState extends State<DailyPostsViewer> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
           'Your Daily',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
+          style: TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
       ),
@@ -365,7 +324,6 @@ class _DailyPostsViewerState extends State<DailyPostsViewer> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Date header
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
@@ -384,18 +342,11 @@ class _DailyPostsViewerState extends State<DailyPostsViewer> {
                       children: [
                         Text(
                           displayDate,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
                         ),
                         Text(
                           dayOfWeek,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[600],
-                          ),
+                          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                         ),
                       ],
                     ),
@@ -408,32 +359,20 @@ class _DailyPostsViewerState extends State<DailyPostsViewer> {
                       ),
                       child: Text(
                         '${photos.length} ${photos.length == 1 ? 'photo' : 'photos'}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.cyan,
-                        ),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.cyan),
                       ),
                     ),
                   ],
                 ),
               ),
-
-              // Photo carousel
               SizedBox(
                 height: 400,
                 child: DailyPhotoCarousel(photos: photos, date: date),
               ),
-
-              // Divider between posts
               if (dateIndex < widget.allDates.length - 1)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Divider(
-                    color: Colors.grey[300],
-                    thickness: 1,
-                    height: 1,
-                  ),
+                  child: Divider(color: Colors.grey[300], thickness: 1, height: 1),
                 ),
             ],
           );
@@ -443,16 +382,11 @@ class _DailyPostsViewerState extends State<DailyPostsViewer> {
   }
 }
 
-// Photo carousel for each post
 class DailyPhotoCarousel extends StatefulWidget {
   final List<File> photos;
   final String date;
 
-  const DailyPhotoCarousel({
-    Key? key,
-    required this.photos,
-    required this.date,
-  }) : super(key: key);
+  const DailyPhotoCarousel({Key? key, required this.photos, required this.date}) : super(key: key);
 
   @override
   State<DailyPhotoCarousel> createState() => _DailyPhotoCarouselState();
@@ -466,13 +400,10 @@ class _DailyPhotoCarouselState extends State<DailyPhotoCarousel> {
   void initState() {
     super.initState();
     _pageController = PageController();
-
     _pageController.addListener(() {
       final page = _pageController.page?.round() ?? 0;
       if (page != _currentPage) {
-        setState(() {
-          _currentPage = page;
-        });
+        setState(() => _currentPage = page);
       }
     });
   }
@@ -511,10 +442,7 @@ class _DailyPhotoCarouselState extends State<DailyPhotoCarousel> {
                           children: [
                             Icon(Icons.error_outline, color: Colors.grey[400], size: 48),
                             const SizedBox(height: 8),
-                            Text(
-                              'Error loading photo',
-                              style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                            ),
+                            Text('Error loading photo', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
                           ],
                         ),
                       ),
@@ -525,8 +453,6 @@ class _DailyPhotoCarouselState extends State<DailyPhotoCarousel> {
             );
           },
         ),
-
-        // Page indicators
         if (widget.photos.length > 1)
           Positioned(
             bottom: 12,
@@ -541,23 +467,15 @@ class _DailyPhotoCarouselState extends State<DailyPhotoCarousel> {
                   height: _currentPage == index ? 10 : 6,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _currentPage == index
-                        ? Colors.cyan
-                        : Colors.white.withOpacity(0.6),
+                    color: _currentPage == index ? Colors.cyan : Colors.white.withOpacity(0.6),
                     boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        spreadRadius: 1,
-                        blurRadius: 2,
-                      ),
+                      BoxShadow(color: Colors.black.withOpacity(0.3), spreadRadius: 1, blurRadius: 2),
                     ],
                   ),
                 );
               }),
             ),
           ),
-
-        // Photo counter
         Positioned(
           top: 12,
           right: 16,
@@ -569,11 +487,7 @@ class _DailyPhotoCarouselState extends State<DailyPhotoCarousel> {
             ),
             child: Text(
               '${_currentPage + 1}/${widget.photos.length}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
         ),

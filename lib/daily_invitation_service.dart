@@ -44,7 +44,8 @@ class DailyInvitation {
             (e) => e.toString().split('.').last == data['status'],
         orElse: () => DailyInvitationStatus.pending,
       ),
-      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      timestamp:
+      (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
 
@@ -128,11 +129,9 @@ class DailyInvitationService {
         .where('status', isEqualTo: 'pending')
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => DailyInvitation.fromFirestore(doc))
-          .toList();
-    });
+        .map((snapshot) => snapshot.docs
+        .map((doc) => DailyInvitation.fromFirestore(doc))
+        .toList());
   }
 
   // Get accepted invitations (for notifications)
@@ -146,21 +145,70 @@ class DailyInvitationService {
         .where('status', isEqualTo: 'accepted')
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => DailyInvitation.fromFirestore(doc))
-          .toList();
-    });
+        .map((snapshot) => snapshot.docs
+        .map((doc) => DailyInvitation.fromFirestore(doc))
+        .toList());
   }
 
-  // Accept daily invitation
-  Future<Map<String, dynamic>> acceptDailyInvitation(String invitationId) async {
+  /// Accept a daily invitation.
+  /// Copies the daily doc from the owner's subcollection into the
+  /// accepter's subcollection, preserving creatorUid as the owner's UID.
+  Future<Map<String, dynamic>> acceptDailyInvitation(
+      String invitationId) async {
     try {
-      await _firestore
-          .collection('daily_invitations')
-          .doc(invitationId)
-          .update({'status': 'accepted'});
+      final currentUid = currentUserId;
+      if (currentUid == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
 
+      // 1. Mark invitation accepted
+      final invitationRef = _firestore
+          .collection('daily_invitations')
+          .doc(invitationId);
+
+      await invitationRef.update({'status': 'accepted'});
+
+      // 2. Fetch the invitation to get dailyId + fromUserId (owner)
+      final invitationDoc = await invitationRef.get();
+      final data = invitationDoc.data() as Map<String, dynamic>?;
+      if (data == null) return {'success': true};
+
+      final dailyId = data['dailyId'] as String?;
+      final ownerUid = data['fromUserId'] as String?;
+
+      if (dailyId == null || ownerUid == null) return {'success': true};
+
+      // 3. Fetch the daily from the owner's subcollection
+      final ownerDailyDoc = await _firestore
+          .collection('users')
+          .doc(ownerUid)
+          .collection('dailies')
+          .doc(dailyId)
+          .get();
+
+      if (!ownerDailyDoc.exists) return {'success': true};
+
+      final dailyData =
+      ownerDailyDoc.data() as Map<String, dynamic>;
+
+      // 4. Copy into accepter's subcollection.
+      //    CRITICAL: force creatorUid to ownerUid so the member's
+      //    copy always knows who the real creator is, regardless of
+      //    what was previously stored on the doc.
+      await _firestore
+          .collection('users')
+          .doc(currentUid)
+          .collection('dailies')
+          .doc(dailyId)
+          .set({
+        ...dailyData,
+        'ownerUid': ownerUid,
+        'isMemberCopy': true,
+        'creatorUid': ownerUid, // always the creator, never the member
+      });
+
+      print(
+          'DailyInvitationService: Copied daily $dailyId to $currentUid');
       return {'success': true};
     } catch (e) {
       print('Error accepting invitation: $e');
@@ -169,13 +217,13 @@ class DailyInvitationService {
   }
 
   // Reject daily invitation
-  Future<Map<String, dynamic>> rejectDailyInvitation(String invitationId) async {
+  Future<Map<String, dynamic>> rejectDailyInvitation(
+      String invitationId) async {
     try {
       await _firestore
           .collection('daily_invitations')
           .doc(invitationId)
           .update({'status': 'rejected'});
-
       return {'success': true};
     } catch (e) {
       print('Error rejecting invitation: $e');
@@ -184,13 +232,13 @@ class DailyInvitationService {
   }
 
   // Get daily invitation by ID
-  Future<DailyInvitation?> getDailyInvitationById(String invitationId) async {
+  Future<DailyInvitation?> getDailyInvitationById(
+      String invitationId) async {
     try {
       final doc = await _firestore
           .collection('daily_invitations')
           .doc(invitationId)
           .get();
-
       if (!doc.exists) return null;
       return DailyInvitation.fromFirestore(doc);
     } catch (e) {

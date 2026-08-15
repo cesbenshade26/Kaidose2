@@ -159,7 +159,7 @@ class _AddWidgetState extends State<AddWidget> {
         return const AddDailyMessage();
       case 1:
       // Clip tab content
-        return const AddClipWidget();
+        return const AddClipScreen();
       case 2:
       // Your Daily tab content - show photos
         return const YourDailyWidget();

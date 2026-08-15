@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'auth_service.dart';
+import 'InterestOnboarding.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({Key? key}) : super(key: key);
@@ -25,31 +26,53 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     setState(() => _timerValue = 60);
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_timerValue == 0) t.cancel();
-      else setState(() => _timerValue--);
+      if (_timerValue == 0) {
+        t.cancel();
+      } else {
+        setState(() => _timerValue--);
+      }
     });
   }
 
   Future<void> _check() async {
     setState(() => _isChecking = true);
-    bool isV = await _authService.checkVerificationStatus();
-    if (isV) {
-      Navigator.pushReplacementNamed(context, '/user-account');
+    bool isVerified = await _authService.checkVerificationStatus();
+
+    if (!mounted) return;
+
+    if (isVerified) {
+      // Route to onboarding instead of directly to home
+      Navigator.pushReplacement(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const InterestOnboarding(),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+          transitionDuration: const Duration(milliseconds: 400),
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Still not verified. Check your spam folder!"))
+        const SnackBar(
+          content: Text("Still not verified. Check your spam folder!"),
+        ),
       );
+      setState(() => _isChecking = false);
     }
-    setState(() => _isChecking = false);
   }
 
   Future<void> _resend() async {
     String? error = await _authService.resendVerificationEmail();
+    if (!mounted) return;
     if (error == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Email resent!")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Email resent!")),
+      );
       _startTimer();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $error")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $error")),
+      );
     }
   }
 
@@ -63,28 +86,60 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(elevation: 0, backgroundColor: Colors.white, leading: const BackButton(color: Colors.black)),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        leading: const BackButton(color: Colors.black),
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(40.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.mark_email_unread_outlined, size: 100, color: Colors.cyan),
+              const Icon(
+                Icons.mark_email_unread_outlined,
+                size: 100,
+                color: Colors.cyan,
+              ),
               const SizedBox(height: 20),
-              const Text("Verify Email", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const Text(
+                'Verify Email',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 10),
-              Text("We sent a link to:\n${_authService.currentUser?.email}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+              Text(
+                'We sent a link to:\n${_authService.currentUser?.email}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16),
+              ),
               const SizedBox(height: 40),
               ElevatedButton(
                 onPressed: _isChecking ? null : _check,
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 55), backgroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                child: _isChecking ? const CircularProgressIndicator(color: Colors.white) : const Text("I've Verified My Email", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 55),
+                  backgroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isChecking
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                  'I\'ve Verified My Email',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold),
+                ),
               ),
               const SizedBox(height: 20),
               TextButton(
                 onPressed: _timerValue == 0 ? _resend : null,
-                child: Text(_timerValue == 0 ? "Resend Email" : "Resend in ${_timerValue}s", style: TextStyle(color: _timerValue == 0 ? Colors.cyan : Colors.grey)),
+                child: Text(
+                  _timerValue == 0
+                      ? 'Resend Email'
+                      : 'Resend in ${_timerValue}s',
+                  style: TextStyle(
+                      color: _timerValue == 0 ? Colors.cyan : Colors.grey),
+                ),
               ),
             ],
           ),

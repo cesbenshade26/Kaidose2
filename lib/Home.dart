@@ -1,4 +1,3 @@
-// Home.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'Profile.dart';
@@ -33,48 +32,48 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late AnimationController _staggerController;
   late List<Animation<double>> _staggeredAnimations;
 
-  late final List<Widget> _pages;
+  // Clips tab index — update this if you ever reorder tabs
+  static const int _clipsTabIndex = 2;
 
   @override
   void initState() {
     super.initState();
 
-    final String currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
-
     if (widget.initialTabIndex != null) {
       _selectedIndex = widget.initialTabIndex!;
     } else {
-      // Landing on Profile (4) because we disabled the InterestDetector redirect
       _selectedIndex = widget.fadeInFromAnimation ? 0 : 4;
     }
 
     _previousIndex = _selectedIndex;
 
-    _pages = [
-      DailiesWidget(
-        key: const PageStorageKey('dailies'),
-        onNavigateToTab: (idx) => _onItemTapped(idx),
-      ),
-      const ChatWidget(key: PageStorageKey('chat')),
-      const ClipsWidget(key: PageStorageKey('clips')),
-      const AddWidget(key: PageStorageKey('add')),
-      ProfilePage(key: ValueKey('profile_$currentUid')),
-    ];
-
-    _contentFadeController = AnimationController(duration: const Duration(milliseconds: 1200), vsync: this);
+    _contentFadeController = AnimationController(
+        duration: const Duration(milliseconds: 1200), vsync: this);
     _contentFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _contentFadeController, curve: Curves.easeInOut),
+      CurvedAnimation(
+          parent: _contentFadeController, curve: Curves.easeInOut),
     );
 
-    _navBarSlideController = AnimationController(duration: const Duration(milliseconds: 800), vsync: this);
-    _navBarSlideAnimation = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
-      CurvedAnimation(parent: _navBarSlideController, curve: Curves.easeOut),
-    );
+    _navBarSlideController = AnimationController(
+        duration: const Duration(milliseconds: 800), vsync: this);
+    _navBarSlideAnimation =
+        Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
+          CurvedAnimation(
+              parent: _navBarSlideController, curve: Curves.easeOut),
+        );
 
-    _staggerController = AnimationController(duration: const Duration(milliseconds: 1000), vsync: this);
+    _staggerController = AnimationController(
+        duration: const Duration(milliseconds: 1000), vsync: this);
     _staggeredAnimations = List.generate(5, (index) {
       return Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(parent: _staggerController, curve: Interval(index * 0.1, (index * 0.1 + 0.4).clamp(0.0, 1.0), curve: Curves.easeOut)),
+        CurvedAnimation(
+          parent: _staggerController,
+          curve: Interval(
+            index * 0.1,
+            (index * 0.1 + 0.4).clamp(0.0, 1.0),
+            curve: Curves.easeOut,
+          ),
+        ),
       );
     });
 
@@ -114,6 +113,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final String currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+
+    // Build pages here so ClipsWidget gets the latest _selectedIndex
+    final pages = [
+      DailiesWidget(
+        key: const PageStorageKey('dailies'),
+        onNavigateToTab: (idx) => _onItemTapped(idx),
+      ),
+      const ChatWidget(key: PageStorageKey('chat')),
+      ClipsWidget(
+        key: const PageStorageKey('clips'),
+        isTabActive: _selectedIndex == _clipsTabIndex,
+      ),
+      const AddWidget(key: PageStorageKey('add')),
+      ProfilePage(key: ValueKey('profile_$currentUid')),
+    ];
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: FadeTransition(
@@ -122,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           currentIndex: _selectedIndex,
           totalPages: 5,
           edgeThreshold: 80.0,
-          pages: _pages,
+          pages: pages,
           onPageChanged: (newIndex) => _onItemTapped(newIndex),
         ),
       ),
@@ -132,15 +149,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           height: 80,
           decoration: BoxDecoration(
             color: Colors.white,
-            boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 1, blurRadius: 8, offset: const Offset(0, -2))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.3),
+                spreadRadius: 1,
+                blurRadius: 8,
+                offset: const Offset(0, -2),
+              )
+            ],
           ),
           child: Row(
             children: [
-              _buildNavItem(0, Icons.wb_sunny, 'Sun', _staggeredAnimations[0]),
-              _buildNavItem(1, Icons.chat_bubble_outline, 'Chat', _staggeredAnimations[1]),
-              _buildNavItem(2, Icons.videocam_outlined, 'Camera', _staggeredAnimations[2]),
+              _buildNavItem(0, Icons.wb_sunny, 'Sun',
+                  _staggeredAnimations[0]),
+              _buildNavItem(1, Icons.chat_bubble_outline, 'Chat',
+                  _staggeredAnimations[1]),
+              _buildNavItem(2, Icons.videocam_outlined, 'Camera',
+                  _staggeredAnimations[2]),
               _buildNavItem(3, Icons.add, 'Add', _staggeredAnimations[3]),
-              _buildNavItem(4, Icons.person_outline, 'Profile', _staggeredAnimations[4]),
+              _buildNavItem(4, Icons.person_outline, 'Profile',
+                  _staggeredAnimations[4]),
             ],
           ),
         ),
@@ -148,7 +176,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNavItem(int index, IconData icon, String label, Animation<double> animation) {
+  Widget _buildNavItem(int index, IconData icon, String label,
+      Animation<double> animation) {
     final isSelected = _selectedIndex == index;
     return Expanded(
       child: FadeTransition(
@@ -166,9 +195,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     duration: const Duration(milliseconds: 200),
                     width: isSelected ? 50 : 0,
                     height: isSelected ? 50 : 0,
-                    decoration: BoxDecoration(color: isSelected ? Colors.black : Colors.transparent, borderRadius: BorderRadius.circular(25)),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? Colors.black
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(25),
+                    ),
                   ),
-                  Icon(icon, size: 26, color: isSelected ? Colors.white : Colors.black),
+                  Icon(icon,
+                      size: 26,
+                      color: isSelected ? Colors.white : Colors.black),
                 ],
               ),
             ),

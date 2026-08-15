@@ -1,47 +1,30 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class DailyPhotoManager {
   static File? _globalDailyPhoto;
+  static String? _loadedForUid;
   static final List<VoidCallback> _listeners = [];
-  static const String _dailyPhotoFileName = 'daily_photo.jpg';
+
+  static String _fileName(String uid) => 'daily_photo_$uid.jpg';
 
   static File? get globalDailyPhoto => _globalDailyPhoto;
+  static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
-  static set globalDailyPhoto(File? file) {
-    print('DailyPhotoManager: Setting globalDailyPhoto to: ${file?.path}');
+  static void addListener(VoidCallback listener) => _listeners.add(listener);
+  static void removeListener(VoidCallback listener) => _listeners.remove(listener);
 
-    // Clear any cached image before setting new one
-    if (_globalDailyPhoto != null && _globalDailyPhoto != file) {
-      _clearImageCache();
-    }
-
-    _globalDailyPhoto = file;
-
-    // Save to local storage whenever it changes
-    _saveDailyPhotoLocally(file);
-
-    // Notify all listeners when daily photo changes
+  static void _notifyListeners() {
     print('DailyPhotoManager: Notifying ${_listeners.length} listeners');
     for (var listener in _listeners) {
-      listener();
+      try { listener(); } catch (e) { print('DailyPhotoManager: listener error: $e'); }
     }
-    print('DailyPhotoManager: All listeners notified');
   }
 
-  static void addListener(VoidCallback listener) {
-    _listeners.add(listener);
-  }
-
-  static void removeListener(VoidCallback listener) {
-    _listeners.remove(listener);
-  }
-
-  // Clear any cached images to prevent display issues
   static void _clearImageCache() {
     try {
-      // Force Flutter to clear its image cache
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
       print('Image cache cleared');
@@ -50,21 +33,30 @@ class DailyPhotoManager {
     }
   }
 
-  /// Save a daily photo to the app's documents directory
+  /// Call on logout so the next user starts clean
+  static void clearForLogout() {
+    _clearImageCache();
+    _globalDailyPhoto = null;
+    _loadedForUid = null;
+    _notifyListeners();
+    print('DailyPhotoManager: Cleared for logout');
+  }
+
+  /// Save a daily photo for the current user
   static Future<void> setDailyPhoto(File photoFile) async {
+    final uid = _uid;
+    if (uid == null) return;
+
     try {
       print('DailyPhotoManager: Starting to save daily photo...');
       print('Source file: ${photoFile.path}');
       print('Source file exists: ${photoFile.existsSync()}');
       print('Source file size: ${photoFile.lengthSync()} bytes');
 
-      // Get the app's documents directory
       final directory = await getApplicationDocumentsDirectory();
-      final dailyPhotoPath = '${directory.path}/$_dailyPhotoFileName';
-
+      final dailyPhotoPath = '${directory.path}/${_fileName(uid)}';
       print('Target path: $dailyPhotoPath');
 
-      // Delete existing file if it exists
       final targetFile = File(dailyPhotoPath);
       if (targetFile.existsSync()) {
         print('Deleting existing daily photo...');
@@ -72,52 +64,78 @@ class DailyPhotoManager {
         print('Existing photo deleted');
       }
 
-      // Clear image cache before saving new file
       _clearImageCache();
 
-      // Copy the new photo to the documents directory
       final bytes = await photoFile.readAsBytes();
       await targetFile.writeAsBytes(bytes);
 
-      // Update the global reference to point to the saved file
       _globalDailyPhoto = targetFile;
+      _loadedForUid = uid;
 
       print('Photo saved successfully!');
       print('Saved file path: ${targetFile.path}');
       print('Saved file exists: ${targetFile.existsSync()}');
       print('Saved file size: ${targetFile.lengthSync()} bytes');
 
-      // Notify all listeners that we have a new daily photo
-      print('DailyPhotoManager: Notifying ${_listeners.length} listeners after save');
-      for (var listener in _listeners) {
-        listener();
-      }
-
+      _notifyListeners();
     } catch (e) {
       print('ERROR in DailyPhotoManager.setDailyPhoto: $e');
       rethrow;
     }
   }
 
-  /// Get the current daily photo
-  static Future<File?> getDailyPhoto() async {
+  /// Load daily photo for the current user from local storage
+  static Future<void> loadDailyPhotoFromStorage() async {
+    final uid = _uid;
+
+    if (uid == null) {
+      _globalDailyPhoto = null;
+      _loadedForUid = null;
+      return;
+    }
+
+    // Different user — clear immediately
+    if (_loadedForUid != uid) {
+      _clearImageCache();
+      _globalDailyPhoto = null;
+      _loadedForUid = uid;
+    }
+
     try {
-      print('DailyPhotoManager: Loading daily photo...');
-
-      // Get the app's documents directory
       final directory = await getApplicationDocumentsDirectory();
-      final dailyPhotoPath = '${directory.path}/$_dailyPhotoFileName';
-      final file = File(dailyPhotoPath);
+      final file = File('${directory.path}/${_fileName(uid)}');
 
-      print('Looking for photo at: $dailyPhotoPath');
+      if (await file.exists()) {
+        _clearImageCache();
+        _globalDailyPhoto = file;
+        _loadedForUid = uid;
+        print('Daily photo loaded from: ${file.path}');
+      } else {
+        print('No saved daily photo found for $uid');
+        _globalDailyPhoto = null;
+      }
+
+      _notifyListeners();
+    } catch (e) {
+      print('Error loading daily photo: $e');
+      _globalDailyPhoto = null;
+    }
+  }
+
+  /// Get the current user's daily photo
+  static Future<File?> getDailyPhoto() async {
+    final uid = _uid;
+    if (uid == null) return null;
+
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/${_fileName(uid)}');
 
       if (file.existsSync()) {
-        print('Daily photo found!');
-        print('File size: ${file.lengthSync()} bytes');
-        _globalDailyPhoto = file; // Update global reference
+        _globalDailyPhoto = file;
+        _loadedForUid = uid;
         return file;
       } else {
-        print('No daily photo found');
         _globalDailyPhoto = null;
         return null;
       }
@@ -127,79 +145,14 @@ class DailyPhotoManager {
     }
   }
 
-  // Load daily photo from local storage on app start
-  static Future<void> loadDailyPhotoFromStorage() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/$_dailyPhotoFileName');
-
-      if (await file.exists()) {
-        // Clear cache before loading
-        _clearImageCache();
-
-        _globalDailyPhoto = file;
-        print('Daily photo loaded from: ${file.path}');
-
-        // Notify listeners that we loaded a daily photo
-        for (var listener in _listeners) {
-          listener();
-        }
-      } else {
-        print('No saved daily photo found');
-        _globalDailyPhoto = null;
-      }
-    } catch (e) {
-      print('Error loading daily photo: $e');
-      _globalDailyPhoto = null;
-    }
-  }
-
-  // Save daily photo to local storage
-  static Future<void> _saveDailyPhotoLocally(File? file) async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final savedFile = File('${directory.path}/$_dailyPhotoFileName');
-
-      if (file != null) {
-        // Delete existing file first to avoid conflicts
-        if (await savedFile.exists()) {
-          await savedFile.delete();
-          print('Deleted existing daily photo');
-        }
-
-        // Clear image cache before saving new file
-        _clearImageCache();
-
-        // Copy the file to our app's documents directory
-        final bytes = await file.readAsBytes();
-        await savedFile.writeAsBytes(bytes);
-
-        // Update the global reference to point to the saved file
-        if (_globalDailyPhoto?.path != savedFile.path) {
-          _globalDailyPhoto = savedFile;
-        }
-
-        print('Daily photo saved to: ${savedFile.path}');
-      } else {
-        // If file is null (removing daily photo), delete the saved file
-        if (await savedFile.exists()) {
-          await savedFile.delete();
-          print('Daily photo removed from storage');
-        }
-        _globalDailyPhoto = null;
-        _clearImageCache();
-      }
-    } catch (e) {
-      print('Error saving daily photo: $e');
-    }
-  }
-
-  /// Check if a daily photo exists
+  /// Check if a daily photo exists for the current user
   static Future<bool> hasDailyPhoto() async {
+    final uid = _uid;
+    if (uid == null) return false;
+
     try {
       final directory = await getApplicationDocumentsDirectory();
-      final dailyPhotoPath = '${directory.path}/$_dailyPhotoFileName';
-      final file = File(dailyPhotoPath);
+      final file = File('${directory.path}/${_fileName(uid)}');
       return file.existsSync();
     } catch (e) {
       print('ERROR in DailyPhotoManager.hasDailyPhoto: $e');
@@ -207,14 +160,16 @@ class DailyPhotoManager {
     }
   }
 
-  /// Delete the current daily photo
+  /// Delete the current user's daily photo
   static Future<void> deleteDailyPhoto() async {
+    final uid = _uid;
+    if (uid == null) return;
+
     try {
       print('DailyPhotoManager: Deleting daily photo...');
 
       final directory = await getApplicationDocumentsDirectory();
-      final dailyPhotoPath = '${directory.path}/$_dailyPhotoFileName';
-      final file = File(dailyPhotoPath);
+      final file = File('${directory.path}/${_fileName(uid)}');
 
       if (file.existsSync()) {
         await file.delete();
@@ -225,18 +180,13 @@ class DailyPhotoManager {
 
       _globalDailyPhoto = null;
       _clearImageCache();
-
-      // Notify listeners that photo was deleted
-      for (var listener in _listeners) {
-        listener();
-      }
+      _notifyListeners();
     } catch (e) {
       print('ERROR in DailyPhotoManager.deleteDailyPhoto: $e');
       rethrow;
     }
   }
 
-  // Force refresh the current daily photo (useful for debugging)
   static Future<void> forceRefresh() async {
     print('Force refreshing daily photo...');
     _clearImageCache();

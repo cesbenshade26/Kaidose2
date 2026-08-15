@@ -1,12 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 import 'EditDaily.dart' as edit_daily;
 import 'ManageMembers.dart' as manage_members;
 import 'DailyHistory.dart';
 import 'dart:io';
+
+const List<Map<String, dynamic>> kDailyTags = [
+  {'label': 'Sports',      'emoji': '🏆'},
+  {'label': 'Music',       'emoji': '🎵'},
+  {'label': 'Gaming',      'emoji': '🎮'},
+  {'label': 'Fitness',     'emoji': '💪'},
+  {'label': 'Food',        'emoji': '🍕'},
+  {'label': 'Travel',      'emoji': '✈️'},
+  {'label': 'Art',         'emoji': '🎨'},
+  {'label': 'Fashion',     'emoji': '👗'},
+  {'label': 'Nature',      'emoji': '🌿'},
+  {'label': 'Tech',        'emoji': '💻'},
+  {'label': 'Movies / TV', 'emoji': '🎬'},
+  {'label': 'Books',       'emoji': '📚'},
+  {'label': 'Health',      'emoji': '🧘'},
+  {'label': 'Finance',     'emoji': '💰'},
+  {'label': 'Science',     'emoji': '🔬'},
+  {'label': 'Comedy',      'emoji': '😂'},
+];
 
 class ManageDailyScreen extends StatefulWidget {
   final DailyData daily;
@@ -20,6 +41,8 @@ class ManageDailyScreen extends StatefulWidget {
 class _ManageDailyScreenState extends State<ManageDailyScreen> {
   int _selectedTabIndex = 0;
   late DailyData _currentDaily;
+  bool _isOwner = false;
+  bool _checkingOwnership = true;
 
   Color get _dailyColor => Color(_currentDaily.iconColor ?? 0xFF00BCD4);
 
@@ -27,26 +50,66 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
   void initState() {
     super.initState();
     _currentDaily = widget.daily;
+    _checkOwnership();
+  }
+
+  Future<void> _checkOwnership() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) setState(() { _isOwner = false; _checkingOwnership = false; });
+      return;
+    }
+
+    try {
+      // If an accepted invitation exists for this user + daily,
+      // they joined via invite — they are NOT the owner.
+      final invite = await FirebaseFirestore.instance
+          .collection('daily_invitations')
+          .where('dailyId', isEqualTo: _currentDaily.id)
+          .where('toUserId', isEqualTo: uid)
+          .where('status', isEqualTo: 'accepted')
+          .limit(1)
+          .get();
+
+      final isOwner = invite.docs.isEmpty;
+      print('OWNERSHIP (ManageDaily): uid=$uid dailyId=${_currentDaily.id} inviteFound=${invite.docs.isNotEmpty} isOwner=$isOwner');
+      if (mounted) setState(() { _isOwner = isOwner; _checkingOwnership = false; });
+    } catch (e) {
+      print('ManageDaily ownership check error: $e');
+      if (mounted) setState(() { _isOwner = false; _checkingOwnership = false; });
+    }
   }
 
   void _showEditIconAndTitleDialog() {
+    if (!_isOwner) return;
     showDialog(
       context: context,
       builder: (BuildContext context) => _EditIconAndTitleDialog(
         daily: _currentDaily,
-        onSave: (updatedDaily) {
-          setState(() {
-            _currentDaily = updatedDaily;
-          });
-        },
+        onSave: (updatedDaily) =>
+            setState(() => _currentDaily = updatedDaily),
       ),
     );
   }
 
   void _updateDaily(DailyData updatedDaily) {
-    setState(() {
-      _currentDaily = updatedDaily;
-    });
+    setState(() => _currentDaily = updatedDaily);
+  }
+
+  TextStyle _getFontForDaily(DailyData daily) {
+    switch (daily.titleFont ?? 'Default') {
+      case 'Roboto':           return GoogleFonts.roboto();
+      case 'Playfair Display': return GoogleFonts.playfairDisplay();
+      case 'Pacifico':         return GoogleFonts.pacifico();
+      case 'Bebas Neue':       return GoogleFonts.bebasNeue();
+      case 'Caveat':           return GoogleFonts.caveat();
+      case 'Permanent Marker': return GoogleFonts.permanentMarker();
+      case 'Righteous':        return GoogleFonts.righteous();
+      case 'Lobster':          return GoogleFonts.lobster();
+      case 'Dancing Script':   return GoogleFonts.dancingScript();
+      case 'Bangers':          return GoogleFonts.bangers();
+      default:                 return const TextStyle();
+    }
   }
 
   @override
@@ -58,28 +121,23 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Manage Daily',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        title: const Text('Manage Daily',
+            style: TextStyle(
+                color: Colors.black,
+                fontSize: 18,
+                fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
-      body: Column(
+      body: _checkingOwnership
+          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          : Column(
         children: [
-          // Icon and Title at top
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Column(
               children: [
-                // Icon with edit button
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -90,57 +148,51 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                         color: _dailyColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: _currentDaily.customIconPath != null && File(_currentDaily.customIconPath!).existsSync()
+                      child: _currentDaily.customIconPath != null &&
+                          File(_currentDaily.customIconPath!)
+                              .existsSync()
                           ? ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Image.file(
-                          File(_currentDaily.customIconPath!),
-                          fit: BoxFit.cover,
-                        ),
-                      )
-                          : Icon(
-                        _currentDaily.icon,
-                        color: _dailyColor,
-                        size: 50,
-                      ),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Image.file(
+                              File(_currentDaily.customIconPath!),
+                              fit: BoxFit.cover))
+                          : Icon(_currentDaily.icon,
+                          color: _dailyColor, size: 50),
                     ),
-                    Positioned(
-                      right: -8,
-                      top: -8,
-                      child: GestureDetector(
-                        onTap: _showEditIconAndTitleDialog,
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: _dailyColor,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withOpacity(0.3),
-                                spreadRadius: 1,
-                                blurRadius: 3,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.edit,
-                            color: Colors.white,
-                            size: 16,
+                    if (_isOwner)
+                      Positioned(
+                        right: -8,
+                        top: -8,
+                        child: GestureDetector(
+                          onTap: _showEditIconAndTitleDialog,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: _dailyColor,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                    color: Colors.grey.withOpacity(0.3),
+                                    spreadRadius: 1,
+                                    blurRadius: 3)
+                              ],
+                            ),
+                            child: const Icon(Icons.edit,
+                                color: Colors.white, size: 16),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Title with edit button
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Flexible(
                       child: Text(
                         _currentDaily.title,
-                        style: _getFontForDaily(_currentDaily).copyWith(
+                        style:
+                        _getFontForDaily(_currentDaily).copyWith(
                           fontSize: 24,
                           fontWeight: FontWeight.w700,
                           color: Colors.black87,
@@ -148,149 +200,59 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                         textAlign: TextAlign.center,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: _showEditIconAndTitleDialog,
-                      child: Icon(
-                        Icons.edit,
-                        color: Colors.grey[600],
-                        size: 20,
+                    if (_isOwner) ...[
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _showEditIconAndTitleDialog,
+                        child: Icon(Icons.edit,
+                            color: Colors.grey[600], size: 20),
                       ),
-                    ),
+                    ],
                   ],
                 ),
+                if (!_isOwner)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'View only — you are not the owner',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[500],
+                          fontStyle: FontStyle.italic),
+                    ),
+                  ),
               ],
             ),
           ),
 
-          // Tab section
-          Container(
+          SizedBox(
             width: double.infinity,
             child: Column(
               children: [
-                // Tab buttons
                 Row(
                   children: [
-                    // Settings tab
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 0;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.settings,
-                                size: 20,
-                                color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Settings',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Members tab
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 1;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.people,
-                                size: 20,
-                                color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Members',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // History tab
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 2;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.history,
-                                size: 20,
-                                color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'History',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
+                    _buildTab(0, Icons.settings, 'Settings'),
+                    _buildTab(1, Icons.people, 'Members'),
+                    _buildTab(2, Icons.history, 'History'),
                   ],
                 ),
-                // Animated sliding indicator - uses daily color
-                Container(
+                SizedBox(
                   height: 2,
                   child: Stack(
                     children: [
                       Container(
-                        width: double.infinity,
-                        height: 2,
-                        color: Colors.transparent,
-                      ),
+                          width: double.infinity,
+                          height: 2,
+                          color: Colors.transparent),
                       AnimatedPositioned(
                         duration: const Duration(milliseconds: 300),
                         curve: Curves.easeInOut,
-                        left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
-                        width: MediaQuery.of(context).size.width / 3,
+                        left: MediaQuery.of(context).size.width *
+                            _selectedTabIndex / 3,
+                        width:
+                        MediaQuery.of(context).size.width / 3,
                         child: Container(
-                          height: 2,
-                          color: _dailyColor,
-                        ),
+                            height: 2, color: _dailyColor),
                       ),
                     ],
                   ),
@@ -299,42 +261,36 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
             ),
           ),
 
-          // Content area based on selected tab
-          Expanded(
-            child: _getTabContent(),
-          ),
+          Expanded(child: _getTabContent()),
         ],
       ),
     );
   }
 
-  TextStyle _getFontForDaily(DailyData daily) {
-    final fontFamily = daily.titleFont ?? 'Default';
-
-    switch (fontFamily) {
-      case 'Roboto':
-        return GoogleFonts.roboto();
-      case 'Playfair Display':
-        return GoogleFonts.playfairDisplay();
-      case 'Pacifico':
-        return GoogleFonts.pacifico();
-      case 'Bebas Neue':
-        return GoogleFonts.bebasNeue();
-      case 'Caveat':
-        return GoogleFonts.caveat();
-      case 'Permanent Marker':
-        return GoogleFonts.permanentMarker();
-      case 'Righteous':
-        return GoogleFonts.righteous();
-      case 'Lobster':
-        return GoogleFonts.lobster();
-      case 'Dancing Script':
-        return GoogleFonts.dancingScript();
-      case 'Bangers':
-        return GoogleFonts.bangers();
-      default:
-        return const TextStyle();
-    }
+  Widget _buildTab(int index, IconData icon, String label) {
+    final active = _selectedTabIndex == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedTabIndex = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 20,
+                  color: active ? Colors.black : Colors.grey),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: active ? Colors.black : Colors.grey)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _getTabContent() {
@@ -357,21 +313,77 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
   }
 }
 
-// Edit Icon and Title Dialog
+// ─── Tag picker ───────────────────────────────────────────────────────────────
+
+class DailyTagPicker extends StatelessWidget {
+  final Set<String> selected;
+  final ValueChanged<String> onToggle;
+  final Color accentColor;
+
+  const DailyTagPicker({
+    Key? key,
+    required this.selected,
+    required this.onToggle,
+    this.accentColor = Colors.cyan,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: kDailyTags.map((tag) {
+        final label = tag['label'] as String;
+        final sel = selected.contains(label);
+        return GestureDetector(
+          onTap: () => onToggle(label),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: sel ? accentColor : Colors.grey[100],
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                  color: sel ? accentColor : Colors.grey[300]!,
+                  width: 1.5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(tag['emoji'] as String,
+                    style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 6),
+                Text(label,
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: sel ? Colors.white : Colors.black87)),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ─── Edit icon & title dialog ─────────────────────────────────────────────────
+
 class _EditIconAndTitleDialog extends StatefulWidget {
   final DailyData daily;
   final Function(DailyData) onSave;
 
-  const _EditIconAndTitleDialog({
-    required this.daily,
-    required this.onSave,
-  });
+  const _EditIconAndTitleDialog(
+      {required this.daily, required this.onSave});
 
   @override
-  State<_EditIconAndTitleDialog> createState() => _EditIconAndTitleDialogState();
+  State<_EditIconAndTitleDialog> createState() =>
+      _EditIconAndTitleDialogState();
 }
 
-class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
+class _EditIconAndTitleDialogState
+    extends State<_EditIconAndTitleDialog> {
   late TextEditingController _titleController;
   late IconData _selectedIcon;
   late Color _selectedColor;
@@ -380,49 +392,23 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
   final ImagePicker _picker = ImagePicker();
 
   final List<String> _fontOptions = [
-    'Default',
-    'Roboto',
-    'Playfair Display',
-    'Pacifico',
-    'Bebas Neue',
-    'Caveat',
-    'Permanent Marker',
-    'Righteous',
-    'Lobster',
-    'Dancing Script',
-    'Bangers',
+    'Default', 'Roboto', 'Playfair Display', 'Pacifico',
+    'Bebas Neue', 'Caveat', 'Permanent Marker', 'Righteous',
+    'Lobster', 'Dancing Script', 'Bangers',
   ];
 
   final List<IconData> _presetIcons = [
-    Icons.star,
-    Icons.favorite,
-    Icons.camera_alt,
-    Icons.music_note,
-    Icons.sports_basketball,
-    Icons.restaurant,
-    Icons.local_cafe,
-    Icons.airplane_ticket,
-    Icons.beach_access,
-    Icons.fitness_center,
-    Icons.book,
-    Icons.palette,
-    Icons.code,
-    Icons.science,
-    Icons.pets,
-    Icons.games,
+    Icons.star, Icons.favorite, Icons.camera_alt, Icons.music_note,
+    Icons.sports_basketball, Icons.restaurant, Icons.local_cafe,
+    Icons.airplane_ticket, Icons.beach_access, Icons.fitness_center,
+    Icons.book, Icons.palette, Icons.code, Icons.science,
+    Icons.pets, Icons.games,
   ];
 
   final List<Color> _colorOptions = [
-    Colors.cyan,
-    Colors.blue,
-    Colors.purple,
-    Colors.pink,
-    Colors.red,
-    Colors.orange,
-    Colors.amber,
-    Colors.green,
-    Colors.teal,
-    Colors.indigo,
+    Colors.cyan, Colors.blue, Colors.purple, Colors.pink,
+    Colors.red, Colors.orange, Colors.amber, Colors.green,
+    Colors.teal, Colors.indigo,
   ];
 
   @override
@@ -444,38 +430,24 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
   }
 
   Future<void> _pickCustomIcon() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      setState(() {
-        _customIcon = File(image.path);
-      });
-    }
+    final XFile? image =
+    await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) setState(() => _customIcon = File(image.path));
   }
 
-  TextStyle _getFontStyle(String fontFamily) {
-    switch (fontFamily) {
-      case 'Roboto':
-        return GoogleFonts.roboto();
-      case 'Playfair Display':
-        return GoogleFonts.playfairDisplay();
-      case 'Pacifico':
-        return GoogleFonts.pacifico();
-      case 'Bebas Neue':
-        return GoogleFonts.bebasNeue();
-      case 'Caveat':
-        return GoogleFonts.caveat();
-      case 'Permanent Marker':
-        return GoogleFonts.permanentMarker();
-      case 'Righteous':
-        return GoogleFonts.righteous();
-      case 'Lobster':
-        return GoogleFonts.lobster();
-      case 'Dancing Script':
-        return GoogleFonts.dancingScript();
-      case 'Bangers':
-        return GoogleFonts.bangers();
-      default:
-        return const TextStyle();
+  TextStyle _getFontStyle(String f) {
+    switch (f) {
+      case 'Roboto':           return GoogleFonts.roboto();
+      case 'Playfair Display': return GoogleFonts.playfairDisplay();
+      case 'Pacifico':         return GoogleFonts.pacifico();
+      case 'Bebas Neue':       return GoogleFonts.bebasNeue();
+      case 'Caveat':           return GoogleFonts.caveat();
+      case 'Permanent Marker': return GoogleFonts.permanentMarker();
+      case 'Righteous':        return GoogleFonts.righteous();
+      case 'Lobster':          return GoogleFonts.lobster();
+      case 'Dancing Script':   return GoogleFonts.dancingScript();
+      case 'Bangers':          return GoogleFonts.bangers();
+      default:                 return const TextStyle();
     }
   }
 
@@ -498,6 +470,7 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
       tierPrivileges: widget.daily.tierPrivileges,
       titleFont: _selectedFont,
       dailyEntryPrompt: widget.daily.dailyEntryPrompt,
+      creatorUid: widget.daily.creatorUid,
     );
 
     await DailyList.updateDaily(updatedDaily);
@@ -507,7 +480,7 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
       widget.onSave(updatedDaily);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Icon, title, and font updated!'),
+          content: const Text('Updated for everyone!'),
           backgroundColor: _selectedColor,
           duration: const Duration(seconds: 2),
         ),
@@ -519,14 +492,12 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+          borderRadius: BorderRadius.circular(20)),
       child: Container(
         constraints: const BoxConstraints(maxHeight: 700),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header - uses selected color
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -539,14 +510,11 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
               child: Row(
                 children: [
                   const Expanded(
-                    child: Text(
-                      'Edit Icon & Title',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
+                    child: Text('Edit Icon & Title',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white)),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white),
@@ -555,70 +523,41 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                 ],
               ),
             ),
-
-            // Content
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title
-                    const Text(
-                      'Daily Title',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
+                    _label('Daily Title'),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _titleController,
+                      maxLength: 50,
+                      style: _getFontStyle(_selectedFont)
+                          .copyWith(fontSize: 16, color: Colors.black87),
                       decoration: InputDecoration(
                         hintText: 'Enter daily title...',
-                        hintStyle: TextStyle(
-                          color: Colors.grey[400],
-                          fontSize: 16,
-                        ),
+                        hintStyle: TextStyle(color: Colors.grey[400]),
                         filled: true,
                         fillColor: Colors.grey[100],
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: _selectedColor,
-                            width: 2,
-                          ),
-                        ),
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: _selectedColor, width: 2)),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
+                            horizontal: 16, vertical: 14),
                       ),
-                      style: _getFontStyle(_selectedFont).copyWith(
-                        fontSize: 16,
-                        color: Colors.black87,
-                      ),
-                      maxLength: 50,
                     ),
                     const SizedBox(height: 16),
-
-                    // Font selection
-                    const Text(
-                      'Title Font',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
+                    _label('Title Font'),
                     const SizedBox(height: 12),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.grey[100],
                         borderRadius: BorderRadius.circular(12),
@@ -628,101 +567,72 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                         value: _selectedFont,
                         isExpanded: true,
                         underline: const SizedBox(),
-                        icon: Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
-                        items: _fontOptions.map((String font) {
-                          return DropdownMenuItem<String>(
-                            value: font,
-                            child: Text(
-                              font,
-                              style: _getFontStyle(font).copyWith(
-                                fontSize: 16,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (String? newFont) {
-                          if (newFont != null) {
-                            setState(() {
-                              _selectedFont = newFont;
-                            });
-                          }
+                        items: _fontOptions
+                            .map((f) => DropdownMenuItem(
+                            value: f,
+                            child: Text(f,
+                                style: _getFontStyle(f).copyWith(
+                                    fontSize: 16,
+                                    color: Colors.black87))))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) setState(() => _selectedFont = v);
                         },
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Icon selection
-                    const Text(
-                      'Select Icon',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
+                    _label('Select Icon'),
                     const SizedBox(height: 12),
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                      ),
+                      gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 4,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8),
                       itemCount: _presetIcons.length,
-                      itemBuilder: (context, index) {
-                        final icon = _presetIcons[index];
-                        final isSelected = _selectedIcon == icon && _customIcon == null;
-
+                      itemBuilder: (context, i) {
+                        final icon = _presetIcons[i];
+                        final sel =
+                            _selectedIcon == icon && _customIcon == null;
                         return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedIcon = icon;
-                              _customIcon = null;
-                            });
-                          },
+                          onTap: () => setState(() {
+                            _selectedIcon = icon;
+                            _customIcon = null;
+                          }),
                           child: Container(
                             decoration: BoxDecoration(
-                              color: isSelected ? _selectedColor.withOpacity(0.1) : Colors.grey[100],
+                              color: sel
+                                  ? _selectedColor.withOpacity(0.1)
+                                  : Colors.grey[100],
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: isSelected ? _selectedColor : Colors.grey[300]!,
-                                width: isSelected ? 2 : 1,
-                              ),
+                                  color: sel
+                                      ? _selectedColor
+                                      : Colors.grey[300]!,
+                                  width: sel ? 2 : 1),
                             ),
-                            child: Icon(
-                              icon,
-                              color: isSelected ? _selectedColor : Colors.grey[700],
-                              size: 24,
-                            ),
+                            child: Icon(icon,
+                                color: sel
+                                    ? _selectedColor
+                                    : Colors.grey[700],
+                                size: 24),
                           ),
                         );
                       },
                     ),
                     const SizedBox(height: 16),
-
-                    // Color selection
-                    const Text(
-                      'Icon Color',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
+                    _label('Icon Color'),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: _colorOptions.map((color) {
-                        final isSelected = _selectedColor == color;
+                        final sel = _selectedColor == color;
                         return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedColor = color;
-                            });
-                          },
+                          onTap: () =>
+                              setState(() => _selectedColor = color),
                           child: Container(
                             width: 40,
                             height: 40,
@@ -730,32 +640,21 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                               color: color,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: isSelected ? Colors.black : Colors.grey[300]!,
-                                width: isSelected ? 3 : 1,
-                              ),
+                                  color: sel
+                                      ? Colors.black
+                                      : Colors.grey[300]!,
+                                  width: sel ? 3 : 1),
                             ),
-                            child: isSelected
-                                ? const Icon(
-                              Icons.check,
-                              color: Colors.white,
-                              size: 20,
-                            )
+                            child: sel
+                                ? const Icon(Icons.check,
+                                color: Colors.white, size: 20)
                                 : null,
                           ),
                         );
                       }).toList(),
                     ),
                     const SizedBox(height: 16),
-
-                    // Custom icon upload
-                    const Text(
-                      'Or Upload Custom Icon',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
+                    _label('Or Upload Custom Icon'),
                     const SizedBox(height: 12),
                     GestureDetector(
                       onTap: _pickCustomIcon,
@@ -763,39 +662,38 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: _customIcon != null ? _selectedColor.withOpacity(0.1) : Colors.grey[100],
+                          color: _customIcon != null
+                              ? _selectedColor.withOpacity(0.1)
+                              : Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _customIcon != null ? _selectedColor : Colors.grey[300]!,
-                            width: _customIcon != null ? 2 : 1,
-                          ),
+                              color: _customIcon != null
+                                  ? _selectedColor
+                                  : Colors.grey[300]!,
+                              width: _customIcon != null ? 2 : 1),
                         ),
                         child: Column(
                           children: [
                             if (_customIcon != null)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.file(
-                                  _customIcon!,
-                                  width: 60,
-                                  height: 60,
-                                  fit: BoxFit.cover,
-                                ),
+                                child: Image.file(_customIcon!,
+                                    width: 60,
+                                    height: 60,
+                                    fit: BoxFit.cover),
                               )
                             else
-                              Icon(
-                                Icons.cloud_upload_outlined,
-                                size: 40,
-                                color: Colors.grey[600],
-                              ),
+                              Icon(Icons.cloud_upload_outlined,
+                                  size: 40, color: Colors.grey[600]),
                             const SizedBox(height: 8),
                             Text(
-                              _customIcon != null ? 'Custom icon selected' : 'Upload Icon',
+                              _customIcon != null
+                                  ? 'Custom icon selected'
+                                  : 'Upload Icon',
                               style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey[700],
-                              ),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey[700]),
                             ),
                           ],
                         ),
@@ -805,8 +703,6 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                 ),
               ),
             ),
-
-            // Save button - uses selected color
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
@@ -817,17 +713,12 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                      borderRadius: BorderRadius.circular(12)),
                   elevation: 0,
                 ),
-                child: const Text(
-                  'Save Changes',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                child: const Text('Save Changes',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600)),
               ),
             ),
           ],
@@ -835,4 +726,10 @@ class _EditIconAndTitleDialogState extends State<_EditIconAndTitleDialog> {
       ),
     );
   }
+
+  Widget _label(String text) => Text(text,
+      style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: Colors.black87));
 }
