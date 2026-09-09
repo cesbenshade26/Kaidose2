@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'message_service.dart';
 import 'user_service.dart';
 import 'chat_reactions.dart';
+import 'NetworkVideoPlayer.dart';
 
 class ChatScreen extends StatefulWidget {
   final String friendUserId;
@@ -296,6 +297,19 @@ class ChatMessageWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final deleteTimer = _getDeleteTimeRemaining();
+    final bubbleWidth = MediaQuery.of(context).size.width * 0.75;
+
+    // A message can carry media via metadata — a shared clip
+    // ({type: 'clip', videoUrl: ...}) or an image ({type: 'image',
+    // imageUrl: ...}). Same idea as Daily messages, just keyed off
+    // metadata instead of dedicated fields since Message doesn't have its
+    // own imagePath/videoPath.
+    final metadata = message.metadata;
+    final mediaType = metadata?['type'] as String?;
+    final videoUrl = metadata?['videoUrl'] as String?;
+    final imageUrl = metadata?['imageUrl'] as String?;
+    final hasVideo = mediaType == 'clip' && videoUrl != null && videoUrl.isNotEmpty;
+    final hasImage = mediaType == 'image' && imageUrl != null && imageUrl.isNotEmpty;
 
     return GestureDetector(
       onLongPress: () => _showMenu(context),
@@ -305,10 +319,7 @@ class ChatMessageWidget extends StatelessWidget {
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              constraints: BoxConstraints(maxWidth: bubbleWidth),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.only(
@@ -322,36 +333,96 @@ class ChatMessageWidget extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (message.parentText != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        message.parentText!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                          color: Colors.grey,
+                  if (hasVideo)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(17)),
+                      child: SizedBox(
+                        width: bubbleWidth,
+                        child: AspectRatio(
+                          aspectRatio: 9 / 16,
+                          child: NetworkVideoPlayer(url: videoUrl!),
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  Text(
-                    message.text,
-                    style: const TextStyle(fontSize: 15),
+                  if (hasImage)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(17)),
+                      child: Image.network(
+                        imageUrl!,
+                        width: bubbleWidth,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            width: bubbleWidth,
+                            height: 200,
+                            color: Colors.grey[200],
+                            child: const Center(
+                              child: CircularProgressIndicator(color: Colors.cyan),
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: bubbleWidth,
+                            height: 200,
+                            color: Colors.grey[200],
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey[400]),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Image no longer available',
+                                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (message.parentText != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Text(
+                              message.parentText!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.grey,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        if (message.text.isNotEmpty)
+                          Text(
+                            message.text,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        if (deleteTimer.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              deleteTimer,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                  if (deleteTimer.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        deleteTimer,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),

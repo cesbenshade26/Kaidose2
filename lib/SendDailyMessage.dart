@@ -8,6 +8,7 @@ import 'chat_reactions.dart';
 import 'message_service.dart';
 import 'package:video_player/video_player.dart';
 import 'VideoClipPlayer.dart';
+import 'NetworkVideoPlayer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class DailyMessage {
@@ -82,6 +83,13 @@ class DailyMessage {
   int get reactionCount => reactions.length;
 
   bool get hasUserReacted => reactions.any((r) => r.userId == 'current_user');
+}
+
+/// True if a video message's path is a remote URL (e.g. a clip shared into
+/// a Daily from Firebase Storage) rather than a local file path (e.g. a
+/// video recorded/picked directly within the Daily).
+bool _isNetworkVideoPath(String path) {
+  return path.startsWith('http://') || path.startsWith('https://');
 }
 
 class DailyMessageWidget extends StatefulWidget {
@@ -334,15 +342,24 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                         ),
                       ),
                     if (widget.message.videoPath != null)
-                      SizedBox(
-                        width: messageWidth,
-                        child: AspectRatio(
-                          aspectRatio: 9 / 16,
-                          child: VideoClipPlayer(
-                            videoFile: File(widget.message.videoPath!),
-                            autoPlay: true,
-                            looping: true,
-                            fit: BoxFit.contain,
+                      ClipRRect(
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                        child: SizedBox(
+                          width: messageWidth,
+                          child: AspectRatio(
+                            aspectRatio: 9 / 16,
+                            // A shared clip's videoPath is a remote Firebase
+                            // Storage URL; a video recorded/picked directly in
+                            // the Daily is a local file path. Route each to
+                            // the player that can actually handle it.
+                            child: _isNetworkVideoPath(widget.message.videoPath!)
+                                ? NetworkVideoPlayer(url: widget.message.videoPath!)
+                                : VideoClipPlayer(
+                              videoFile: File(widget.message.videoPath!),
+                              autoPlay: true,
+                              looping: true,
+                              fit: BoxFit.contain,
+                            ),
                           ),
                         ),
                       ),

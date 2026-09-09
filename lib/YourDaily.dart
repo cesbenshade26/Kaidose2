@@ -6,6 +6,8 @@ import 'DailyPhotoManager.dart';
 import 'DailyPhotoTracker.dart';
 import 'FriendDailyService.dart';
 import 'friend_request_service.dart';
+import 'YourDailyBubbles.dart';
+import 'YourDailyBubbleSelectSheet.dart';
 
 class UseCam {
   static final ImagePicker _picker = ImagePicker();
@@ -438,52 +440,90 @@ class _YourDailyWidgetState extends State<YourDailyWidget>
           duration: Duration(seconds: 2),
         ),
       );
+
+      // Sharing already happened inside the friend picker sheet above —
+      // this step is purely optional, to attach the photo to Daily Bubbles.
+      await _maybeShowBubbleSelector(
+        photo: _selectedPhoto!,
+        onPost: () async {},
+      );
     }
   }
 
   Future<void> _confirmPhoto() async {
+    if (_selectedPhoto == null || !_selectedPhoto!.existsSync()) {
+      _showNoPhotoDialog();
+      return;
+    }
+
+    await _maybeShowBubbleSelector(
+      photo: _selectedPhoto!,
+      onPost: _doConfirmPost,
+    );
+  }
+
+  /// Shows the Daily Bubble select sheet if any bubbles exist (letting the
+  /// user optionally attach this photo before [onPost] actually runs), or
+  /// just runs [onPost] immediately if there are none — "post as intended".
+  Future<void> _maybeShowBubbleSelector({
+    required File photo,
+    required Future<void> Function() onPost,
+  }) async {
+    if (YourDailyBubbleManager.bubbles.isEmpty) {
+      await onPost();
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => YourDailyBubbleSelectSheet(
+        photo: photo,
+        onPost: onPost,
+      ),
+    );
+  }
+
+  Future<void> _doConfirmPost() async {
     print('========== CONFIRM PHOTO DEBUG (Daily Post) ==========');
 
-    if (_selectedPhoto != null && _selectedPhoto!.existsSync()) {
-      try {
-        await DailyPhotoTracker.addPhoto(_selectedPhoto!);
-        await DailyPhotoManager.setDailyPhoto(_selectedPhoto!);
-        await FriendDailyService.uploadMyDailyPhoto(_selectedPhoto!);
+    try {
+      await DailyPhotoTracker.addPhoto(_selectedPhoto!);
+      await DailyPhotoManager.setDailyPhoto(_selectedPhoto!);
+      await FriendDailyService.uploadMyDailyPhoto(_selectedPhoto!);
 
-        print('Photo saved and uploaded to friend stories');
+      print('Photo saved and uploaded to friend stories');
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Daily photo posted!'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-
-        setState(() {
-          _todaysPhotos = DailyPhotoTracker.todaysPhotos;
-          _currentPhotoIndex = _todaysPhotos.length - 1;
-          _currentDisplayPhoto = _todaysPhotos[_currentPhotoIndex];
-          _selectedPhoto = null;
-        });
-
-        print('Daily photo confirmed and saved successfully');
-      } catch (e) {
-        print('ERROR in _confirmPhoto: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error saving photo: $e'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Daily photo posted!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
-    } else {
-      _showNoPhotoDialog();
+
+      setState(() {
+        _todaysPhotos = DailyPhotoTracker.todaysPhotos;
+        _currentPhotoIndex = _todaysPhotos.length - 1;
+        _currentDisplayPhoto = _todaysPhotos[_currentPhotoIndex];
+        _selectedPhoto = null;
+      });
+
+      print('Daily photo confirmed and saved successfully');
+    } catch (e) {
+      print('ERROR in _confirmPhoto: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving photo: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
     print('========== END CONFIRM PHOTO DEBUG ==========');
   }
@@ -505,6 +545,10 @@ class _YourDailyWidgetState extends State<YourDailyWidget>
     );
   }
 
+  void _addDailyBubble() {
+    YourDailyBubbleManager.startCreatingBubble();
+  }
+
   bool get _isInNewPhotoMode => _currentPhotoIndex == -1;
   bool get _canNavigateLeft => _todaysPhotos.isNotEmpty &&
       (_currentPhotoIndex > 0 ||
@@ -517,6 +561,29 @@ class _YourDailyWidgetState extends State<YourDailyWidget>
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // Kicks off Daily Bubble creation and switches to the Profile tab
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _addDailyBubble,
+              icon: const Icon(Icons.auto_awesome, size: 20),
+              label: const Text(
+                'Add a Daily Bubble!',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
         Expanded(
           flex: 3,
           child: Padding(

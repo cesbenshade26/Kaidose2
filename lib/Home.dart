@@ -6,6 +6,7 @@ import 'Add.dart';
 import 'Clips.dart';
 import 'Chat.dart';
 import 'HomeSwipe.dart';
+import 'YourDailyBubbles.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool fadeInFromAnimation;
@@ -34,6 +35,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // Clips tab index — update this if you ever reorder tabs
   static const int _clipsTabIndex = 2;
+  // Profile tab index — used when Daily Bubble creation force-switches tabs
+  static const int _profileTabIndex = 4;
 
   @override
   void initState() {
@@ -84,6 +87,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _navBarSlideController.value = 1.0;
       _staggerController.value = 1.0;
     }
+
+    // Lets YourDaily.dart force-switch to the Profile tab when the user
+    // taps "Add a Daily Bubble!", without Add.dart needing to know about it.
+    YourDailyBubbleManager.registerNavigateToProfile(() {
+      _onItemTapped(_profileTabIndex);
+    });
   }
 
   void _startEntryAnimations() async {
@@ -105,6 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    YourDailyBubbleManager.unregisterNavigateToProfile();
     _contentFadeController.dispose();
     _navBarSlideController.dispose();
     _staggerController.dispose();

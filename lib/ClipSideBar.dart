@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:math' as math;
+import 'Share.dart';
 
 typedef LikeTrigger = void Function();
 
@@ -9,12 +10,14 @@ class ClipSideBar extends StatefulWidget {
   final String clipId;
   final void Function(LikeTrigger)? onLikeTriggerReady;
   final VoidCallback? onCommentTap;
+  final VoidCallback? onShareTap;
 
   const ClipSideBar({
     Key? key,
     required this.clipId,
     this.onLikeTriggerReady,
     this.onCommentTap,
+    this.onShareTap,
   }) : super(key: key);
 
   @override
@@ -129,6 +132,17 @@ class _ClipSideBarState extends State<ClipSideBar>
     }
   }
 
+  void _handleShareTap() {
+    if (widget.onShareTap != null) {
+      // Lets whatever screen hosts this sidebar apply the same
+      // dilate/move-up treatment it already uses for comments.
+      widget.onShareTap!();
+    } else {
+      // Fallback: open the sheet directly with no dilation.
+      showShareSheet(context, clipId: widget.clipId);
+    }
+  }
+
   String _formatCount(int count) {
     if (count == 0) return '0';
     if (count >= 1000000) {
@@ -206,10 +220,13 @@ class _ClipSideBarState extends State<ClipSideBar>
         ),
         const SizedBox(height: 20),
 
-        // Share (placeholder)
+        // Share
         _SideButton(
           label: '',
-          child: const Icon(Icons.reply, color: Colors.white, size: 30),
+          child: GestureDetector(
+            onTap: _handleShareTap,
+            child: const Icon(Icons.reply, color: Colors.white, size: 30),
+          ),
         ),
         const SizedBox(height: 20),
 

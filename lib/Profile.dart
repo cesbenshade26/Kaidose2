@@ -10,11 +10,12 @@ import 'ProfilePic.dart';
 import 'BackgroundPic.dart';
 import 'SettingBar.dart';
 import 'Bio.dart';
-import 'UserActivity.dart';
+import 'DailyPostActivity.dart';
 import 'ClipsActivity.dart';
 import 'Archives.dart';
 import 'NotificationScreen.dart';
 import 'friend_request_service.dart';
+import 'YourDailyBubbles.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -46,6 +47,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   VoidCallback? _usernameListener;
   VoidCallback? _followersListener;
   VoidCallback? _followingListener;
+  VoidCallback? _bubbleListener;
 
   @override
   void initState() {
@@ -113,12 +115,20 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
+    // Rebuilds the bubble preview row as its name/cover are edited
+    _bubbleListener = () {
+      if (mounted) {
+        setState(() {});
+      }
+    };
+
     ProfilePicManager.addListener(_profilePicListener!);
     BackgroundPicManager.addListener(_backgroundPicListener!);
     BioManager.addListener(_bioListener!);
     UserManager.addListener(_usernameListener!);
     UserFollowers.addListener(_followersListener!);
     UserFollowing.addListener(_followingListener!);
+    YourDailyBubbleManager.addListener(_bubbleListener!);
   }
 
   @override
@@ -200,6 +210,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     if (_usernameListener != null) UserManager.removeListener(_usernameListener!);
     if (_followersListener != null) UserFollowers.removeListener(_followersListener!);
     if (_followingListener != null) UserFollowing.removeListener(_followingListener!);
+    if (_bubbleListener != null) YourDailyBubbleManager.removeListener(_bubbleListener!);
     super.dispose();
   }
 
@@ -262,7 +273,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   Widget _buildTabContent() {
     switch (_selectedTabIndex) {
       case 0:
-        return const UserActivityWidget();
+        return const DailyPostActivity();
       case 1:
         return const ClipsActivity();
       case 2:
@@ -370,6 +381,13 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           },
           child: _buildBioText(screenWidth),
         ),
+        // Daily Bubble row — sits below followers/following/bio and above
+        // the tab bar. Only shown while a bubble is being created for now;
+        // this is where saved bubbles will eventually be listed.
+        if (YourDailyBubbleManager.isCreating || YourDailyBubbleManager.bubbles.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          YourDailyBubbleRow(),
+        ],
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -457,6 +475,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _showSeparator = false;
   Color _separatorColor = Colors.black;
   VoidCallback? _backgroundPicListener;
+  VoidCallback? _bubbleListener;
 
   @override
   void initState() {
@@ -479,14 +498,37 @@ class _ProfilePageState extends State<ProfilePage> {
     };
 
     BackgroundPicManager.addListener(_backgroundPicListener!);
+
+    // Rebuilds to show/hide the dark "creating a bubble" overlay
+    _bubbleListener = () {
+      if (mounted) {
+        setState(() {});
+      }
+    };
+    YourDailyBubbleManager.addListener(_bubbleListener!);
+
     _loadInitialData();
   }
 
   Future<void> _loadInitialData() async {
-    await BioManager.loadBioFromStorage();
-    await UserManager.loadUsernameFromStorage();
-    await UserFollowers.loadFollowersCountFromStorage();
-    await UserFollowing.loadFollowingCountFromStorage();
+    // Each load runs independently and is caught on its own — a failure in
+    // one (e.g. bio) should never silently block the others from running,
+    // which is what was stopping Daily Bubbles from loading before.
+    await Future.wait([
+      _safeLoad('BioManager', BioManager.loadBioFromStorage),
+      _safeLoad('UserManager', UserManager.loadUsernameFromStorage),
+      _safeLoad('UserFollowers', UserFollowers.loadFollowersCountFromStorage),
+      _safeLoad('UserFollowing', UserFollowing.loadFollowingCountFromStorage),
+      _safeLoad('YourDailyBubbleManager', YourDailyBubbleManager.loadBubblesFromFirestore),
+    ]);
+  }
+
+  Future<void> _safeLoad(String label, Future<void> Function() loader) async {
+    try {
+      await loader();
+    } catch (e) {
+      print('ProfilePage: $label failed to load: $e');
+    }
   }
 
   @override
@@ -514,6 +556,9 @@ class _ProfilePageState extends State<ProfilePage> {
   void dispose() {
     if (_backgroundPicListener != null) {
       BackgroundPicManager.removeListener(_backgroundPicListener!);
+    }
+    if (_bubbleListener != null) {
+      YourDailyBubbleManager.removeListener(_bubbleListener!);
     }
     super.dispose();
   }
@@ -661,6 +706,11 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
           ),
+
+          // Dark "creating a bubble" overlay — covers the whole screen
+          // (including the bell/settings buttons above) until the user
+          // finishes or backs out via the X.
+          if (YourDailyBubbleManager.isCreating) const YourDailyBubbleCreatorOverlay(),
         ],
       ),
     );

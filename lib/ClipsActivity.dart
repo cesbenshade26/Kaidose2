@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'clip_service.dart';
 import 'ClipSideBar.dart';
-import 'ClipCommentSheet.dart';
+import 'Clipcommentsheet.dart';
 
 class ClipsActivity extends StatefulWidget {
   const ClipsActivity({Key? key}) : super(key: key);
@@ -405,6 +405,7 @@ class _MyClipPageState extends State<_MyClipPage>
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
     final sheetHeight = screenHeight * _sheetFraction;
 
     return GestureDetector(
@@ -421,24 +422,23 @@ class _MyClipPageState extends State<_MyClipPage>
           AnimatedBuilder(
             animation: _commentAnimation,
             builder: (context, child) {
-              final shrinkFraction = _commentAnimation.value;
-              final availableHeight =
-                  screenHeight - sheetHeight * shrinkFraction;
-              final clipWidth = MediaQuery.of(context).size.width *
-                  (1 - 0.15 * shrinkFraction);
+              final shrink = _commentAnimation.value;
+              final sheetOffset = sheetHeight * shrink;
+              final clipHeight = screenHeight - sheetOffset;
+              final clipWidth = screenWidth * (1 - 0.15 * shrink);
 
               return Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                height: availableHeight,
+                height: clipHeight,
                 child: Center(
                   child: ClipRRect(
                     borderRadius:
-                    BorderRadius.circular(12 * shrinkFraction),
+                    BorderRadius.circular(12 * shrink),
                     child: SizedBox(
                       width: clipWidth,
-                      height: availableHeight,
+                      height: clipHeight,
                       child: child,
                     ),
                   ),
@@ -463,13 +463,26 @@ class _MyClipPageState extends State<_MyClipPage>
                   child: child!,
                 );
               },
-              child: ClipCommentSheet(onClose: _closeComments),
+              child: ClipCommentSheet(clipId: widget.clip.id, onClose: _closeComments),
             ),
 
-          // Side buttons
-          Positioned(
-            right: 12,
-            bottom: 80,
+          // Side buttons — hidden when comments open
+          AnimatedBuilder(
+            animation: _commentAnimation,
+            builder: (context, child) {
+              return Positioned(
+                right: 12,
+                bottom: 80,
+                child: AnimatedOpacity(
+                  opacity: 1 - _commentAnimation.value,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: _showComments,
+                    child: child,
+                  ),
+                ),
+              );
+            },
             child: ClipSideBar(
               clipId: widget.clip.id,
               onLikeTriggerReady: (trigger) => _likeTrigger = trigger,

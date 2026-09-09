@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'clip_service.dart';
 import 'ClipSideBar.dart';
-import 'ClipCommentSheet.dart';
+import 'Clipcommentsheet.dart';
 
 class ClipsWidget extends StatefulWidget {
   final bool isTabActive;
@@ -60,8 +60,8 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                           color: Colors.grey[400])),
                   const SizedBox(height: 8),
                   Text('Clips from other users will show up here',
-                      style:
-                      TextStyle(fontSize: 14, color: Colors.grey[600])),
+                      style: TextStyle(
+                          fontSize: 14, color: Colors.grey[600])),
                 ],
               ),
             );
@@ -70,7 +70,8 @@ class _ClipsWidgetState extends State<ClipsWidget> {
           return PageView.builder(
             controller: _pageController,
             scrollDirection: Axis.vertical,
-            onPageChanged: (index) => setState(() => _currentPage = index),
+            onPageChanged: (index) =>
+                setState(() => _currentPage = index),
             itemCount: clips.length,
             itemBuilder: (context, index) {
               return _ClipPage(
@@ -96,7 +97,7 @@ class _ClipPage extends StatefulWidget {
 }
 
 class _ClipPageState extends State<_ClipPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   VideoPlayerController? _controller;
   bool _isLoading = true;
   bool _hasError = false;
@@ -104,10 +105,11 @@ class _ClipPageState extends State<_ClipPage>
 
   LikeTrigger? _likeTrigger;
 
-  // Comment sheet state
+  // Comment sheet
   bool _showComments = false;
   late AnimationController _commentAnimController;
   late Animation<double> _commentAnimation;
+  static const double _sheetFraction = 0.55;
 
   // Floating heart
   late AnimationController _floatingHeartController;
@@ -115,9 +117,6 @@ class _ClipPageState extends State<_ClipPage>
   late Animation<double> _floatingHeartOpacity;
   Offset _floatingHeartPosition = Offset.zero;
   bool _showFloatingHeart = false;
-
-  // Sheet height = 55% of screen
-  static const double _sheetFraction = 0.55;
 
   @override
   void initState() {
@@ -185,7 +184,12 @@ class _ClipPageState extends State<_ClipPage>
       }
     } catch (e) {
       print('_ClipPage: load error: $e');
-      if (mounted) setState(() { _hasError = true; _isLoading = false; });
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -209,7 +213,10 @@ class _ClipPageState extends State<_ClipPage>
   }
 
   void _onSingleTap(Offset position) {
-    if (_showComments) { _closeComments(); return; }
+    if (_showComments) {
+      _closeComments();
+      return;
+    }
     final size = MediaQuery.of(context).size;
     if (position.dx > size.width / 3 &&
         position.dx < size.width * 2 / 3 &&
@@ -242,6 +249,7 @@ class _ClipPageState extends State<_ClipPage>
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
     final sheetHeight = screenHeight * _sheetFraction;
 
     return GestureDetector(
@@ -251,30 +259,34 @@ class _ClipPageState extends State<_ClipPage>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Black background always fills screen ──
+          // Black background
           Container(color: Colors.black),
 
           // ── Clip area — shrinks when comments open ──
           AnimatedBuilder(
             animation: _commentAnimation,
             builder: (context, child) {
-              final shrinkFraction = _commentAnimation.value;
-              final availableHeight = screenHeight - sheetHeight * shrinkFraction;
-              final clipHeight = availableHeight;
-              final clipWidth = MediaQuery.of(context).size.width *
-                  (1 - 0.15 * shrinkFraction); // gentle width shrink
+              final shrink = _commentAnimation.value;
+              // How much vertical space the sheet takes
+              final sheetOffset = sheetHeight * shrink;
+              // Clip occupies full height minus sheet, anchored to top
+              final clipHeight = screenHeight - sheetOffset;
+              // Gentle horizontal shrink so white shows on sides
+              final clipWidth = screenWidth * (1 - 0.15 * shrink);
 
               return Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
+                // Clip fills from top down to where sheet starts
                 height: clipHeight,
                 child: Center(
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(
-                        12 * shrinkFraction),
+                    borderRadius:
+                    BorderRadius.circular(12 * shrink),
                     child: SizedBox(
                       width: clipWidth,
+                      // Use full clipHeight so video fills vertically
                       height: clipHeight,
                       child: child,
                     ),
@@ -290,7 +302,8 @@ class _ClipPageState extends State<_ClipPage>
             AnimatedBuilder(
               animation: _commentAnimation,
               builder: (context, child) {
-                final offset = (1 - _commentAnimation.value) * sheetHeight;
+                final offset =
+                    (1 - _commentAnimation.value) * sheetHeight;
                 return Positioned(
                   bottom: -offset,
                   left: 0,
@@ -299,13 +312,29 @@ class _ClipPageState extends State<_ClipPage>
                   child: child!,
                 );
               },
-              child: ClipCommentSheet(onClose: _closeComments),
+              child: ClipCommentSheet(
+                clipId: widget.clip.id,
+                onClose: _closeComments,
+              ),
             ),
 
-          // ── Side buttons (always on top) ──
-          Positioned(
-            right: 12,
-            bottom: 80,
+          // ── Side buttons — hidden when comments open ──
+          AnimatedBuilder(
+            animation: _commentAnimation,
+            builder: (context, child) {
+              return Positioned(
+                right: 12,
+                bottom: 80,
+                child: AnimatedOpacity(
+                  opacity: 1 - _commentAnimation.value,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: _showComments,
+                    child: child,
+                  ),
+                ),
+              );
+            },
             child: ClipSideBar(
               clipId: widget.clip.id,
               onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
@@ -313,12 +342,12 @@ class _ClipPageState extends State<_ClipPage>
             ),
           ),
 
-          // ── Username + caption ──
+          // ── Username + caption — slides up with sheet ──
           AnimatedBuilder(
             animation: _commentAnimation,
             builder: (context, child) {
               final bottomOffset =
-                  60 + sheetHeight * _commentAnimation.value;
+                  60.0 + sheetHeight * _commentAnimation.value;
               return Positioned(
                 bottom: bottomOffset,
                 left: 16,
@@ -337,12 +366,14 @@ class _ClipPageState extends State<_ClipPage>
                       decoration: BoxDecoration(
                         color: Colors.cyan.withOpacity(0.3),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
+                        border: Border.all(
+                            color: Colors.white, width: 1.5),
                       ),
                       child: Center(
                         child: Text(
                           widget.clip.creatorUsername.isNotEmpty
-                              ? widget.clip.creatorUsername[0].toUpperCase()
+                              ? widget.clip.creatorUsername[0]
+                              .toUpperCase()
                               : '?',
                           style: const TextStyle(
                               color: Colors.white,
@@ -358,7 +389,10 @@ class _ClipPageState extends State<_ClipPage>
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                         fontSize: 15,
-                        shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                        shadows: [
+                          Shadow(
+                              color: Colors.black54, blurRadius: 4)
+                        ],
                       ),
                     ),
                   ],
@@ -370,7 +404,9 @@ class _ClipPageState extends State<_ClipPage>
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,
-                      shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                      shadows: [
+                        Shadow(color: Colors.black54, blurRadius: 4)
+                      ],
                     ),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
@@ -379,28 +415,6 @@ class _ClipPageState extends State<_ClipPage>
               ],
             ),
           ),
-
-          // ── Floating heart ──
-          if (_showFloatingHeart)
-            Positioned(
-              left: _floatingHeartPosition.dx - 45,
-              top: _floatingHeartPosition.dy - 45,
-              child: AnimatedBuilder(
-                animation: _floatingHeartController,
-                builder: (context, child) => Opacity(
-                  opacity: _floatingHeartOpacity.value,
-                  child: Transform.scale(
-                    scale: _floatingHeartScale.value,
-                    child: const Icon(Icons.favorite,
-                        color: Colors.red,
-                        size: 90,
-                        shadows: [
-                          Shadow(color: Colors.black38, blurRadius: 8)
-                        ]),
-                  ),
-                ),
-              ),
-            ),
 
           // ── Progress bar ──
           if (_controller != null && _controller!.value.isInitialized)
@@ -415,6 +429,31 @@ class _ClipPageState extends State<_ClipPage>
                   playedColor: Colors.cyan,
                   bufferedColor: Colors.white30,
                   backgroundColor: Colors.white10,
+                ),
+              ),
+            ),
+
+          // ── Floating heart ──
+          if (_showFloatingHeart)
+            Positioned(
+              left: _floatingHeartPosition.dx - 45,
+              top: _floatingHeartPosition.dy - 45,
+              child: AnimatedBuilder(
+                animation: _floatingHeartController,
+                builder: (context, child) => Opacity(
+                  opacity: _floatingHeartOpacity.value,
+                  child: Transform.scale(
+                    scale: _floatingHeartScale.value,
+                    child: const Icon(
+                      Icons.favorite,
+                      color: Colors.red,
+                      size: 90,
+                      shadows: [
+                        Shadow(
+                            color: Colors.black38, blurRadius: 8)
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -438,7 +477,8 @@ class _ClipPageState extends State<_ClipPage>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, color: Colors.grey[600], size: 48),
+              Icon(Icons.error_outline,
+                  color: Colors.grey[600], size: 48),
               const SizedBox(height: 12),
               Text('Could not load clip',
                   style: TextStyle(color: Colors.grey[500])),
