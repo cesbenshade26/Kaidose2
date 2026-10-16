@@ -3,6 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:math' as math;
 import 'Share.dart';
+import 'ArchiveStorage.dart';
+import 'SavedItemStorage.dart';
+import 'SendDailyMessage.dart';
+import 'SelectArchiveFolder.dart';
+import 'user_service.dart';
+import 'ClipFeed.dart';
 
 typedef LikeTrigger = void Function();
 
@@ -32,6 +38,8 @@ class _ClipSideBarState extends State<ClipSideBar>
   bool _liked = false;
   int _likeCount = 0;
   bool _loadingLike = false;
+  bool _isSaving = false;
+  bool _isSaved = false;
 
   // Nullable so dispose() is safe even if initState didn't finish
   AnimationController? _burstController;
@@ -143,6 +151,89 @@ class _ClipSideBarState extends State<ClipSideBar>
     }
   }
 
+  Future<void> _handleSaveTap() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+
+    try {
+      await ArchiveStorage.loadFromStorage();
+      final archives = ArchiveStorage.archives;
+
+      final clipDoc = await _firestore.collection('clips').doc(widget.clipId).get();
+      if (!clipDoc.exists) {
+        throw Exception('Clip not found');
+      }
+
+      final data = clipDoc.data()!;
+      final videoUrl = data['videoUrl'] as String? ?? '';
+      final caption = data['caption'] as String? ?? '';
+
+      if (videoUrl.isEmpty) {
+        throw Exception('Clip has no video URL');
+      }
+
+      String username = 'You';
+      if (_uid != null) {
+        final user = await UserService().getUserById(_uid!);
+        if (user?.username != null && user!.username.isNotEmpty) {
+          username = user.username;
+        }
+      }
+
+      // messageId is the clip's own id, so re-saving the same clip
+      // naturally dedupes via SavedItemStorage's existing check.
+      final message = DailyMessage(
+        text: caption.isNotEmpty ? caption : null,
+        videoPath: videoUrl,
+        timestamp: DateTime.now(),
+        messageId: widget.clipId,
+        dailyId: 'clip',
+        userId: _uid ?? 'current_user',
+        username: username,
+      );
+
+      if (archives.length == 1) {
+        await SavedItemStorage.saveItem(archives[0].id, message);
+        if (mounted) {
+          setState(() => _isSaved = true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to ${archives[0].name}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else if (mounted) {
+        final saved = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SelectArchiveFolderScreen(
+              message: message,
+              showDailyOption: false,
+            ),
+          ),
+        );
+        if (saved == true && mounted) {
+          setState(() => _isSaved = true);
+        }
+      }
+    } catch (e) {
+      print('ClipSideBar: save error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving clip: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
   String _formatCount(int count) {
     if (count == 0) return '0';
     if (count >= 1000000) {
@@ -230,19 +321,33 @@ class _ClipSideBarState extends State<ClipSideBar>
         ),
         const SizedBox(height: 20),
 
-        // Save (placeholder)
+        // Save
         _SideButton(
           label: '',
-          child: const Icon(Icons.bookmark_border,
-              color: Colors.white, size: 28),
+          child: GestureDetector(
+            onTap: _handleSaveTap,
+            child: _isSaving
+                ? const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+            )
+                : Icon(
+              _isSaved ? Icons.bookmark : Icons.bookmark_border,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
         ),
         const SizedBox(height: 20),
 
-        // 3 dots (placeholder)
+        // Feed preferences
         _SideButton(
           label: '',
-          child: const Icon(Icons.more_horiz,
-              color: Colors.white, size: 28),
+          child: GestureDetector(
+            onTap: () => showClipFeedPreferencesSheet(context),
+            child: const Icon(Icons.tune, color: Colors.white, size: 26),
+          ),
         ),
       ],
     );

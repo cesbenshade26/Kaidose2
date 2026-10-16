@@ -11,10 +11,27 @@ import 'VideoClipPlayer.dart';
 import 'NetworkVideoPlayer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// One photo or video attached to a message. A message can carry several
+/// of these — picking multiple items from the gallery grid at once
+/// produces one message with several media items, shown as a swipeable
+/// carousel, rather than several separate messages.
+class DailyMediaItem {
+  final String path; // local file path, or a Storage download URL once uploaded
+  final bool isVideo;
+
+  const DailyMediaItem({required this.path, required this.isVideo});
+
+  Map<String, dynamic> toJson() => {'path': path, 'is_video': isVideo};
+
+  factory DailyMediaItem.fromJson(Map<String, dynamic> json) => DailyMediaItem(
+    path: json['path'] as String,
+    isVideo: json['is_video'] as bool? ?? false,
+  );
+}
+
 class DailyMessage {
   final String? text;
-  final String? imagePath;
-  final String? videoPath;
+  final List<DailyMediaItem> media;
   final DateTime timestamp;
   final String userId;
   final String messageId;
@@ -24,10 +41,22 @@ class DailyMessage {
   List<ChatReaction> reactions;
   final String? username;
 
+  // Guarantees a unique id even for several messages constructed within
+  // the same millisecond (e.g. building one per item in a loop) — a
+  // plain millisecondsSinceEpoch string could collide there, and since
+  // Firestore writes use this as the document id, a collision silently
+  // overwrites one message with another.
+  static int _idCounter = 0;
+  static String _generateMessageId() {
+    _idCounter++;
+    return '${DateTime.now().millisecondsSinceEpoch}_$_idCounter';
+  }
+
   DailyMessage({
     this.text,
-    this.imagePath,
-    this.videoPath,
+    String? imagePath,
+    String? videoPath,
+    List<DailyMediaItem>? media,
     required this.timestamp,
     String? userId,
     String? messageId,
@@ -36,11 +65,35 @@ class DailyMessage {
     this.isFromPrompt = false,
     List<ChatReaction>? reactions,
     String? username,
-  })  : userId = userId ?? 'current_user',
-        messageId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString(),
+  })  : media = media ??
+      [
+        if (imagePath != null) DailyMediaItem(path: imagePath, isVideo: false),
+        if (videoPath != null) DailyMediaItem(path: videoPath, isVideo: true),
+      ],
+        userId = userId ?? 'current_user',
+        messageId = messageId ?? _generateMessageId(),
         dailyId = dailyId ?? 'unknown_daily',
         reactions = reactions ?? [],
         username = username ?? 'You';
+
+  // Backward-compat convenience getters — return the first image/video in
+  // `media`, if any. Anything that only ever expected a single
+  // image/video (older code, or a legacy saved message) keeps working
+  // unchanged; it just won't show additional items in a multi-item
+  // message.
+  String? get imagePath {
+    for (final m in media) {
+      if (!m.isVideo) return m.path;
+    }
+    return null;
+  }
+
+  String? get videoPath {
+    for (final m in media) {
+      if (m.isVideo) return m.path;
+    }
+    return null;
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -48,6 +101,9 @@ class DailyMessage {
       'user_id': userId,
       'daily_id': dailyId,
       'text': text,
+      'media': media.map((m) => m.toJson()).toList(),
+      // Legacy single-path fields, kept in sync with the first
+      // image/video in `media`, for any older code reading them directly.
       'image_path': imagePath,
       'video_path': videoPath,
       'timestamp': timestamp.toIso8601String(),
@@ -59,10 +115,27 @@ class DailyMessage {
   }
 
   factory DailyMessage.fromJson(Map<String, dynamic> json) {
+    List<DailyMediaItem> media;
+    final rawMedia = json['media'] as List?;
+
+    if (rawMedia != null && rawMedia.isNotEmpty) {
+      media = rawMedia
+          .map((m) => DailyMediaItem.fromJson(Map<String, dynamic>.from(m as Map)))
+          .toList();
+    } else {
+      // A message saved before the media list existed — fall back to its
+      // old single image_path/video_path fields.
+      media = [
+        if (json['image_path'] != null)
+          DailyMediaItem(path: json['image_path'], isVideo: false),
+        if (json['video_path'] != null)
+          DailyMediaItem(path: json['video_path'], isVideo: true),
+      ];
+    }
+
     return DailyMessage(
       text: json['text'],
-      imagePath: json['image_path'],
-      videoPath: json['video_path'],
+      media: media,
       timestamp: DateTime.parse(json['timestamp']),
       userId: json['user_id'],
       messageId: json['message_id'],
@@ -76,7 +149,7 @@ class DailyMessage {
     );
   }
 
-  bool get hasContent => (text != null && text!.trim().isNotEmpty) || imagePath != null || videoPath != null;
+  bool get hasContent => (text != null && text!.trim().isNotEmpty) || media.isNotEmpty;
 
   bool isFromCurrentUser() => userId == 'current_user';
 
@@ -92,6 +165,276 @@ bool _isNetworkVideoPath(String path) {
   return path.startsWith('http://') || path.startsWith('https://');
 }
 
+Widget _brokenMediaPlaceholder(double width) {
+  return Container(
+    width: width,
+    height: 200,
+    decoration: BoxDecoration(
+      color: Colors.grey[200],
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey[400]),
+        const SizedBox(height: 8),
+        Text(
+          'Media no longer available',
+          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Swipeable carousel for a message with more than one photo/video —
+/// same footprint (width, 9:16 aspect ratio) as a single-item message so
+/// the bubble itself never changes size, just what's inside it. Dots at
+/// the bottom track position; PageView's own physics-driven swipe is
+/// what gives the smooth, glitch-free transition between items.
+class _DailyMessageMediaCarousel extends StatefulWidget {
+  final List<DailyMediaItem> media;
+  final double width;
+
+  const _DailyMessageMediaCarousel({required this.media, required this.width});
+
+  @override
+  State<_DailyMessageMediaCarousel> createState() => _DailyMessageMediaCarouselState();
+}
+
+class _DailyMessageMediaCarouselState extends State<_DailyMessageMediaCarousel> {
+  late final PageController _pageController;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildItem(DailyMediaItem item, bool isActive) {
+    if (item.isVideo) {
+      return _CarouselVideoPage(
+        path: item.path,
+        isNetwork: _isNetworkVideoPath(item.path),
+        isActive: isActive,
+      );
+    }
+
+    return _isNetworkVideoPath(item.path)
+        ? Image.network(
+      item.path,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          color: Colors.grey[200],
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.cyan),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) =>
+          _brokenMediaPlaceholder(widget.width),
+    )
+        : Image.file(
+      File(item.path),
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) =>
+          _brokenMediaPlaceholder(widget.width),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+      child: SizedBox(
+        width: widget.width,
+        child: AspectRatio(
+          // 4:5 — enough presence to matter without dominating the
+          // thread the way a full story-style 9:16 would. Still needs to
+          // be consistent across every page, or swiping between items
+          // would visibly jump.
+          aspectRatio: 4 / 5,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              PageView.builder(
+                controller: _pageController,
+                itemCount: widget.media.length,
+                onPageChanged: (index) => setState(() => _currentPage = index),
+                itemBuilder: (context, index) => _buildItem(widget.media[index], index == _currentPage),
+              ),
+              Positioned(
+                bottom: 10,
+                left: 0,
+                right: 0,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(widget.media.length, (index) {
+                    final isActive = index == _currentPage;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isActive ? Colors.white : Colors.white.withOpacity(0.4),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black26, blurRadius: 2),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A video page within the carousel — self-contained (own
+/// VideoPlayerController) so playback can be tied precisely to whether
+/// this specific page is the one currently swiped to. Handles both a
+/// local file and a network URL. Tap anywhere to play/pause manually.
+class _CarouselVideoPage extends StatefulWidget {
+  final String path;
+  final bool isNetwork;
+  final bool isActive;
+
+  const _CarouselVideoPage({
+    required this.path,
+    required this.isNetwork,
+    required this.isActive,
+  });
+
+  @override
+  State<_CarouselVideoPage> createState() => _CarouselVideoPageState();
+}
+
+class _CarouselVideoPageState extends State<_CarouselVideoPage> {
+  VideoPlayerController? _controller;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _setup();
+  }
+
+  Future<void> _setup() async {
+    final controller = widget.isNetwork
+        ? VideoPlayerController.networkUrl(Uri.parse(widget.path))
+        : VideoPlayerController.file(File(widget.path));
+
+    try {
+      await controller.initialize();
+      controller.setLooping(true);
+      if (mounted) {
+        setState(() => _controller = controller);
+        // Only autoplay if this page is already the one being looked at
+        // — matters when the carousel opens with a non-first page active
+        // (not currently possible here, but keeps the logic correct).
+        if (widget.isActive) controller.play();
+      } else {
+        controller.dispose();
+      }
+    } catch (e) {
+      print('_CarouselVideoPage: init error: $e');
+      if (mounted) setState(() => _hasError = true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _CarouselVideoPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive && _controller != null) {
+      // Swiped to this page → play; swiped away → pause. This is the
+      // actual fix for "sits on the first frame" — the old approach had
+      // no concept of which page was actually being looked at.
+      if (widget.isActive) {
+        _controller!.play();
+      } else {
+        _controller!.pause();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayPause() {
+    final controller = _controller;
+    if (controller == null) return;
+    setState(() {
+      if (controller.value.isPlaying) {
+        controller.pause();
+      } else {
+        controller.play();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError) {
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Icon(Icons.error_outline, color: Colors.grey[600], size: 40),
+        ),
+      );
+    }
+
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return Container(
+        color: Colors.black,
+        child: const Center(child: CircularProgressIndicator(color: Colors.cyan)),
+      );
+    }
+
+    return GestureDetector(
+      onTap: _togglePlayPause,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: controller.value.size.width,
+              height: controller.value.size.height,
+              child: VideoPlayer(controller),
+            ),
+          ),
+          // Manual play/pause fallback — visible whenever paused, so
+          // there's always a clear way to resume even if autoplay logic
+          // above doesn't cover some edge case.
+          if (!controller.value.isPlaying)
+            const Center(
+              child: Icon(Icons.play_arrow_rounded, color: Colors.white70, size: 64),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class DailyMessageWidget extends StatefulWidget {
   final DailyMessage message;
   final bool isCurrentUser;
@@ -100,10 +443,20 @@ class DailyMessageWidget extends StatefulWidget {
   final VoidCallback? onSaveToggle;
   final Function(String)? onReactionAdded;
 
+  /// False for the 2nd, 3rd... message in a run from the same person — the
+  /// group's first message already shows the name.
+  final bool showUsername;
+
+  /// True when this message continues a group, so it sits right against the
+  /// one above it instead of leaving the usual gap.
+  final bool groupedWithPrevious;
+
   const DailyMessageWidget({
     Key? key,
     required this.message,
     this.isCurrentUser = true,
+    this.showUsername = true,
+    this.groupedWithPrevious = false,
     this.onReply,
     this.onEdit,
     this.onSaveToggle,
@@ -117,6 +470,8 @@ class DailyMessageWidget extends StatefulWidget {
 class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   bool _showOptionsMenu = false;
   bool _showComments = false;
+  // Short text messages only: whether the react/comment/save row is open.
+  bool _actionsExpanded = false;
   int _commentCount = 0;
   final MessageService _messageService = MessageService();
 
@@ -242,10 +597,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     setState(() => widget.message.isSaved = !widget.message.isSaved);
     if (widget.message.isSaved) {
       await ArchiveStorage.loadFromStorage();
-      final archives = ArchiveStorage.archives;
-      if (archives.length == 1) {
-        await SavedItemStorage.saveItem(archives[0].id, widget.message);
-      } else if (context.mounted) {
+      if (context.mounted) {
         await Navigator.push(
           context,
           MaterialPageRoute(
@@ -261,36 +613,265 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   void _toggleOptionsMenu() => setState(() => _showOptionsMenu = !_showOptionsMenu);
 
-  String _formatTimestamp(DateTime timestamp) {
-    final diff = DateTime.now().difference(timestamp);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${timestamp.month}/${timestamp.day}/${timestamp.year}';
+  // ─── Shared pieces ─────────────────────────────────────────────────────────
+
+  Widget _actionIcon({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+    int count = 0,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            if (count > 0) ...[
+              const SizedBox(width: 3),
+              Text(
+                '$count',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// React, comment, save — kept together at the left edge so they line up
+  /// down the screen no matter how long each message is.
+  Widget _buildActions() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _actionIcon(
+          icon: Icons.add_reaction_outlined,
+          color: Colors.grey[600]!,
+          onTap: _showReactionPicker,
+        ),
+        _actionIcon(
+          icon: Icons.comment_outlined,
+          color: Colors.grey[600]!,
+          onTap: _handleReply,
+          count: _commentCount,
+        ),
+        _actionIcon(
+          icon: widget.message.isSaved ? Icons.bookmark : Icons.bookmark_border,
+          color: widget.message.isSaved ? Colors.cyan : Colors.grey[600]!,
+          onTap: _toggleSave,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUsername() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 6, bottom: 1),
+      child: Text(
+        widget.message.username ?? (widget.isCurrentUser ? 'You' : 'Unknown'),
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[600],
+        ),
+      ),
+    );
+  }
+
+  /// Long-press on a text message (the three-dot button only exists on
+  /// media cards now). Only the author gets anything to do.
+  void _showMessageOptions() {
+    if (!widget.isCurrentUser) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                widget.onEdit?.call(widget.message.messageId);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Text-only messages: a bubble that is only as wide as its content
+  /// (capped at 85% of the screen), text on top, actions below it, no date.
+  static const TextStyle _bubbleTextStyle = TextStyle(
+    fontSize: 15,
+    color: Colors.black87,
+    height: 1.3,
+  );
+
+  // Roughly the width of the react/comment/save row.
+  static const double _actionsRowWidth = 90;
+
+  /// A message is "short" when it is a single line narrower than the
+  /// actions row — those get a bare pill that opens on tap, since the
+  /// icons would otherwise be bigger than the message itself.
+  bool _isShortText(String text, double maxWidth) {
+    if (text.contains('\n')) return false;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: _bubbleTextStyle),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: maxWidth - 28);
+    return !painter.didExceedMaxLines && painter.width < _actionsRowWidth;
+  }
+
+  /// What a collapsed short message still shows without a tap, trailing its
+  /// text on the same line: a comment count and/or a saved bookmark.
+  Widget _buildCollapsedState() {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_commentCount > 0) ...[
+            Icon(Icons.comment_outlined, size: 13, color: Colors.grey[600]),
+            const SizedBox(width: 3),
+            Text('$_commentCount',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          ],
+          if (_commentCount > 0 && widget.message.isSaved)
+            const SizedBox(width: 8),
+          if (widget.message.isSaved)
+            const Icon(Icons.bookmark, size: 13, color: Colors.cyan),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextBubble(BuildContext context) {
+    final maxWidth = MediaQuery.of(context).size.width * 0.85;
+    final text = widget.message.text ?? '';
+    final isShort = _isShortText(text, maxWidth);
+    // Long messages always show their actions; short ones only when opened
+    // (or while their comments are showing, which need the row open).
+    final showActions = !isShort || _actionsExpanded || _showComments;
+    final hasCollapsedState =
+        isShort && !showActions && (_commentCount > 0 || widget.message.isSaved);
+
+    return Container(
+      margin: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 1 : 5, 16, 1),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.showUsername) _buildUsername(),
+          GestureDetector(
+            onLongPress: _showMessageOptions,
+            onTap: isShort
+                ? () => setState(() => _actionsExpanded = !_actionsExpanded)
+                : null,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment: Alignment.topLeft,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: Colors.cyan.withOpacity(0.35), width: 1),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isShort)
+                      // One line: whatever trails the text (the open action
+                      // row, or the small comment/saved markers) sits to its
+                      // right, so opening it never pushes the messages below
+                      // down — important when messages are stacked tight.
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(14, 7,
+                                  (showActions || hasCollapsedState) ? 8 : 14, 7),
+                              child: Text(text, style: _bubbleTextStyle),
+                            ),
+                            if (showActions)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: _buildActions(),
+                              )
+                            else if (hasCollapsedState)
+                              _buildCollapsedState(),
+                          ],
+                        )
+                      else ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 7, 14, 0),
+                          child: Text(text, style: _bubbleTextStyle),
+                        ),
+                        // Flush left under the text, so the bubble is only as
+                        // wide as the text.
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(9, 0, 14, 1),
+                          child: _buildActions(),
+                        ),
+                      ],
+                      if (widget.message.reactions.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                          child: DailyMessageReactionsDisplay(
+                            reactions: widget.message.reactions,
+                            currentUserId: 'current_user',
+                            onReactionTap: (emoji) =>
+                                _toggleReaction(emoji, widget.message.reactions),
+                          ),
+                        ),
+                      if (_showComments)
+                        SizedBox(
+                          width: maxWidth,
+                          child: MessageCommentsSection(
+                            messageId: widget.message.messageId,
+                            onCommentsChanged: _loadCommentCount,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.message.media.isEmpty) return _buildTextBubble(context);
+
     final screenWidth = MediaQuery.of(context).size.width;
     final messageWidth = screenWidth * 0.85;
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 2 : 6, 16, 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Username label above message
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 4),
-            child: Text(
-              widget.message.username ?? (widget.isCurrentUser ? 'You' : 'Unknown'),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-              ),
-            ),
-          ),
+          if (widget.showUsername) _buildUsername(),
           Stack(
             clipBehavior: Clip.none,
             children: [
@@ -299,10 +880,10 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.cyan.withOpacity(0.3), width: 2),
+                  border: Border.all(color: Colors.cyan.withOpacity(0.35), width: 1),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.cyan.withOpacity(0.1),
+                      color: Colors.cyan.withOpacity(0.06),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -311,57 +892,62 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (widget.message.imagePath != null)
+                    if (widget.message.media.length == 1 && !widget.message.media.first.isVideo)
                       ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                        child: Image.file(
-                          File(widget.message.imagePath!),
+                        child: _isNetworkVideoPath(widget.message.media.first.path)
+                            ? Image.network(
+                          widget.message.media.first.path,
                           width: messageWidth,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
                             return Container(
                               width: messageWidth,
                               height: 200,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[200],
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey[400]),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Image no longer available',
-                                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                                  ),
-                                ],
+                              color: Colors.grey[200],
+                              child: const Center(
+                                child: CircularProgressIndicator(color: Colors.cyan),
                               ),
                             );
                           },
+                          errorBuilder: (context, error, stackTrace) =>
+                              _brokenMediaPlaceholder(messageWidth),
+                        )
+                            : Image.file(
+                          File(widget.message.media.first.path),
+                          width: messageWidth,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              _brokenMediaPlaceholder(messageWidth),
                         ),
                       ),
-                    if (widget.message.videoPath != null)
+                    if (widget.message.media.length == 1 && widget.message.media.first.isVideo)
                       ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                         child: SizedBox(
                           width: messageWidth,
                           child: AspectRatio(
-                            aspectRatio: 9 / 16,
+                            aspectRatio: 4 / 5,
                             // A shared clip's videoPath is a remote Firebase
                             // Storage URL; a video recorded/picked directly in
                             // the Daily is a local file path. Route each to
                             // the player that can actually handle it.
-                            child: _isNetworkVideoPath(widget.message.videoPath!)
-                                ? NetworkVideoPlayer(url: widget.message.videoPath!)
+                            child: _isNetworkVideoPath(widget.message.media.first.path)
+                                ? NetworkVideoPlayer(url: widget.message.media.first.path)
                                 : VideoClipPlayer(
-                              videoFile: File(widget.message.videoPath!),
+                              videoFile: File(widget.message.media.first.path),
                               autoPlay: true,
                               looping: true,
                               fit: BoxFit.contain,
                             ),
                           ),
                         ),
+                      ),
+                    if (widget.message.media.length > 1)
+                      _DailyMessageMediaCarousel(
+                        media: widget.message.media,
+                        width: messageWidth,
                       ),
                     if (widget.message.text != null && widget.message.text!.isNotEmpty)
                       Padding(
@@ -387,56 +973,14 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                       ),
 
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.05),
+                        color: Colors.cyan.withOpacity(0.04),
                         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _formatTimestamp(widget.message.timestamp),
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                          ),
-                          Row(
-                            children: [
-                              GestureDetector(
-                                onTap: _showReactionPicker,
-                                child: Icon(
-                                  Icons.add_reaction_outlined,
-                                  size: 20,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              GestureDetector(
-                                onTap: _handleReply,
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.comment_outlined, size: 20, color: Colors.grey[600]),
-                                    if (_commentCount > 0) ...[
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '$_commentCount',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              GestureDetector(
-                                onTap: _toggleSave,
-                                child: Icon(
-                                  widget.message.isSaved ? Icons.bookmark : Icons.bookmark_border,
-                                  size: 20,
-                                  color: widget.message.isSaved ? Colors.cyan : Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: _buildActions(),
                       ),
                     ),
                     if (_showComments)
@@ -533,7 +1077,7 @@ class DailyMessageReactionsDisplay extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: hasUserReacted
-                  ? Colors.cyan.withOpacity(0.15)
+                  ? Colors.cyan.withOpacity(0.12)
                   : Colors.grey[100],
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
@@ -546,10 +1090,7 @@ class DailyMessageReactionsDisplay extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  emoji,
-                  style: const TextStyle(fontSize: 20),
-                ),
+                AnimatedReactionEmoji(emoji: emoji, size: 22),
                 if (count > 1) ...[
                   const SizedBox(width: 4),
                   Text(

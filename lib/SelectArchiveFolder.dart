@@ -6,9 +6,16 @@ import 'SendDailyMessage.dart';
 class SelectArchiveFolderScreen extends StatefulWidget {
   final DailyMessage message;
 
+  /// Whether to show the "Save to Daily Only" shortcut at the top. That
+  /// option only makes sense for a message that's already part of a Daily
+  /// (Daily-saved status is set independently before this screen opens) —
+  /// hide it for things not tied to a Daily at all, like a Clip.
+  final bool showDailyOption;
+
   const SelectArchiveFolderScreen({
     Key? key,
     required this.message,
+    this.showDailyOption = true,
   }) : super(key: key);
 
   @override
@@ -48,8 +55,7 @@ class _SelectArchiveFolderScreenState extends State<SelectArchiveFolderScreen> {
         ),
       );
 
-      // Close the selection screen
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     }
   }
 
@@ -99,54 +105,56 @@ class _SelectArchiveFolderScreenState extends State<SelectArchiveFolderScreen> {
       )
           : Column(
         children: [
-          // "Save to Daily Only" button at top
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.cyan.withOpacity(0.1),
-              border: Border(
-                bottom: BorderSide(color: Colors.grey[200]!),
-              ),
-            ),
-            child: GestureDetector(
-              onTap: _saveToDailyOnly,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: Colors.cyan,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.cyan.withOpacity(0.3),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+          // "Save to Daily Only" button at top — hidden entirely when
+          // this screen is used for something not tied to a Daily.
+          if (widget.showDailyOption)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.cyan.withOpacity(0.1),
+                border: Border(
+                  bottom: BorderSide(color: Colors.grey[200]!),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.bookmark_border,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Save to Daily Only',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
+              ),
+              child: GestureDetector(
+                onTap: _saveToDailyOnly,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.cyan,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.cyan.withOpacity(0.3),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.bookmark_border,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Save to Daily Only',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
 
           // Archive list
           Expanded(

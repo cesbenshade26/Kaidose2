@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'FriendStoryBar.dart';
+import 'StoryMediaItem.dart';
 
 /// Views every Your Daily posted to a single Daily Bubble, oldest first —
-/// same progress-bar, tap-to-advance experience as a friend's story
-/// (FriendStoryViewer in FriendStoryBar.dart), just headed by the bubble's
-/// name instead of a username.
+/// photos and video clips both — same progress-bar, tap-to-advance
+/// experience as a friend's story (FriendStoryViewer in
+/// FriendStoryBar.dart), just headed by the bubble's name instead of a
+/// username.
 class DailyBubbleViewer extends StatefulWidget {
-  final List<File> photos;
+  final List<StoryMediaItem> items;
   final String bubbleName;
 
   const DailyBubbleViewer({
     Key? key,
-    required this.photos,
+    required this.items,
     required this.bubbleName,
   }) : super(key: key);
 
@@ -36,12 +37,12 @@ class _DailyBubbleViewerState extends State<DailyBubbleViewer>
   void _startProgress() {
     _progressController.reset();
     _progressController.forward().then((_) {
-      if (mounted) _nextPhoto();
+      if (mounted) _nextItem();
     });
   }
 
-  void _nextPhoto() {
-    if (_currentIndex < widget.photos.length - 1) {
+  void _nextItem() {
+    if (_currentIndex < widget.items.length - 1) {
       setState(() => _currentIndex++);
       _startProgress();
     } else {
@@ -49,7 +50,7 @@ class _DailyBubbleViewerState extends State<DailyBubbleViewer>
     }
   }
 
-  void _prevPhoto() {
+  void _prevItem() {
     if (_currentIndex > 0) {
       setState(() => _currentIndex--);
       _startProgress();
@@ -71,16 +72,18 @@ class _DailyBubbleViewerState extends State<DailyBubbleViewer>
           final x = details.globalPosition.dx;
           final width = MediaQuery.of(context).size.width;
           if (x < width / 3) {
-            _prevPhoto();
+            _prevItem();
           } else {
-            _nextPhoto();
+            _nextItem();
           }
         },
         child: Stack(
           children: [
-            // Blurred background + rounded photo (shared with story bars)
+            // Blurred background + rounded photo, or fullscreen video —
+            // shared with the story bars (StoryMediaView already branches
+            // on isVideo).
             Positioned.fill(
-              child: StoryPhotoView(photo: widget.photos[_currentIndex]),
+              child: StoryMediaView(media: widget.items[_currentIndex]),
             ),
 
             // Progress bars
@@ -89,7 +92,7 @@ class _DailyBubbleViewerState extends State<DailyBubbleViewer>
               left: 12,
               right: 12,
               child: Row(
-                children: List.generate(widget.photos.length, (i) {
+                children: List.generate(widget.items.length, (i) {
                   return Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -152,14 +155,14 @@ class _DailyBubbleViewerState extends State<DailyBubbleViewer>
               ),
             ),
 
-            // Photo counter
+            // Counter
             Positioned(
               bottom: 24,
               left: 0,
               right: 0,
               child: Center(
                 child: Text(
-                  '${_currentIndex + 1} of ${widget.photos.length}',
+                  '${_currentIndex + 1} of ${widget.items.length}',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 14,

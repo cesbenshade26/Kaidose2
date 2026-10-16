@@ -69,32 +69,27 @@ class MessageStorage {
       final batch = _firestore.batch();
 
       for (final msg in messages) {
-        String? imagePath = msg.imagePath;
-        String? videoPath = msg.videoPath;
+        final uploadedMedia = <DailyMediaItem>[];
 
-        if (imagePath != null) {
-          imagePath = await _ensureUploaded(
+        for (int i = 0; i < msg.media.length; i++) {
+          final item = msg.media[i];
+          final uploadedPath = await _ensureUploaded(
             dailyId: dailyId,
             messageId: msg.messageId,
-            localPath: imagePath,
-            storageFileName: 'image.jpg',
-            contentType: 'image/jpeg',
+            localPath: item.path,
+            storageFileName: item.isVideo ? 'media_$i.mp4' : 'media_$i.jpg',
+            contentType: item.isVideo ? 'video/mp4' : 'image/jpeg',
           );
-        }
-
-        if (videoPath != null) {
-          videoPath = await _ensureUploaded(
-            dailyId: dailyId,
-            messageId: msg.messageId,
-            localPath: videoPath,
-            storageFileName: 'video.mp4',
-            contentType: 'video/mp4',
-          );
+          uploadedMedia.add(DailyMediaItem(path: uploadedPath, isVideo: item.isVideo));
         }
 
         final data = msg.toJson();
-        data['image_path'] = imagePath;
-        data['video_path'] = videoPath;
+        data['media'] = uploadedMedia.map((m) => m.toJson()).toList();
+        // Keep the legacy single-path fields in sync with the (now
+        // uploaded) first image/video, for any older code reading them
+        // directly.
+        data['image_path'] = _firstPath(uploadedMedia, false);
+        data['video_path'] = _firstPath(uploadedMedia, true);
 
         batch.set(_messagesRef(dailyId).doc(msg.messageId), data);
       }
@@ -105,6 +100,13 @@ class MessageStorage {
     } catch (e) {
       print('Error saving messages: $e');
     }
+  }
+
+  static String? _firstPath(List<DailyMediaItem> items, bool isVideo) {
+    for (final m in items) {
+      if (m.isVideo == isVideo) return m.path;
+    }
+    return null;
   }
 
   /// Load messages for a specific daily, oldest first.

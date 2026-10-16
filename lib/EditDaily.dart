@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
+import 'DailyScheduleEditor.dart';
 import 'ManageDaily.dart' show DailyTagPicker, kDailyTags;
 
 class EditDaily extends StatefulWidget {
@@ -21,7 +22,6 @@ class EditDaily extends StatefulWidget {
 
 class _EditDailyState extends State<EditDaily> {
   late TextEditingController _descriptionController;
-  late TextEditingController _promptController;
   late String _selectedPrivacy;
   late Set<String> _selectedTags;
   bool _isOwner = false;
@@ -34,8 +34,6 @@ class _EditDailyState extends State<EditDaily> {
     super.initState();
     _descriptionController =
         TextEditingController(text: widget.daily.description);
-    _promptController =
-        TextEditingController(text: widget.daily.dailyEntryPrompt);
     _selectedPrivacy = widget.daily.privacy;
     _selectedTags = Set<String>.from(widget.daily.keywords);
     _checkOwnership();
@@ -71,7 +69,6 @@ class _EditDailyState extends State<EditDaily> {
   @override
   void dispose() {
     _descriptionController.dispose();
-    _promptController.dispose();
     super.dispose();
   }
 
@@ -94,7 +91,10 @@ class _EditDailyState extends State<EditDaily> {
       isPinned: widget.daily.isPinned,
       tierAssignments: widget.daily.tierAssignments,
       tierPrivileges: widget.daily.tierPrivileges,
-      dailyEntryPrompt: _promptController.text.trim(),
+      // The prompt editor was removed from this screen (a scheduling
+      // section is replacing it), so this carries the existing prompt
+      // through untouched — otherwise saving would wipe it.
+      dailyEntryPrompt: widget.daily.dailyEntryPrompt,
       titleFont: widget.daily.titleFont,
       creatorUid: widget.daily.creatorUid,
     );
@@ -146,6 +146,13 @@ class _EditDailyState extends State<EditDaily> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                DailyScheduleEditor(
+                  daily: widget.daily,
+                  isOwner: _isOwner,
+                  accentColor: _dailyColor,
+                ),
+                const SizedBox(height: 28),
+
                 _sectionLabel('Description'),
                 const SizedBox(height: 12),
                 TextField(
@@ -155,17 +162,6 @@ class _EditDailyState extends State<EditDaily> {
                   maxLength: 200,
                   style: const TextStyle(fontSize: 16, color: Colors.black87),
                   decoration: _inputDeco('Enter description...'),
-                ),
-                const SizedBox(height: 24),
-
-                _sectionLabel('Daily Entry Prompt'),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _promptController,
-                  enabled: _isOwner,
-                  maxLength: 100,
-                  style: const TextStyle(fontSize: 16, color: Colors.black87),
-                  decoration: _inputDeco('Enter a prompt...'),
                 ),
                 const SizedBox(height: 24),
 

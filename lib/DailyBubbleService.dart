@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'StoryMediaItem.dart';
 
 /// A single Daily Bubble as stored in Firestore, with its cover already
-/// cached locally as a File for display.
+/// cached locally as a File for display. Covers are always photos.
 class DailyBubbleRecord {
   final String id;
   final String name;
@@ -17,14 +19,21 @@ class DailyBubbleRecord {
 }
 
 /// Firestore-backed storage for Daily Bubbles (name, cover) and the Your
-/// Daily photos posted to each one. Structure:
+/// Daily media posted to each one — photos AND video clips, same split
+/// used everywhere else in the app (Your Daily's own story via
+/// FriendDailyService, Daily messages via MessageStorage): photos
+/// compress to base64 straight into Firestore; videos upload to Storage
+/// and only the download URL gets stored, since a video would blow past
+/// Firestore's 1MB document limit if stored inline like a photo is.
+/// Structure:
 ///   users/{uid}/dailyBubbles/{bubbleId}
 ///     name, coverBase64, createdAt
-///   users/{uid}/dailyBubbles/{bubbleId}/photos/{photoId}
-///     photoBase64, postedAt
+///   users/{uid}/dailyBubbles/{bubbleId}/photos/{itemId}
+///     mediaType ('photo' | 'video'), photoBase64 OR videoUrl, postedAt
 class DailyBubbleService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static final FirebaseStorage _storage = FirebaseStorage.instance;
 
   static String? get currentUid => _auth.currentUser?.uid;
 
@@ -42,7 +51,8 @@ class DailyBubbleService {
   }
 
   /// Creates a new bubble under the current user's account. Returns the
-  /// new bubble's Firestore doc id, or null on failure.
+  /// new bubble's Firestore doc id, or null on failure. Cover is always a
+  /// photo.
   static Future<String?> createBubble({
     required String name,
     File? cover,
@@ -98,28 +108,43 @@ class DailyBubbleService {
     }
   }
 
-  /// Adds a posted Your Daily photo to a bubble, timestamped so it can be
-  /// replayed in posted order later.
-  static Future<bool> addPhotoToBubble({
+  /// Adds a posted Your Daily photo or video clip to a bubble, timestamped
+  /// so it can be replayed in posted order later.
+  static Future<bool> addMediaToBubble({
     required String bubbleId,
-    required File photo,
+    required File file,
+    required bool isVideo,
   }) async {
     final uid = currentUid;
     if (uid == null) return false;
 
     try {
-      final compressed = await _compress(photo);
-      if (compressed == null) return false;
+      if (isVideo) {
+        final itemId = DateTime.now().millisecondsSinceEpoch.toString();
+        final ref = _storage.ref().child('dailyBubbles/$uid/$bubbleId/$itemId.mp4');
+        await ref.putFile(file, SettableMetadata(contentType: 'video/mp4'));
+        final videoUrl = await ref.getDownloadURL();
 
-      await _bubblesRef(uid).doc(bubbleId).collection('photos').add({
-        'photoBase64': base64Encode(compressed),
-        'postedAt': FieldValue.serverTimestamp(),
-      });
+        await _bubblesRef(uid).doc(bubbleId).collection('photos').doc(itemId).set({
+          'mediaType': 'video',
+          'videoUrl': videoUrl,
+          'postedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        final compressed = await _compress(file);
+        if (compressed == null) return false;
 
-      print('DailyBubbleService: Added photo to bubble $bubbleId');
+        await _bubblesRef(uid).doc(bubbleId).collection('photos').add({
+          'mediaType': 'photo',
+          'photoBase64': base64Encode(compressed),
+          'postedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      print('DailyBubbleService: Added ${isVideo ? 'video' : 'photo'} to bubble $bubbleId');
       return true;
     } catch (e) {
-      print('DailyBubbleService: addPhotoToBubble error: $e');
+      print('DailyBubbleService: addMediaToBubble error: $e');
       return false;
     }
   }
@@ -159,9 +184,12 @@ class DailyBubbleService {
     }
   }
 
-  /// Loads every photo posted to a bubble, oldest first — same order a
-  /// normal Your Daily story would play in — caching each to a local file.
-  static Future<List<File>> loadBubblePhotos({
+  /// Loads every photo/video posted to a bubble, oldest first — same
+  /// order a normal Your Daily story would play in. Photos decode
+  /// straight from base64; videos download from their Storage URL —
+  /// either way the caller gets a ready-to-play local file wrapped in a
+  /// StoryMediaItem.
+  static Future<List<StoryMediaItem>> loadBubbleMedia({
     required String bubbleId,
     String? uid,
   }) async {
@@ -175,22 +203,33 @@ class DailyBubbleService {
           .orderBy('postedAt', descending: false)
           .get();
 
-      final photos = <File>[];
+      final items = <StoryMediaItem>[];
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        final base64String = data['photoBase64'] as String?;
-        if (base64String == null) continue;
+        final mediaType = data['mediaType'] as String? ?? 'photo';
 
-        final file = await _cacheBase64ToFile(
-          base64String,
-          'bubble_photo_${targetUid}_${bubbleId}_${doc.id}.jpg',
-        );
-        if (file != null) photos.add(file);
+        if (mediaType == 'video') {
+          final videoUrl = data['videoUrl'] as String?;
+          if (videoUrl == null) continue;
+          final file = await _downloadVideo(
+            videoUrl,
+            'bubble_video_${targetUid}_${bubbleId}_${doc.id}.mp4',
+          );
+          if (file != null) items.add(StoryMediaItem(file: file, isVideo: true));
+        } else {
+          final base64String = data['photoBase64'] as String?;
+          if (base64String == null) continue;
+          final file = await _cacheBase64ToFile(
+            base64String,
+            'bubble_photo_${targetUid}_${bubbleId}_${doc.id}.jpg',
+          );
+          if (file != null) items.add(StoryMediaItem(file: file, isVideo: false));
+        }
       }
 
-      return photos;
+      return items;
     } catch (e) {
-      print('DailyBubbleService: loadBubblePhotos error: $e');
+      print('DailyBubbleService: loadBubbleMedia error: $e');
       return [];
     }
   }
@@ -204,6 +243,18 @@ class DailyBubbleService {
       return localFile;
     } catch (e) {
       print('DailyBubbleService: cache error: $e');
+      return null;
+    }
+  }
+
+  static Future<File?> _downloadVideo(String videoUrl, String filename) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final localFile = File('${directory.path}/$filename');
+      await _storage.refFromURL(videoUrl).writeToFile(localFile);
+      return localFile;
+    } catch (e) {
+      print('DailyBubbleService: video download error: $e');
       return null;
     }
   }

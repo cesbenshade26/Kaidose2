@@ -5,6 +5,9 @@ import 'SavedItemViewer.dart';
 import 'DailyData.dart';
 import 'MessageStorage.dart';
 
+bool _isNetworkPath(String path) =>
+    path.startsWith('http://') || path.startsWith('https://');
+
 class DailySavedScreen extends StatefulWidget {
   final DailyData daily;
 
@@ -103,7 +106,31 @@ class _DailySavedScreenState extends State<DailySavedScreen> {
         );
       },
       child: hasImage
-          ? Image.file(
+          ? (_isNetworkPath(message.imagePath!)
+          ? Image.network(
+        message.imagePath!,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            color: Colors.grey[100],
+            child: const Center(
+              child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: Colors.grey[200],
+            child: Icon(
+              Icons.broken_image,
+              color: Colors.grey[400],
+              size: 40,
+            ),
+          );
+        },
+      )
+          : Image.file(
         File(message.imagePath!),
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
@@ -116,7 +143,7 @@ class _DailySavedScreenState extends State<DailySavedScreen> {
             ),
           );
         },
-      )
+      ))
           : Container(
         color: Colors.grey[100],
         alignment: Alignment.center,

@@ -3,6 +3,8 @@ import 'package:video_player/video_player.dart';
 import 'clip_service.dart';
 import 'ClipSideBar.dart';
 import 'Clipcommentsheet.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'Add.dart';
 
 class ClipsWidget extends StatefulWidget {
   final bool isTabActive;
@@ -16,6 +18,9 @@ class ClipsWidget extends StatefulWidget {
 class _ClipsWidgetState extends State<ClipsWidget> {
   late PageController _pageController;
   int _currentPage = 0;
+  // True while the Add Clip screen is open on top, so the clip underneath
+  // pauses instead of playing behind it.
+  bool _covered = false;
 
   @override
   void initState() {
@@ -34,54 +39,95 @@ class _ClipsWidgetState extends State<ClipsWidget> {
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      body: StreamBuilder<List<ClipData>>(
-        stream: ClipService.getOtherUsersClips(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: Colors.cyan),
-            );
-          }
-
-          final clips = snapshot.data ?? [];
-
-          if (clips.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.videocam_off_outlined,
-                      size: 80, color: Colors.grey[600]),
-                  const SizedBox(height: 16),
-                  Text('No clips yet',
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[400])),
-                  const SizedBox(height: 8),
-                  Text('Clips from other users will show up here',
-                      style: TextStyle(
-                          fontSize: 14, color: Colors.grey[600])),
-                ],
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildFeed()),
+          // Add a clip: opens the Add Clip screen, and closing it comes
+          // straight back here.
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 12,
+            child: GestureDetector(
+              onTap: _openAddClip,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.35),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white54, width: 1),
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 24),
               ),
-            );
-          }
-
-          return PageView.builder(
-            controller: _pageController,
-            scrollDirection: Axis.vertical,
-            onPageChanged: (index) =>
-                setState(() => _currentPage = index),
-            itemCount: clips.length,
-            itemBuilder: (context, index) {
-              return _ClipPage(
-                clip: clips[index],
-                isActive: index == _currentPage && widget.isTabActive,
-              );
-            },
-          );
-        },
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Future<void> _openAddClip() async {
+    setState(() => _covered = true);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: kAddRouteName),
+        builder: (context) =>
+        const AddWidget(destination: AddDestination.clip),
+        fullscreenDialog: true,
+      ),
+    );
+    if (mounted) setState(() => _covered = false);
+  }
+
+  Widget _buildFeed() {
+    return StreamBuilder<List<ClipData>>(
+      stream: ClipService.getOtherUsersClips(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.cyan),
+          );
+        }
+
+        final clips = snapshot.data ?? [];
+
+        if (clips.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.videocam_off_outlined,
+                    size: 80, color: Colors.grey[600]),
+                const SizedBox(height: 16),
+                Text('No clips yet',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[400])),
+                const SizedBox(height: 8),
+                Text('Clips from other users will show up here',
+                    style: TextStyle(
+                        fontSize: 14, color: Colors.grey[600])),
+              ],
+            ),
+          );
+        }
+
+        return PageView.builder(
+          controller: _pageController,
+          scrollDirection: Axis.vertical,
+          onPageChanged: (index) =>
+              setState(() => _currentPage = index),
+          itemCount: clips.length,
+          itemBuilder: (context, index) {
+            return _ClipPage(
+              clip: clips[index],
+              isActive: index == _currentPage && widget.isTabActive && !_covered,
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -167,6 +213,11 @@ class _ClipPageState extends State<_ClipPage>
   }
 
   Future<void> _loadVideo() async {
+    // Photo clips have no video to load; they're just shown as an image.
+    if (widget.clip.isPhoto) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
     try {
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(widget.clip.videoUrl),
@@ -463,6 +514,30 @@ class _ClipPageState extends State<_ClipPage>
   }
 
   Widget _buildVideoContent() {
+    if (widget.clip.isPhoto) {
+      final url = widget.clip.photoUrl ?? widget.clip.thumbnailUrl;
+      if (url == null || url.isEmpty) {
+        return Container(color: Colors.black);
+      }
+      return CachedNetworkImage(
+        imageUrl: url,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        placeholder: (context, url) => Container(
+          color: Colors.black,
+          child: const Center(
+              child: CircularProgressIndicator(color: Colors.cyan)),
+        ),
+        errorWidget: (context, url, error) => Container(
+          color: Colors.black,
+          child: Center(
+            child: Icon(Icons.broken_image_outlined,
+                color: Colors.grey[600], size: 48),
+          ),
+        ),
+      );
+    }
     if (_isLoading) {
       return Container(
         color: Colors.black,

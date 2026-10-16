@@ -8,9 +8,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'friend_request_service.dart';
 import 'FriendDailyService.dart';
 import 'ProfilePicManager.dart';
+import 'StoryMediaItem.dart';
+import 'VideoClipPlayer.dart';
+import 'CircleRevealTransition.dart';
 
 class StoryBar extends StatefulWidget {
-  final VoidCallback onTapOwnStory;
+  final void Function(Offset tapPosition) onTapOwnStory;
   final bool hasOwnPhotosToday;
   final bool hasViewedAllOwnPhotos;
 
@@ -157,7 +160,7 @@ class _StoryBarState extends State<StoryBar> {
 }
 
 class _OwnStoryCircle extends StatelessWidget {
-  final VoidCallback onTap;
+  final void Function(Offset tapPosition) onTap;
   final bool hasPhotos;
   final bool hasViewedAll;
 
@@ -178,7 +181,7 @@ class _OwnStoryCircle extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
-            onTap: hasPhotos ? onTap : null,
+            onTapDown: hasPhotos ? (details) => onTap(details.globalPosition) : null,
             child: Container(
               width: 110,
               height: 110,
@@ -261,19 +264,20 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
     }
   }
 
-  void _openStory() async {
+  void _openStory(Offset tapPosition) async {
     if (FirebaseAuth.instance.currentUser == null) return;
-    final photos = await FriendDailyService.getFriendStoryPhotos(widget.friendUserId);
+    final items = await FriendDailyService.getFriendStoryPhotos(widget.friendUserId);
     if (!mounted) return;
-    if (photos.isEmpty) return;
+    if (items.isEmpty) return;
 
     await FriendDailyService.markStoryViewed(widget.friendUserId);
 
     Navigator.push(
       context,
-      MaterialPageRoute(
+      CircleRevealRoute(
+        center: tapPosition,
         builder: (context) => FriendStoryViewer(
-          photos: photos,
+          items: items,
           username: widget.friendUsername,
         ),
       ),
@@ -288,7 +292,7 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
-            onTap: _openStory,
+            onTapDown: (details) => _openStory(details.globalPosition),
             child: Container(
               width: 110,
               height: 110,
@@ -335,18 +339,35 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
   }
 }
 
-// ─── Shared blurred-background photo view ────────────────────────────────────
+// ─── Shared blurred-background story media view ──────────────────────────────
 
-/// Blurred, color-matched background like Instagram stories.
-/// The photo itself has rounded corners and slight horizontal padding
-/// so it doesn't touch the screen edges.
-class StoryPhotoView extends StatelessWidget {
-  final File photo;
+/// Blurred, color-matched background like Instagram stories, for photos.
+/// Videos skip the blur treatment (no cheap way to grab a still frame for
+/// it) and just render centered on black instead.
+class StoryMediaView extends StatelessWidget {
+  final StoryMediaItem media;
 
-  const StoryPhotoView({Key? key, required this.photo}) : super(key: key);
+  const StoryMediaView({Key? key, required this.media}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    if (media.isVideo) {
+      // Fills the whole screen, cropping as needed — no padding, no
+      // letterboxing, matching the "edge to edge" look requested.
+      return Container(
+        color: Colors.black,
+        child: SizedBox.expand(
+          child: VideoClipPlayer(
+            videoFile: media.file,
+            autoPlay: true,
+            looping: true,
+            fit: BoxFit.cover,
+          ),
+        ),
+      );
+    }
+
+    final photo = media.file;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -392,9 +413,9 @@ class StoryPhotoView extends StatelessWidget {
 // ─── Own story viewer (no progress bar) ──────────────────────────────────────
 
 class OwnStoryViewer extends StatefulWidget {
-  final List<File> photos;
+  final List<StoryMediaItem> items;
 
-  const OwnStoryViewer({Key? key, required this.photos}) : super(key: key);
+  const OwnStoryViewer({Key? key, required this.items}) : super(key: key);
 
   @override
   State<OwnStoryViewer> createState() => _OwnStoryViewerState();
@@ -404,7 +425,7 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
   int _currentIndex = 0;
 
   void _nextPhoto() {
-    if (_currentIndex < widget.photos.length - 1) {
+    if (_currentIndex < widget.items.length - 1) {
       setState(() => _currentIndex++);
     } else {
       Navigator.pop(context);
@@ -433,9 +454,9 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
         },
         child: Stack(
           children: [
-            // Blurred background + rounded photo
+            // Blurred background + rounded photo/video
             Positioned.fill(
-              child: StoryPhotoView(photo: widget.photos[_currentIndex]),
+              child: StoryMediaView(media: widget.items[_currentIndex]),
             ),
 
             // Close button
@@ -455,15 +476,15 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
               ),
             ),
 
-            // Dot indicators (only if more than one photo)
-            if (widget.photos.length > 1)
+            // Dot indicators (only if more than one item)
+            if (widget.items.length > 1)
               Positioned(
                 bottom: 50,
                 left: 0,
                 right: 0,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(widget.photos.length, (i) {
+                  children: List.generate(widget.items.length, (i) {
                     return Container(
                       margin: const EdgeInsets.symmetric(horizontal: 3),
                       width: i == _currentIndex ? 10 : 6,
@@ -479,15 +500,15 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
                 ),
               ),
 
-            // Photo counter (only if more than one photo)
-            if (widget.photos.length > 1)
+            // Counter (only if more than one item)
+            if (widget.items.length > 1)
               Positioned(
                 bottom: 24,
                 left: 0,
                 right: 0,
                 child: Center(
                   child: Text(
-                    '${_currentIndex + 1} of ${widget.photos.length}',
+                    '${_currentIndex + 1} of ${widget.items.length}',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.8),
                       fontSize: 14,
@@ -505,12 +526,12 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
 // ─── Friend story viewer (with progress bar) ─────────────────────────────────
 
 class FriendStoryViewer extends StatefulWidget {
-  final List<File> photos;
+  final List<StoryMediaItem> items;
   final String username;
 
   const FriendStoryViewer({
     Key? key,
-    required this.photos,
+    required this.items,
     required this.username,
   }) : super(key: key);
 
@@ -539,7 +560,7 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
   }
 
   void _nextPhoto() {
-    if (_currentIndex < widget.photos.length - 1) {
+    if (_currentIndex < widget.items.length - 1) {
       setState(() => _currentIndex++);
       _startProgress();
     } else {
@@ -576,9 +597,9 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
         },
         child: Stack(
           children: [
-            // Blurred background + rounded photo
+            // Blurred background + rounded photo/video
             Positioned.fill(
-              child: StoryPhotoView(photo: widget.photos[_currentIndex]),
+              child: StoryMediaView(media: widget.items[_currentIndex]),
             ),
 
             // Progress bars
@@ -587,7 +608,7 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
               left: 12,
               right: 12,
               child: Row(
-                children: List.generate(widget.photos.length, (i) {
+                children: List.generate(widget.items.length, (i) {
                   return Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -650,14 +671,14 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
               ),
             ),
 
-            // Photo counter
+            // Counter
             Positioned(
               bottom: 24,
               left: 0,
               right: 0,
               child: Center(
                 child: Text(
-                  '${_currentIndex + 1} of ${widget.photos.length}',
+                  '${_currentIndex + 1} of ${widget.items.length}',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 14,

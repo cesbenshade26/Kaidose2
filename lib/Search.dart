@@ -4,7 +4,11 @@ import 'DailySearch.dart';
 
 // Search Screen
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({Key? key}) : super(key: key);
+  /// True when this is the Search tab in the bottom bar (no back arrow, no
+  /// auto-focused keyboard, and results must not pop the screen when opened).
+  final bool isTab;
+
+  const SearchScreen({Key? key, this.isTab = false}) : super(key: key);
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -41,13 +45,16 @@ class _SearchScreenState extends State<SearchScreen> {
               color: Colors.grey[100],
               child: Row(
                 children: [
-                  // Back arrow
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                  ),
+                  // Back arrow (only when opened as its own screen)
+                  if (!widget.isTab)
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                    )
+                  else
+                    const SizedBox(width: 12),
                   // Search icon
                   const Icon(
                     Icons.search,
@@ -59,7 +66,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
-                      autofocus: true,
+                      autofocus: !widget.isTab,
                       decoration: const InputDecoration(
                         hintText: 'Search',
                         hintStyle: TextStyle(
@@ -218,7 +225,10 @@ class _SearchScreenState extends State<SearchScreen> {
         return const FriendsSearchWidget();
       case 1:
       // Dailies tab - show DailySearch widget
-        return DailySearchWidget(searchQuery: _searchController.text);
+        return DailySearchWidget(
+          searchQuery: _searchController.text,
+          closeSearchOnOpen: !widget.isTab,
+        );
       case 2:
       // Empty tab 2
         return Container(

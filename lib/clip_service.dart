@@ -12,6 +12,14 @@ class ClipData {
   final String? thumbnailUrl;
   final DateTime createdAt;
 
+  /// 'video' (default, and what every existing clip is) or 'photo'.
+  /// Photo clips have an empty [videoUrl]; their image is [photoUrl], which
+  /// is also used as [thumbnailUrl] so grids keep working unchanged.
+  final String mediaType;
+  final String? photoUrl;
+
+  bool get isPhoto => mediaType == 'photo';
+
   ClipData({
     required this.id,
     required this.creatorUid,
@@ -20,6 +28,8 @@ class ClipData {
     required this.videoUrl,
     this.thumbnailUrl,
     required this.createdAt,
+    this.mediaType = 'video',
+    this.photoUrl,
   });
 
   factory ClipData.fromFirestore(Map<String, dynamic> data, String id) {
@@ -31,6 +41,8 @@ class ClipData {
       videoUrl: data['videoUrl'] ?? '',
       thumbnailUrl: data['thumbnailUrl'],
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      mediaType: data['mediaType'] ?? 'video',
+      photoUrl: data['photoUrl'],
     );
   }
 
@@ -42,6 +54,8 @@ class ClipData {
       'videoUrl': videoUrl,
       'thumbnailUrl': thumbnailUrl,
       'createdAt': Timestamp.fromDate(createdAt),
+      'mediaType': mediaType,
+      'photoUrl': photoUrl,
     };
   }
 }
@@ -116,6 +130,68 @@ class ClipService {
     }
   }
 
+  /// Upload a photo clip. Same collection and shape as a video clip, with
+  /// mediaType 'photo'; the image doubles as the thumbnail.
+  static Future<bool> uploadPhotoClip({
+    required File photoFile,
+    required String caption,
+  }) async {
+    final uid = currentUid;
+    if (uid == null) return false;
+
+    try {
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      final username = userDoc.data()?['username'] ?? 'Unknown';
+
+      final clipId = DateTime.now().millisecondsSinceEpoch.toString();
+
+      final path = photoFile.path.toLowerCase();
+      final String ext;
+      final String contentType;
+      if (path.endsWith('.png')) {
+        ext = 'png';
+        contentType = 'image/png';
+      } else if (path.endsWith('.heic') || path.endsWith('.heif')) {
+        ext = 'heic';
+        contentType = 'image/heic';
+      } else {
+        ext = 'jpg';
+        contentType = 'image/jpeg';
+      }
+
+      print('ClipService: uploading photo...');
+      final photoRef = _storage.ref().child('clips/$uid/$clipId/photo.$ext');
+      final upload = await photoRef.putFile(
+        photoFile,
+        SettableMetadata(contentType: contentType),
+      );
+      final photoUrl = await upload.ref.getDownloadURL();
+
+      final clip = ClipData(
+        id: clipId,
+        creatorUid: uid,
+        creatorUsername: username,
+        caption: caption,
+        videoUrl: '',
+        thumbnailUrl: photoUrl,
+        createdAt: DateTime.now(),
+        mediaType: 'photo',
+        photoUrl: photoUrl,
+      );
+
+      await _firestore
+          .collection('clips')
+          .doc(clipId)
+          .set(clip.toFirestoreJson());
+
+      print('ClipService: photo clip $clipId saved to Firestore');
+      return true;
+    } catch (e) {
+      print('ClipService: photo upload error: $e');
+      return false;
+    }
+  }
+
   /// Stream of all clips NOT posted by the current user, newest first.
   static Stream<List<ClipData>> getOtherUsersClips() {
     final uid = currentUid;
@@ -156,6 +232,15 @@ class ClipService {
 
     try {
       // Delete from Storage
+      if (clip.isPhoto) {
+        if (clip.photoUrl != null) {
+          await _storage.refFromURL(clip.photoUrl!).delete();
+        }
+        await _firestore.collection('clips').doc(clip.id).delete();
+        print('ClipService: deleted photo clip ${clip.id}');
+        return;
+      }
+
       final videoRef =
       _storage.ref().child('clips/$uid/${clip.id}/video.mp4');
       await videoRef.delete();

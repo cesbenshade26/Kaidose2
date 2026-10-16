@@ -7,37 +7,51 @@ import 'DailyData.dart';
 import 'FeedService.dart';
 import 'InsideDaily.dart';
 import 'daily_join_request_service.dart';
+import 'DailyMembershipService.dart';
 
+/// The Dailies tab of the Search screen: query results only. The discovery
+/// feed that used to live here is now the For You tab on Dailies
+/// (DailyForYou.dart). Search still draws from the same pool (what
+/// FeedService ranks plus the user's own Dailies), so anything in For You can
+/// also be found by typing.
 class DailySearchWidget extends StatefulWidget {
   final String searchQuery;
 
-  const DailySearchWidget({Key? key, required this.searchQuery}) : super(key: key);
+  /// True when Search is its own pushed screen, so opening a result first
+  /// closes it. False in the Search tab, where there is nothing to close.
+  final bool closeSearchOnOpen;
+
+  const DailySearchWidget({
+    Key? key,
+    required this.searchQuery,
+    this.closeSearchOnOpen = true,
+  }) : super(key: key);
 
   @override
   State<DailySearchWidget> createState() => _DailySearchWidgetState();
 }
 
 class _DailySearchWidgetState extends State<DailySearchWidget> {
+  List<DailyData> _pool = [];
   List<DailyData> _searchResults = [];
-  List<ScoredDaily> _feedResults = [];
-  bool _isLoadingFeed = true;
+  bool _isLoadingPool = true;
   VoidCallback? _dailyListListener;
 
   final DailyJoinRequestService _joinRequestService = DailyJoinRequestService();
-  final Set<String> _myOwnedDailyIds = {};
-  final Set<String> _myMemberDailyIds = {};
+  final Set<String> _myDailyIds = {};
   final Set<String> _pendingJoinDailyIds = {};
+  final Set<String> _addingDailyIds = {};
 
   @override
   void initState() {
     super.initState();
-    _loadFeed();
+    _loadPool();
     _loadMembershipInfo();
 
     _dailyListListener = () {
       if (mounted) {
-        _filterSearch();
         _loadMembershipInfo();
+        _filterSearch();
       }
     };
     DailyList.addListener(_dailyListListener!);
@@ -59,39 +73,27 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
     }
   }
 
-  /// Tracks which dailies the current user already owns or belongs to,
-  /// so we don't show a Join button on something they're already in.
-  Future<void> _loadMembershipInfo() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    _myOwnedDailyIds.clear();
-    _myMemberDailyIds.clear();
-
-    for (final daily in DailyList.dailies) {
-      if (daily.creatorUid == uid) {
-        _myOwnedDailyIds.add(daily.id);
-      } else {
-        _myMemberDailyIds.add(daily.id);
-      }
-    }
-
+  /// Every Daily the user already owns or has joined, so they get no Join
+  /// button on those.
+  void _loadMembershipInfo() {
+    _myDailyIds
+      ..clear()
+      ..addAll(DailyList.dailies.map((d) => d.id));
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadFeed() async {
-    setState(() => _isLoadingFeed = true);
+  Future<void> _loadPool() async {
     try {
       final ranked = await FeedService.getRankedFeed();
-      if (mounted) {
-        setState(() {
-          _feedResults = ranked;
-          _isLoadingFeed = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _pool = ranked.map((s) => s.daily).toList();
+        _isLoadingPool = false;
+      });
+      _filterSearch();
     } catch (e) {
-      print('DailySearchWidget: feed load error: $e');
-      if (mounted) setState(() => _isLoadingFeed = false);
+      print('DailySearchWidget: pool load error: $e');
+      if (mounted) setState(() => _isLoadingPool = false);
     }
   }
 
@@ -103,13 +105,14 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
       return;
     }
 
-    final pool = <DailyData>{
-      ..._feedResults.map((s) => s.daily),
-      ...DailyList.dailies,
-    }.toList();
+    // De-duplicated by id: my own copy wins over the feed's.
+    final byId = <String, DailyData>{
+      for (final d in _pool) d.id: d,
+      for (final d in DailyList.dailies) d.id: d,
+    };
 
     setState(() {
-      _searchResults = pool.where((daily) {
+      _searchResults = byId.values.where((daily) {
         return daily.title.toLowerCase().contains(query) ||
             daily.description.toLowerCase().contains(query) ||
             daily.keywords.any((tag) => tag.toLowerCase().contains(query));
@@ -118,51 +121,49 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
   }
 
   void _openDaily(DailyData daily) {
+    final isMine = _myDailyIds.contains(daily.id);
+    if (daily.privacy != 'Public' && !isMine) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This Daily is private — request to join to see it'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     FeedService.recordInteraction(daily);
-    Navigator.pop(context);
+    if (widget.closeSearchOnOpen) Navigator.pop(context);
+    // Not in the user's Dailies → InsideDaily treats them as a guest.
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => InsideDaily(daily: daily)),
     );
   }
 
-  Future<void> _joinPublicDaily(DailyData daily) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+  Future<void> _addPublicDaily(DailyData daily) async {
+    if (_addingDailyIds.contains(daily.id)) return;
+    setState(() => _addingDailyIds.add(daily.id));
 
-    try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('dailies')
-          .doc(daily.id)
-          .set({
-        ...daily.toFirestoreJson(),
-        'creatorUid': daily.creatorUid,
-      });
+    final result = await DailyMembershipService.addToMyDailies(daily);
+    if (!mounted) return;
 
-      setState(() => _myMemberDailyIds.add(daily.id));
+    final ok = result['success'] == true;
+    setState(() {
+      _addingDailyIds.remove(daily.id);
+      if (ok) _myDailyIds.add(daily.id);
+    });
+    if (ok) FeedService.recordInteraction(daily);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Joined "${daily.title}"!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      print('DailySearchWidget: join error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error joining: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? 'Added "${daily.title}" to My Dailies'
+            : (result['error']?.toString() ?? 'Could not add')),
+        backgroundColor: ok ? Colors.green : Colors.red,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _requestToJoinPrivateDaily(DailyData daily) async {
@@ -207,100 +208,53 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final isSearching = widget.searchQuery.trim().isNotEmpty;
-    return isSearching ? _buildSearchResults() : _buildFeed();
-  }
-
-  // ─── Feed ───────────────────────────────────────────────────────────────────
-
-  Widget _buildFeed() {
-    if (_isLoadingFeed) {
+    if (widget.searchQuery.trim().isEmpty) return _buildIdle();
+    if (_isLoadingPool && _searchResults.isEmpty) {
       return const Center(child: CircularProgressIndicator(color: Colors.cyan));
     }
+    return _buildSearchResults();
+  }
 
-    if (_feedResults.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.explore_outlined, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'No Dailies to Discover Yet',
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+  Widget _centerMessage(IconData icon, String title, String body) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 80, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700]),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              body,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Public Dailies will show up here as people create them',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      color: Colors.cyan,
-      onRefresh: () async {
-        await _loadFeed();
-        await _loadMembershipInfo();
-      },
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        itemCount: _feedResults.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12, left: 4),
-              child: Text(
-                'For You',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[500],
-                  letterSpacing: 0.5,
-                ),
-              ),
-            );
-          }
-          final scored = _feedResults[index - 1];
-          return _buildDailyCard(scored.daily, matchScore: scored.score);
-        },
+          ),
+        ],
       ),
     );
   }
 
-  // ─── Search results ─────────────────────────────────────────────────────────
+  Widget _buildIdle() => _centerMessage(
+    Icons.search,
+    'Search Dailies',
+    'Look up a Daily by its title, description, or tags',
+  );
 
   Widget _buildSearchResults() {
     if (_searchResults.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'No Results Found',
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.w600, color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Try searching with different keywords',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
-        ),
+      return _centerMessage(
+        Icons.search_off,
+        'No Results Found',
+        'Try searching with different keywords',
       );
     }
 
@@ -311,14 +265,12 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
     );
   }
 
-  // ─── Card ───────────────────────────────────────────────────────────────────
-
-  Widget _buildDailyCard(DailyData daily, {double? matchScore}) {
-    final isOwned = _myOwnedDailyIds.contains(daily.id);
-    final isMember = _myMemberDailyIds.contains(daily.id);
+  Widget _buildDailyCard(DailyData daily) {
+    final isMine = _myDailyIds.contains(daily.id);
     final isPending = _pendingJoinDailyIds.contains(daily.id);
+    final isAdding = _addingDailyIds.contains(daily.id);
     final isPublic = daily.privacy == 'Public';
-    final showActionButton = !isOwned && !isMember;
+    final showActionButton = !isMine;
 
     return GestureDetector(
       onTap: () => _openDaily(daily),
@@ -351,16 +303,20 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                   width: 60,
                   height: 60,
                   decoration: BoxDecoration(
-                    color: Color(daily.iconColor ?? 0xFF00BCD4).withOpacity(0.1),
+                    color: Color(daily.iconColor ?? 0xFF00BCD4)
+                        .withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: daily.customIconPath != null &&
                       File(daily.customIconPath!).existsSync()
                       ? ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(File(daily.customIconPath!), fit: BoxFit.cover),
+                    child: Image.file(File(daily.customIconPath!),
+                        fit: BoxFit.cover),
                   )
-                      : Icon(daily.icon, color: Color(daily.iconColor ?? 0xFF00BCD4), size: 32),
+                      : Icon(daily.icon,
+                      color: Color(daily.iconColor ?? 0xFF00BCD4),
+                      size: 32),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -373,7 +329,9 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                             child: Text(
                               daily.title,
                               style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.w700, color: Colors.black87),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87),
                             ),
                           ),
                           Icon(
@@ -381,32 +339,22 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                             size: 14,
                             color: Colors.grey[400],
                           ),
-                          if (matchScore != null && matchScore > 0.5)
-                            Container(
-                              margin: const EdgeInsets.only(left: 6),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.cyan.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Text(
-                                'Match',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.cyan),
-                              ),
-                            ),
                           if (daily.isPinned)
                             Container(
                               margin: const EdgeInsets.only(left: 6),
                               padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(color: Colors.cyan, shape: BoxShape.circle),
-                              child: const Icon(Icons.push_pin, size: 14, color: Colors.white),
+                              decoration: const BoxDecoration(
+                                  color: Colors.cyan, shape: BoxShape.circle),
+                              child: const Icon(Icons.push_pin,
+                                  size: 14, color: Colors.white),
                             ),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text(
                         daily.description,
-                        style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                        style:
+                        TextStyle(fontSize: 14, color: Colors.grey[700]),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -417,14 +365,18 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                           runSpacing: 6,
                           children: daily.keywords.take(3).map((tag) {
                             return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
                                 color: Colors.grey[100],
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
                                 tag,
-                                style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500),
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500),
                               ),
                             );
                           }).toList(),
@@ -433,7 +385,8 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                       const SizedBox(height: 6),
                       Text(
                         _formatDate(daily.createdAt),
-                        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                        style:
+                        TextStyle(fontSize: 11, color: Colors.grey[500]),
                       ),
                     ],
                   ),
@@ -441,7 +394,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
               ],
             ),
 
-            // Join / Request to Join button row
+            // Add to My Dailies / Request to Join
             if (showActionButton) ...[
               const SizedBox(height: 12),
               SizedBox(
@@ -449,13 +402,22 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                 height: 38,
                 child: isPublic
                     ? ElevatedButton.icon(
-                  onPressed: () => _joinPublicDaily(daily),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Join'),
+                  onPressed:
+                  isAdding ? null : () => _addPublicDaily(daily),
+                  icon: isAdding
+                      ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 2),
+                  )
+                      : const Icon(Icons.add, size: 18),
+                  label: const Text('Add to My Dailies'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.cyan,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                     elevation: 0,
                   ),
                 )
@@ -467,7 +429,8 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.grey[500],
                     side: BorderSide(color: Colors.grey[300]!),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                 )
                     : OutlinedButton.icon(
@@ -477,7 +440,8 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.orange,
                     side: const BorderSide(color: Colors.orange),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
               ),

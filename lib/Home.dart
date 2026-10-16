@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'Profile.dart';
 import 'Dailies.dart';
-import 'Add.dart';
+import 'Search.dart';
+import 'Add.dart' show kAddRouteName;
 import 'Clips.dart';
 import 'Chat.dart';
 import 'HomeSwipe.dart';
@@ -91,6 +92,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Lets YourDaily.dart force-switch to the Profile tab when the user
     // taps "Add a Daily Bubble!", without Add.dart needing to know about it.
     YourDailyBubbleManager.registerNavigateToProfile(() {
+      // Add is opened on top of Home for now; close it first so the tab
+      // switch isn't hidden behind it.
+      Navigator.of(context).popUntil((route) => route.settings.name != kAddRouteName);
       _onItemTapped(_profileTabIndex);
     });
   }
@@ -137,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         key: const PageStorageKey('clips'),
         isTabActive: _selectedIndex == _clipsTabIndex,
       ),
-      const AddWidget(key: PageStorageKey('add')),
+      const SearchScreen(key: PageStorageKey('search'), isTab: true),
       ProfilePage(key: ValueKey('profile_$currentUid')),
     ];
 
@@ -176,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   _staggeredAnimations[1]),
               _buildNavItem(2, Icons.videocam_outlined, 'Camera',
                   _staggeredAnimations[2]),
-              _buildNavItem(3, Icons.add, 'Add', _staggeredAnimations[3]),
+              _buildNavItem(3, Icons.search, 'Search', _staggeredAnimations[3]),
               _buildNavItem(4, Icons.person_outline, 'Profile',
                   _staggeredAnimations[4]),
             ],

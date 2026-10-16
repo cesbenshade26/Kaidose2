@@ -3,26 +3,27 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'DailyBubbleService.dart';
 import 'DailyBubbleViewer.dart';
+import 'StoryMediaItem.dart';
 
 /// A single Daily Bubble in memory. `id` is the Firestore doc id — null
 /// only in the brief window before the very first save completes.
-/// `photos` is an optimistic local cache of photos added this session;
-/// the viewer always re-fetches the authoritative, ordered list from
-/// Firestore when a bubble is opened.
+/// `media` is an optimistic local cache of items (photos and/or video
+/// clips) added this session; the viewer always re-fetches the
+/// authoritative, ordered list from Firestore when a bubble is opened.
 class DailyBubbleData {
   String? id;
   String name;
   File? cover;
-  List<File> photos;
+  List<StoryMediaItem> media;
 
-  DailyBubbleData({this.id, required this.name, this.cover, List<File>? photos})
-      : photos = photos ?? [];
+  DailyBubbleData({this.id, required this.name, this.cover, List<StoryMediaItem>? media})
+      : media = media ?? [];
 }
 
-/// Manages the state of the "Add a Daily Bubble!" creation flow, and the
+/// Manages the state of the Daily Bubble creation flow, and the
 /// current user's saved bubbles.
 ///
-/// Creation is kicked off from the Add tab (YourDaily.dart) but finished on
+/// Creation is kicked off from the Add sheet (Daily Bubble) but finished on
 /// the Profile tab, so this is a static, listener-based manager — same
 /// pattern as DailyPhotoManager/BackgroundPicManager — rather than something
 /// passed down through Add.dart's widget tree.
@@ -80,7 +81,7 @@ class YourDailyBubbleManager {
     _notifyListeners();
   }
 
-  /// Called from the "Add a Daily Bubble!" button on the Add tab. Always
+  /// Called from the Daily Bubble option in the Add sheet. Always
   /// starts a brand-new bubble — it gets appended after any existing ones
   /// once "Create" is pressed.
   static void startCreatingBubble() {
@@ -116,7 +117,7 @@ class YourDailyBubbleManager {
   /// "Create"/"Save" button — persists to Firestore, then updates local
   /// state. New bubbles go on the end of the list (so they show up to the
   /// right of the last one); edits update the bubble at editingIndex in
-  /// place, keeping its already-attached photos.
+  /// place, keeping its already-attached media.
   static Future<void> finishCreatingBubble() async {
     final name = draftName;
     final cover = draftCover;
@@ -135,7 +136,7 @@ class YourDailyBubbleManager {
             id: existing.id,
             name: name,
             cover: cover ?? existing.cover,
-            photos: existing.photos,
+            media: existing.media,
           );
         }
       }
@@ -160,25 +161,30 @@ class YourDailyBubbleManager {
     _notifyListeners();
   }
 
-  /// Attaches a just-posted Your Daily photo to a saved bubble, both
-  /// locally (optimistic) and in Firestore.
-  static Future<void> addPhotoToBubble(int index, File photo) async {
+  /// Attaches a just-posted Your Daily photo OR video clip to a saved
+  /// bubble, both locally (optimistic) and in Firestore.
+  static Future<void> addMediaToBubble(int index, File file, {required bool isVideo}) async {
     if (index < 0 || index >= bubbles.length) return;
     final bubble = bubbles[index];
     if (bubble.id == null) return;
 
-    bubble.photos.add(photo);
+    bubble.media.add(StoryMediaItem(file: file, isVideo: isVideo));
     _notifyListeners();
 
-    await DailyBubbleService.addPhotoToBubble(bubbleId: bubble.id!, photo: photo);
+    await DailyBubbleService.addMediaToBubble(
+      bubbleId: bubble.id!,
+      file: file,
+      isVideo: isVideo,
+    );
   }
 
-  /// Fetches every photo posted to a bubble, oldest first, for viewing.
-  static Future<List<File>> getBubblePhotos(int index) async {
+  /// Fetches every photo/video posted to a bubble, oldest first, for
+  /// viewing.
+  static Future<List<StoryMediaItem>> getBubbleMedia(int index) async {
     if (index < 0 || index >= bubbles.length) return [];
     final bubble = bubbles[index];
-    if (bubble.id == null) return List.unmodifiable(bubble.photos);
-    return DailyBubbleService.loadBubblePhotos(bubbleId: bubble.id!);
+    if (bubble.id == null) return List.unmodifiable(bubble.media);
+    return DailyBubbleService.loadBubbleMedia(bubbleId: bubble.id!);
   }
 }
 
@@ -241,10 +247,11 @@ class _YourDailyBubbleCreatorOverlayState
   @override
   Widget build(BuildContext context) {
     final bool isEditing = YourDailyBubbleManager.editingIndex != null;
+    final bool hasCover = YourDailyBubbleManager.draftCover != null;
 
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.65),
+        color: Colors.black.withOpacity(0.6),
         child: SafeArea(
           child: Stack(
             children: [
@@ -258,106 +265,170 @@ class _YourDailyBubbleCreatorOverlayState
                       : () => YourDailyBubbleManager.cancelCreatingBubble(),
                   child: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.95),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.close, color: Colors.black, size: 22),
+                    child: const Icon(Icons.close,
+                        color: Colors.black87, size: 22),
                   ),
                 ),
               ),
               // Name + cover + create card
               Center(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 32),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom,
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        isEditing ? 'Edit Daily Bubble' : 'New Daily Bubble',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 16),
-                      GestureDetector(
-                        onTap: _isSaving ? null : _pickCover,
-                        child: Container(
-                          width: 90,
-                          height: 90,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.grey[200],
-                            border: Border.all(color: Colors.cyan, width: 2),
-                          ),
-                          child: YourDailyBubbleManager.draftCover != null
-                              ? ClipOval(
-                            child: Image.file(
-                              YourDailyBubbleManager.draftCover!,
-                              width: 90,
-                              height: 90,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                              : const Icon(Icons.add_a_photo, color: Colors.grey, size: 32),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 28),
+                    padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.25),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tap to add a cover',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _nameController,
-                        maxLength: 24,
-                        enabled: !_isSaving,
-                        decoration: const InputDecoration(
-                          labelText: 'Bubble name',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) => YourDailyBubbleManager.setBubbleName(value),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: _isSaving ? null : _handleCreate,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: _isSaving
-                              ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2.5,
-                            ),
-                          )
-                              : Text(
-                            isEditing ? 'Save' : 'Create',
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w600),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          isEditing ? 'Edit Daily Bubble' : 'New Daily Bubble',
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 20),
+                        GestureDetector(
+                          onTap: _isSaving ? null : _pickCover,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 96,
+                                height: 96,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.grey[100],
+                                  border: Border.all(
+                                    color: hasCover
+                                        ? Colors.cyan
+                                        : Colors.grey[400]!,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: hasCover
+                                    ? ClipOval(
+                                  child: Image.file(
+                                    YourDailyBubbleManager.draftCover!,
+                                    width: 96,
+                                    height: 96,
+                                    fit: BoxFit.cover,
+                                  ),
+                                )
+                                    : Icon(Icons.add_a_photo_outlined,
+                                    color: Colors.grey[600], size: 30),
+                              ),
+                              Positioned(
+                                right: -2,
+                                bottom: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.cyan,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                        color: Colors.white, width: 2),
+                                  ),
+                                  child: Icon(
+                                    hasCover ? Icons.edit : Icons.add,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          hasCover ? 'Tap to change cover' : 'Tap to add a cover',
+                          style:
+                          TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 18),
+                        TextField(
+                          controller: _nameController,
+                          maxLength: 24,
+                          enabled: !_isSaving,
+                          textCapitalization: TextCapitalization.sentences,
+                          style: const TextStyle(
+                              fontSize: 15, color: Colors.black87),
+                          decoration: InputDecoration(
+                            hintText: 'Bubble name',
+                            hintStyle: TextStyle(color: Colors.grey[500]),
+                            counterStyle: TextStyle(
+                                color: Colors.grey[500], fontSize: 11),
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: const BorderSide(
+                                  color: Colors.cyan, width: 1.5),
+                            ),
+                          ),
+                          onChanged: (value) =>
+                              YourDailyBubbleManager.setBubbleName(value),
+                        ),
+                        const SizedBox(height: 6),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _isSaving ? null : _handleCreate,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.cyan,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                              Colors.cyan.withOpacity(0.4),
+                              disabledForegroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: _isSaving
+                                ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                                : Text(
+                              isEditing ? 'Save' : 'Create',
+                              style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -369,7 +440,7 @@ class _YourDailyBubbleCreatorOverlayState
   }
 }
 
-/// Fetches a bubble's posted photos and opens the viewer, or lets the user
+/// Fetches a bubble's posted media and opens the viewer, or lets the user
 /// know there's nothing posted to it yet.
 Future<void> _viewBubble(BuildContext context, int index) async {
   final bubble = YourDailyBubbleManager.bubbles[index];
@@ -380,12 +451,12 @@ Future<void> _viewBubble(BuildContext context, int index) async {
     builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.cyan)),
   );
 
-  final photos = await YourDailyBubbleManager.getBubblePhotos(index);
+  final media = await YourDailyBubbleManager.getBubbleMedia(index);
 
   if (!context.mounted) return;
   Navigator.pop(context); // close loading spinner
 
-  if (photos.isEmpty) {
+  if (media.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('No Daily posts in this bubble yet')),
     );
@@ -395,7 +466,7 @@ Future<void> _viewBubble(BuildContext context, int index) async {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => DailyBubbleViewer(photos: photos, bubbleName: bubble.name),
+      builder: (_) => DailyBubbleViewer(items: media, bubbleName: bubble.name),
     ),
   );
 }

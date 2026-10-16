@@ -113,6 +113,8 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
         automaticallyImplyLeading: false,
         title: _isSearching

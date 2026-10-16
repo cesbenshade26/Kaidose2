@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
-import 'Search.dart';
+import 'Add.dart';
+import 'AddSheet.dart';
+import 'NewDaily.dart';
+import 'YourDailyBubbles.dart';
 import 'DailyPhotoManager.dart';
 import 'DailyPhotoTracker.dart';
+import 'DailyVideoTracker.dart';
+import 'StoryMediaItem.dart';
 import 'ProfilePicManager.dart';
 import 'DailyList.dart';
 import 'DailyData.dart';
-import 'ManageDaily.dart';
-import 'UponOpeningDaily.dart';
-import 'InsideDaily.dart';
+import 'DailyCover.dart';
+import 'DailyForYou.dart';
 import 'SkipCount.dart';
 import 'dart:io';
-import 'package:google_fonts/google_fonts.dart';
 import 'FriendStoryBar.dart';
+import 'CircleRevealTransition.dart';
 
 
 class DailiesWidget extends StatefulWidget {
@@ -25,6 +29,7 @@ class DailiesWidget extends StatefulWidget {
 
 class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserver, TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   List<File> _todaysPhotos = [];
+  List<File> _todaysVideos = [];
   int _currentPhotoIndex = 0;
   bool _isLoading = true;
   bool _hasViewedAllPhotos = false;
@@ -37,10 +42,36 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   VoidCallback? _dailyPhotoListener;
   VoidCallback? _trackerListener;
+  VoidCallback? _videoTrackerListener;
   VoidCallback? _profilePicListener;
 
   @override
   bool get wantKeepAlive => true;
+
+  /// Today's photos and videos merged into one chronologically-ordered
+  /// list — this is what actually gets shown in "Your story". Reads
+  /// DIRECTLY from the trackers (the source of truth) rather than from
+  /// the cached _todaysPhotos/_todaysVideos fields, so any rebuild of
+  /// this widget — for any reason — always reflects the true current
+  /// state, instead of depending on _loadPhotos() having already run via
+  /// a listener that may not have been registered yet at post time.
+  List<StoryMediaItem> get _todaysStoryItems {
+    final items = <StoryMediaItem>[
+      ...DailyPhotoTracker.todaysPhotos.map((f) => StoryMediaItem(file: f, isVideo: false)),
+      ...DailyVideoTracker.todaysVideos.map((f) => StoryMediaItem(file: f, isVideo: true)),
+    ];
+    items.sort((a, b) => _extractTimestamp(a.file).compareTo(_extractTimestamp(b.file)));
+    return items;
+  }
+
+  int _extractTimestamp(File file) {
+    final fileName = file.uri.pathSegments.isNotEmpty ? file.uri.pathSegments.last : '';
+    final match = RegExp(r'_(\d+)\.').firstMatch(fileName);
+    if (match != null) {
+      return int.tryParse(match.group(1)!) ?? 0;
+    }
+    return 0;
+  }
 
   @override
   void initState() {
@@ -66,20 +97,36 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
     _dailyPhotoListener = () {
       if (mounted) {
-        _loadPhotos();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadPhotos();
+        });
       }
     };
 
     _trackerListener = () {
       if (mounted) {
-        _loadPhotos();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadPhotos();
+        });
+      }
+    };
+
+    _videoTrackerListener = () {
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadPhotos();
+        });
       }
     };
 
     _profilePicListener = () {
       if (mounted) {
-        setState(() {
-          _profilePic = ProfilePicManager.globalProfilePic;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _profilePic = ProfilePicManager.globalProfilePic;
+            });
+          }
         });
       }
     };
@@ -87,6 +134,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
     DailyPhotoManager.addListener(_dailyPhotoListener!);
     DailyPhotoTracker.addListener(_trackerListener!);
+    DailyVideoTracker.addListener(_videoTrackerListener!);
     ProfilePicManager.addListener(_profilePicListener!);
   }
 
@@ -99,6 +147,9 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     }
     if (_trackerListener != null) {
       DailyPhotoTracker.removeListener(_trackerListener!);
+    }
+    if (_videoTrackerListener != null) {
+      DailyVideoTracker.removeListener(_videoTrackerListener!);
     }
     if (_profilePicListener != null) {
       ProfilePicManager.removeListener(_profilePicListener!);
@@ -122,6 +173,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   Future<void> _initializeSystems() async {
     await DailyPhotoTracker.initialize();
+    await DailyVideoTracker.initialize();
     await DailyPhotoManager.loadDailyPhotoFromStorage();
     await ProfilePicManager.loadProfilePicFromStorage();
     await DailyList.loadFromStorage();
@@ -135,6 +187,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   Future<void> _checkForNewDay() async {
     await DailyPhotoTracker.checkAndResetIfNewDay();
+    await DailyVideoTracker.checkAndResetIfNewDay();
     _loadPhotos();
   }
 
@@ -143,14 +196,15 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _isLoading = true;
     });
 
-    List<File> previousPhotos = List.from(_todaysPhotos);
+    final previousCount = _todaysPhotos.length + _todaysVideos.length;
     _todaysPhotos = DailyPhotoTracker.todaysPhotos;
+    _todaysVideos = DailyVideoTracker.todaysVideos;
 
-    if (_todaysPhotos.isNotEmpty) {
+    if (_todaysStoryItems.isNotEmpty) {
       _currentPhotoIndex = 0;
     }
 
-    if (_todaysPhotos.length != previousPhotos.length) {
+    if (_todaysPhotos.length + _todaysVideos.length != previousCount) {
       _checkViewingStatus();
     }
 
@@ -161,13 +215,14 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
 
   void _checkViewingStatus() {
+    final items = _todaysStoryItems;
     int viewedCount = 0;
-    for (File photo in _todaysPhotos) {
-      if (_viewedPhotosPaths.contains(photo.path)) {
+    for (final item in items) {
+      if (_viewedPhotosPaths.contains(item.file.path)) {
         viewedCount++;
       }
     }
-    _hasViewedAllPhotos = viewedCount == _todaysPhotos.length && _todaysPhotos.isNotEmpty;
+    _hasViewedAllPhotos = viewedCount == items.length && items.isNotEmpty;
   }
 
   void _navigatePhoto(int direction) async {
@@ -205,23 +260,25 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     _slideController.reset();
   }
 
-  void _openPhotoCarousel() {
-    if (_todaysPhotos.isNotEmpty) {
-      // Mark first photo as viewed
+  void _openPhotoCarousel(Offset tapPosition) {
+    final items = _todaysStoryItems;
+    if (items.isNotEmpty) {
+      // Mark first item as viewed
       setState(() {
-        _viewedPhotosPaths.add(_todaysPhotos[0].path);
+        _viewedPhotosPaths.add(items[0].file.path);
         _checkViewingStatus();
       });
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (context) => OwnStoryViewer(photos: _todaysPhotos),
+        CircleRevealRoute(
+          center: tapPosition,
+          builder: (context) => OwnStoryViewer(items: items),
         ),
       ).then((_) {
         // Mark all as viewed once they close the viewer
         setState(() {
-          for (final photo in _todaysPhotos) {
-            _viewedPhotosPaths.add(photo.path);
+          for (final item in items) {
+            _viewedPhotosPaths.add(item.file.path);
           }
           _checkViewingStatus();
         });
@@ -230,539 +287,307 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   }
 
 
-  void _navigateToAddDaily() {
-    if (widget.onNavigateToTab != null) {
-      widget.onNavigateToTab!(3);
+  /// Opens a focused Add screen (Clip or Your Daily) on top of the app. It
+  /// has its own close button.
+  void _openAddScreen(AddDestination destination) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: kAddRouteName),
+        builder: (context) => AddWidget(destination: destination),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
+  /// The "+" menu. Daily Message and Daily Bubble are handled inside the
+  /// sheet / bubble flow, Clip and Your Daily open their own screen, and
+  /// New Daily opens the create flow.
+  Future<void> _navigateToAddDaily() async {
+    while (mounted) {
+      final choice = await showAddSheet(context);
+      if (choice == null || !mounted) return;
+      switch (choice) {
+        case AddOption.clip:
+          _openAddScreen(AddDestination.clip);
+          return;
+        case AddOption.yourDaily:
+          _openAddScreen(AddDestination.yourDaily);
+          return;
+        case AddOption.newDaily:
+          NewDailyFlow.published = false;
+          await Navigator.push(context, NewDailyFlow.route());
+          // Closed without publishing -> back to the Add sheet.
+          if (NewDailyFlow.published) return;
+          continue;
+        case AddOption.dailyBubble:
+        // Starts bubble creation and switches Home to the Profile tab.
+          YourDailyBubbleManager.startCreatingBubble();
+          return;
+        case AddOption.dailyMessage: // handled inside the sheet
+          return;
+      }
     }
   }
 
-  bool _isUserCreatedDaily(DailyData daily) {
-    return true;
-  }
-  TextStyle _getFontForDaily(DailyData daily) {
-    final fontFamily = daily.titleFont ?? 'Default';
+  // For You is always the tab the screen opens on.
+  bool _showForYou = true;
 
-    switch (fontFamily) {
-      case 'Roboto':
-        return GoogleFonts.roboto();
-      case 'Playfair Display':
-        return GoogleFonts.playfairDisplay();
-      case 'Pacifico':
-        return GoogleFonts.pacifico();
-      case 'Bebas Neue':
-        return GoogleFonts.bebasNeue();
-      case 'Caveat':
-        return GoogleFonts.caveat();
-      case 'Permanent Marker':
-        return GoogleFonts.permanentMarker();
-      case 'Righteous':
-        return GoogleFonts.righteous();
-      case 'Lobster':
-        return GoogleFonts.lobster();
-      case 'Dancing Script':
-        return GoogleFonts.dancingScript();
-      case 'Bangers':
-        return GoogleFonts.bangers();
-      default:
-        return const TextStyle();
+  /// Sliding two-option pill: For You | My Dailies.
+  Widget _buildToggle() {
+    Widget option(String label, bool selected, VoidCallback onTap) {
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Center(
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.black : Colors.grey[600],
+              ),
+              child: Text(label),
+            ),
+          ),
+        ),
+      );
     }
-  }
 
-  Widget _buildDailyCard(DailyData daily, Set<String> viewedSet) {
-    bool isUserCreated = _isUserCreatedDaily(daily);
-    bool hasBeenViewed = viewedSet.contains(daily.id);
-    final dailyColor = Color(daily.iconColor ?? 0xFF00BCD4);
-
-    return GestureDetector(
-      onTap: () async {
-        bool wasUnviewed = !hasBeenViewed;
-
-        if (wasUnviewed && daily.dailyEntryPrompt.isNotEmpty) {
-          // Mark as viewed AFTER showing the prompt (moved inside UponOpeningDaily)
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => UponOpeningDaily(
-                daily: daily,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Stack(
+          children: [
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOut,
+              alignment:
+              _showForYou ? Alignment.centerLeft : Alignment.centerRight,
+              child: FractionallySizedBox(
+                widthFactor: 0.5,
+                heightFactor: 1.0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(17),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          );
-        } else {
-          await DailyList.markAsViewed(daily.id);
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => InsideDaily(daily: daily),
+            Row(
+              children: [
+                option('For You', _showForYou, () {
+                  if (!_showForYou) setState(() => _showForYou = true);
+                }),
+                option('My Dailies', !_showForYou, () {
+                  if (_showForYou) setState(() => _showForYou = false);
+                }),
+              ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The original Dailies list (the Dailies the viewer created or joined),
+  /// unchanged apart from now living under the toggle.
+  Widget _buildMyDailies() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.cyan),
+      );
+    }
+
+    return StreamBuilder<List<DailyData>>(
+      stream: DailyList.getDailiesStream(),
+      builder: (context, dailiesSnapshot) {
+        if (dailiesSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.cyan),
           );
         }
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: !hasBeenViewed ? dailyColor.withOpacity(0.08) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: !hasBeenViewed
-                ? dailyColor
-                : (daily.isPinned ? dailyColor : Colors.grey[300]!),
-            width: !hasBeenViewed ? 2 : (daily.isPinned ? 2 : 1),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 3,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Color(daily.iconColor ?? 0xFF00BCD4).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: daily.customIconPath != null && File(daily.customIconPath!).existsSync()
-                  ? ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  File(daily.customIconPath!),
-                  fit: BoxFit.cover,
-                ),
-              )
-                  : Icon(
-                daily.icon,
-                color: Color(daily.iconColor ?? 0xFF00BCD4),
-                size: 32,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          daily.title,
-                          style: _getFontForDaily(daily).copyWith(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ),
-                      if (daily.isPinned)
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Colors.cyan,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.push_pin,
-                            size: 14,
-                            color: Colors.white,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    daily.description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        'Active Friends: ',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          '',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatDate(daily.createdAt),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[500],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            PopupMenuButton<String>(
-              icon: Icon(
-                Icons.more_vert,
-                color: Colors.grey[600],
-                size: 24,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              onSelected: (value) {
-                if (value == 'pin') {
-                  DailyList.togglePin(daily.id);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        daily.isPinned ? '${daily.title} unpinned!' : '${daily.title} pinned!',
-                      ),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                } else if (value == 'delete') {
-                  _showDeleteConfirmation(daily);
-                } else if (value == 'manage') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ManageDailyScreen(daily: daily),
-                    ),
-                  );
-                }
-              },
-              itemBuilder: (BuildContext context) {
-                List<PopupMenuEntry<String>> menuItems = [
-                  PopupMenuItem<String>(
-                    value: 'pin',
-                    child: Row(
-                      children: [
-                        Icon(
-                          daily.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                          size: 20,
-                          color: Colors.black87,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          daily.isPinned ? 'Unpin' : 'Pin',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ];
 
-                if (isUserCreated) {
-                  menuItems.add(
-                    const PopupMenuItem<String>(
-                      value: 'manage',
-                      child: Row(
-                        children: [
-                          Icon(Icons.settings, size: 20, color: Colors.black87),
-                          SizedBox(width: 12),
-                          Text(
-                            'Manage',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.black87,
+        if (dailiesSnapshot.hasError) {
+          return Center(
+            child: Text('Error: ${dailiesSnapshot.error}'),
+          );
+        }
+
+        final publishedDailies = dailiesSnapshot.data ?? [];
+
+        return StreamBuilder<Set<String>>(
+          stream: DailyList.getViewedDailiesStream(),
+          builder: (context, viewedSnapshot) {
+            final viewedToday = viewedSnapshot.data ?? {};
+
+            if (publishedDailies.isEmpty && _todaysStoryItems.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.photo_camera_outlined,
+                      size: 80,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No Dailies Yet!',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Start your day by posting your first daily',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    GestureDetector(
+                      onTap: _navigateToAddDaily,
+                      child: Container(
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          color: Colors.cyan,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.cyan.withOpacity(0.4),
+                              spreadRadius: 2,
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.add,
+                          color: Colors.white,
+                          size: 40,
+                        ),
                       ),
                     ),
-                  );
-                }
-
-                menuItems.add(
-                  const PopupMenuItem<String>(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                        SizedBox(width: 12),
-                        Text(
-                          'Delete',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.red,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 12),
+                    Text(
+                      'Add a Daily!',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
                     ),
-                  ),
-                );
-
-                return menuItems;
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDeleteConfirmation(DailyData daily) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: const Text(
-          'Delete Daily?',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: Text(
-          'Are you sure you want to delete "${daily.title}"? This action cannot be undone.',
-          style: const TextStyle(
-            fontSize: 16,
-            color: Colors.black87,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              DailyList.deleteDaily(daily.id);
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${daily.title} deleted'),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 2),
+                  ],
                 ),
               );
-            },
-            child: const Text(
-              'Delete',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.red,
-              ),
-            ),
-          ),
-        ],
-      ),
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: publishedDailies.length,
+              itemBuilder: (context, index) {
+                final daily = publishedDailies[index];
+                return DailyCover(
+                  daily: daily,
+                  hasBeenViewed: viewedToday.contains(daily.id),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inDays == 0) {
-      return 'today';
-    } else if (difference.inDays == 1) {
-      return 'yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else if (difference.inDays < 30) {
-      final weeks = (difference.inDays / 7).floor();
-      return weeks == 1 ? '1 week ago' : '$weeks weeks ago';
-    } else {
-      final months = (difference.inDays / 30).floor();
-      return months == 1 ? '1 month ago' : '$months months ago';
-    }
-  }
-
-
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          Container(
-            color: Colors.white,
-            width: double.infinity,
-            height: double.infinity,
-            child: _isLoading
-                ? const Center(
-              child: CircularProgressIndicator(
-                color: Colors.cyan,
+      body: Container(
+        color: Colors.white,
+        width: double.infinity,
+        height: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(
+                  left: 16, right: 16, top: 60, bottom: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Dailies',
+                    style: TextStyle(
+                      fontFamily: 'Slackey',
+                      fontSize: 32,
+                      color: Colors.cyan,
+                      fontWeight: FontWeight.normal,
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Opens the Add sheet
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline,
+                            color: Colors.black, size: 28),
+                        onPressed: _navigateToAddDaily,
+                      ),
+                      // Search now lives in its own tab.
+                      IconButton(
+                        icon: const Icon(Icons.search,
+                            color: Colors.black, size: 28),
+                        onPressed: () => widget.onNavigateToTab?.call(3),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            )
-                : StreamBuilder<List<DailyData>>(
-              stream: DailyList.getDailiesStream(),
-              builder: (context, dailiesSnapshot) {
-                if (dailiesSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Colors.cyan),
-                  );
-                }
-
-                if (dailiesSnapshot.hasError) {
-                  return Center(
-                    child: Text('Error: ${dailiesSnapshot.error}'),
-                  );
-                }
-
-                final publishedDailies = dailiesSnapshot.data ?? [];
-
-                return StreamBuilder<Set<String>>(
-                  stream: DailyList.getViewedDailiesStream(),
-                  builder: (context, viewedSnapshot) {
-                    final viewedToday = viewedSnapshot.data ?? {};
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(left: 16, right: 16, top: 60, bottom: 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Dailies',
-                                style: TextStyle(
-                                  fontFamily: 'Slackey',
-                                  fontSize: 32,
-                                  color: Colors.cyan,
-                                  fontWeight: FontWeight.normal,
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.search, color: Colors.black, size: 28),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const SearchScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        StoryBar(
-                          onTapOwnStory: _openPhotoCarousel,
-                          hasOwnPhotosToday: _todaysPhotos.isNotEmpty,
-                          hasViewedAllOwnPhotos: _hasViewedAllPhotos,
-                        ),
-                        const SizedBox(height: 24),
-                        if (publishedDailies.isEmpty && _todaysPhotos.isEmpty)
-                          Expanded(
-                            child: Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.photo_camera_outlined,
-                                    size: 80,
-                                    color: Colors.grey[400],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'No Dailies Yet!',
-                                    style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey[700],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Start your day by posting your first daily',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[600],
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 24),
-                                  GestureDetector(
-                                    onTap: _navigateToAddDaily,
-                                    child: Container(
-                                      width: 70,
-                                      height: 70,
-                                      decoration: BoxDecoration(
-                                        color: Colors.cyan,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.cyan.withOpacity(0.4),
-                                            spreadRadius: 2,
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: const Icon(
-                                        Icons.add,
-                                        color: Colors.white,
-                                        size: 40,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Add a Daily!',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey[700],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                        else
-                          Expanded(
-                            child: ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: publishedDailies.length,
-                              itemBuilder: (context, index) {
-                                return _buildDailyCard(publishedDailies[index], viewedToday);
-                              },
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                );
-              },
             ),
-          ),
-        ],
+            StoryBar(
+              onTapOwnStory: _openPhotoCarousel,
+              hasOwnPhotosToday: _todaysStoryItems.isNotEmpty,
+              hasViewedAllOwnPhotos: _hasViewedAllPhotos,
+            ),
+            const SizedBox(height: 16),
+            _buildToggle(),
+            const SizedBox(height: 14),
+            Expanded(
+              // Both tabs stay mounted so switching back and forth never
+              // reloads the feed or loses its scroll position.
+              child: IndexedStack(
+                index: _showForYou ? 0 : 1,
+                children: [
+                  const DailyForYouFeed(),
+                  _buildMyDailies(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

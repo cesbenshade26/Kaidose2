@@ -36,7 +36,7 @@ dependencies:
   permission_handler: ^11.4.0  # Updated from 11.0.1
   path_provider: ^2.1.5        # Updated from 2.0.15
   video_player: ^2.9.1         # Updated from 2.8.1
-  contacts_service: ^0.6.3     # (Keep this, but we'll fix the link below)
+  #contacts_service: ^0.6.3     # (Keep this, but we'll fix the link below)
   firebase_core: ^4.12.1       # Updated (Matches Firebase iOS SDK 12.9.0)
   firebase_auth: ^6.1.4        # Updated
   cloud_firestore: ^6.1.2      # Updated
@@ -44,9 +44,14 @@ dependencies:
   google_fonts: ^6.1.0
   http: ^1.2.0
   flutter_image_compress: ^2.1.0
-  firebase_storage: ^13.4.5
+  firebase_storage: ^13.6.0
   share_plus: ^12.0.2
   cross_file: ^0.3.5+2
+  photo_manager: ^3.12.0
+  photo_manager_image_provider: ^2.2.0
+  firebase_ai: ^4.0.0
+  video_thumbnail: ^0.5.6
+  cached_network_image: ^4.0.4
 
 dev_dependencies:
   flutter_test:

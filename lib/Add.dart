@@ -1,170 +1,53 @@
 import 'package:flutter/material.dart';
 import 'YourDaily.dart';
 import 'AddClip.dart';
-import 'AddDailyMessage.dart';
 
-// Add Post Widget
-class AddWidget extends StatefulWidget {
-  const AddWidget({Key? key}) : super(key: key);
+/// Route name used when an Add screen is pushed on top of the app, so other
+/// code can find and close it (see Home.dart).
+const String kAddRouteName = 'add';
 
-  @override
-  State<AddWidget> createState() => _AddWidgetState();
-}
+/// Where the Add sheet's options land when they need a full screen.
+/// (Daily Message and Daily Bubble are handled in the sheet itself and New
+/// Daily has its own flow, so only these two live here.)
+enum AddDestination { clip, yourDaily }
 
-class _AddWidgetState extends State<AddWidget> {
-  int _selectedTabIndex = 0; // Track selected tab
+/// One focused full-screen composer, opened from the Add sheet. Each option
+/// gets only its own screen — no tab bar — with a close button.
+class AddWidget extends StatelessWidget {
+  final AddDestination destination;
+
+  const AddWidget({Key? key, required this.destination}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          'Add Post',
-          style: TextStyle(
-            fontFamily: 'Slackey',
-            color: Colors.cyan,
-            fontSize: 32,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          // Tab section with smooth animation
-          Container(
-            width: double.infinity,
-            child: Column(
-              children: [
-                // Tab buttons
-                Row(
-                  children: [
-                    // Daily tab
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 0;
-                          });
-                          print('Daily tab tapped');
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            'Daily',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Clip tab
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 1;
-                          });
-                          print('Clip tab tapped');
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            'Clip',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Your Daily tab
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedTabIndex = 2;
-                          });
-                          print('Your Daily tab tapped');
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            'Your Daily',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                // Animated sliding indicator
-                Container(
-                  height: 2,
-                  child: Stack(
-                    children: [
-                      // Background line (transparent)
-                      Container(
-                        width: double.infinity,
-                        height: 2,
-                        color: Colors.transparent,
-                      ),
-                      // Animated black line
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
-                        width: MediaQuery.of(context).size.width / 3,
-                        child: Container(
-                          height: 2,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+    switch (destination) {
+      case AddDestination.clip:
+      // AddClipScreen has its own app bar (title + close).
+        return const AddClipScreen(closeable: true);
+      case AddDestination.yourDaily:
+        return Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            foregroundColor: Colors.black,
+            elevation: 0,
+            centerTitle: true,
+            automaticallyImplyLeading: false,
+            leading: IconButton(
+              icon: const Icon(Icons.close, color: Colors.black),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+            title: const Text(
+              'Your Daily',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black),
             ),
           ),
-
-          // Content area based on selected tab
-          Expanded(
-            child: _getTabContent(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _getTabContent() {
-    switch (_selectedTabIndex) {
-      case 0:
-      // Daily tab content
-        return const AddDailyMessage();
-      case 1:
-      // Clip tab content
-        return const AddClipScreen();
-      case 2:
-      // Your Daily tab content - show photos
-        return const YourDailyWidget();
-      default:
-        return Container(color: Colors.white);
+          body: const YourDailyWidget(),
+        );
     }
   }
 }

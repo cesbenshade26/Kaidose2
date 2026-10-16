@@ -16,6 +16,7 @@ import 'Archives.dart';
 import 'NotificationScreen.dart';
 import 'friend_request_service.dart';
 import 'YourDailyBubbles.dart';
+import 'Add.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -214,6 +215,18 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     super.dispose();
   }
 
+  void _openAddYourDaily() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: kAddRouteName),
+        builder: (context) =>
+        const AddWidget(destination: AddDestination.yourDaily),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
   Widget _buildBioText(double screenWidth) {
     const double profilePicSize = 160.0;
     final double profilePicStartX = (screenWidth - profilePicSize) / 2;
@@ -301,28 +314,59 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
               });
             });
           },
-          child: Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.grey[300],
-              border: Border.all(color: Colors.grey[400]!, width: 3),
-            ),
-            child: ClipOval(
-              child: _profilePic != null && _profilePic!.existsSync()
-                  ? Image.file(
-                _profilePic!,
-                fit: BoxFit.cover,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
                 width: 160,
                 height: 160,
-                key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-                errorBuilder: (context, error, stackTrace) {
-                  return const DefaultProfilePic(size: 160, borderWidth: 0);
-                },
-              )
-                  : const DefaultProfilePic(size: 160, borderWidth: 0),
-            ),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.grey[300],
+                  border: Border.all(color: Colors.grey[400]!, width: 3),
+                ),
+                child: ClipOval(
+                  child: _profilePic != null && _profilePic!.existsSync()
+                      ? Image.file(
+                    _profilePic!,
+                    fit: BoxFit.cover,
+                    width: 160,
+                    height: 160,
+                    key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
+                    errorBuilder: (context, error, stackTrace) {
+                      return const DefaultProfilePic(size: 160, borderWidth: 0);
+                    },
+                  )
+                      : const DefaultProfilePic(size: 160, borderWidth: 0),
+                ),
+              ),
+              // Small "+" — post to Your Daily. Closing that screen comes
+              // straight back to the profile.
+              Positioned(
+                right: 6,
+                bottom: 6,
+                child: GestureDetector(
+                  onTap: _openAddYourDaily,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.cyan,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white, size: 18),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),

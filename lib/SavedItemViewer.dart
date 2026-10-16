@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'SendDailyMessage.dart';
+import 'VideoClipPlayer.dart';
+import 'NetworkVideoPlayer.dart';
+
+bool _isNetworkPath(String path) =>
+    path.startsWith('http://') || path.startsWith('https://');
 
 class SavedItemViewer extends StatefulWidget {
   final List<DailyMessage> items;
@@ -41,8 +46,81 @@ class _SavedItemViewerState extends State<SavedItemViewer> {
     super.dispose();
   }
 
+  Widget _buildVideo(String videoPath) {
+    return AspectRatio(
+      aspectRatio: 9 / 16,
+      child: _isNetworkPath(videoPath)
+          ? NetworkVideoPlayer(url: videoPath)
+          : VideoClipPlayer(
+        videoFile: File(videoPath),
+        autoPlay: true,
+        looping: true,
+        fit: BoxFit.contain,
+      ),
+    );
+  }
+
+  Widget _buildImage(String imagePath) {
+    if (_isNetworkPath(imagePath)) {
+      return Image.network(
+        imagePath,
+        fit: BoxFit.contain,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            height: 300,
+            color: Colors.grey[100],
+            child: const Center(
+              child: CircularProgressIndicator(color: Colors.cyan),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            height: 300,
+            color: Colors.grey[200],
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.broken_image, color: Colors.grey[400], size: 80),
+                const SizedBox(height: 16),
+                Text(
+                  'Image not available',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    return Image.file(
+      File(imagePath),
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          height: 300,
+          color: Colors.grey[200],
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.broken_image, color: Colors.grey[400], size: 80),
+              const SizedBox(height: 16),
+              Text(
+                'Image not available',
+                style: TextStyle(color: Colors.grey[600], fontSize: 16),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildMessageView(DailyMessage message, int index) {
     final hasImage = message.imagePath != null && message.imagePath!.isNotEmpty;
+    final hasVideo = message.videoPath != null && message.videoPath!.isNotEmpty;
     final hasText = message.text != null && message.text!.isNotEmpty;
 
     return Container(
@@ -86,33 +164,21 @@ class _SavedItemViewerState extends State<SavedItemViewer> {
                     constraints: BoxConstraints(
                       maxHeight: MediaQuery.of(context).size.height * 0.6,
                     ),
-                    child: Image.file(
-                      File(message.imagePath!),
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          height: 300,
-                          color: Colors.grey[200],
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.broken_image,
-                                color: Colors.grey[400],
-                                size: 80,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Image not available',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                    child: _buildImage(message.imagePath!),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                // Video (if exists)
+                if (hasVideo) ...[
+                  Container(
+                    width: double.infinity,
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.6,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _buildVideo(message.videoPath!),
                     ),
                   ),
                   const SizedBox(height: 24),

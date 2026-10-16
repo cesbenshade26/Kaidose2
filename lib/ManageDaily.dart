@@ -7,7 +7,6 @@ import 'DailyData.dart';
 import 'DailyList.dart';
 import 'EditDaily.dart' as edit_daily;
 import 'ManageMembers.dart' as manage_members;
-import 'DailyHistory.dart';
 import 'dart:io';
 
 const List<Map<String, dynamic>> kDailyTags = [
@@ -39,6 +38,11 @@ class ManageDailyScreen extends StatefulWidget {
 }
 
 class _ManageDailyScreenState extends State<ManageDailyScreen> {
+  // Two tabs now: Settings and Members. The old History tab was removed —
+  // its creator/founders info duplicated the Members tab, and the created
+  // date now lives in the header below instead.
+  static const int _tabCount = 2;
+
   int _selectedTabIndex = 0;
   late DailyData _currentDaily;
   bool _isOwner = false;
@@ -112,12 +116,21 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
     }
   }
 
+  String _formatCreatedDate(DateTime date) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
@@ -210,6 +223,11 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                     ],
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'Created ${_formatCreatedDate(_currentDaily.createdAt)}',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                ),
                 if (!_isOwner)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
@@ -233,7 +251,6 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                   children: [
                     _buildTab(0, Icons.settings, 'Settings'),
                     _buildTab(1, Icons.people, 'Members'),
-                    _buildTab(2, Icons.history, 'History'),
                   ],
                 ),
                 SizedBox(
@@ -248,9 +265,9 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                         duration: const Duration(milliseconds: 300),
                         curve: Curves.easeInOut,
                         left: MediaQuery.of(context).size.width *
-                            _selectedTabIndex / 3,
+                            _selectedTabIndex / _tabCount,
                         width:
-                        MediaQuery.of(context).size.width / 3,
+                        MediaQuery.of(context).size.width / _tabCount,
                         child: Container(
                             height: 2, color: _dailyColor),
                       ),
@@ -295,15 +312,9 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
 
   Widget _getTabContent() {
     switch (_selectedTabIndex) {
-      case 0:
-        return edit_daily.EditDaily(
-          daily: _currentDaily,
-          onSave: _updateDaily,
-        );
       case 1:
         return manage_members.ManageMembers(daily: _currentDaily);
-      case 2:
-        return DailyHistory(daily: _currentDaily);
+      case 0:
       default:
         return edit_daily.EditDaily(
           daily: _currentDaily,

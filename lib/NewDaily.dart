@@ -10,6 +10,32 @@ import 'friend_request_service.dart';
 import 'FeedService.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// Shared handling for the New Daily flow (3 screens). Every screen in the
+/// flow is pushed with [routeName], so closing it pops all of them at once
+/// and lands back on whoever opened the flow (the Add sheet).
+class NewDailyFlow {
+  static const String routeName = 'new_daily_flow';
+
+  /// Set true when a Daily was actually published, so the opener knows
+  /// not to re-show the Add sheet.
+  static bool published = false;
+
+  static Route<void> route() => MaterialPageRoute<void>(
+    settings: const RouteSettings(name: routeName),
+    builder: (_) => const NewDailyScreen(),
+  );
+
+  static void close(BuildContext context) {
+    Navigator.of(context)
+        .popUntil((route) => route.settings.name != routeName);
+  }
+
+  static Widget closeButton(BuildContext context) => IconButton(
+    icon: const Icon(Icons.close, color: Colors.black, size: 26),
+    onPressed: () => close(context),
+  );
+}
+
 class NewDailyScreen extends StatefulWidget {
   const NewDailyScreen({Key? key}) : super(key: key);
 
@@ -56,6 +82,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
+        settings: const RouteSettings(name: NewDailyFlow.routeName),
         builder: (context) => NewDailyNextScreen(
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
@@ -74,6 +101,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
@@ -289,6 +317,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
+        settings: const RouteSettings(name: NewDailyFlow.routeName),
         builder: (context) => NewDailyFinalScreen(
           title: widget.title,
           description: widget.description,
@@ -308,6 +337,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
@@ -318,6 +348,7 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
           style: TextStyle(
               color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
         ),
+        actions: [NewDailyFlow.closeButton(context)],
         centerTitle: true,
       ),
       body: Column(
@@ -627,7 +658,8 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
           duration: Duration(seconds: 2),
         ),
       );
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      NewDailyFlow.published = true;
+      NewDailyFlow.close(context);
     }
   }
 
@@ -637,6 +669,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
@@ -647,6 +680,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
           style: TextStyle(
               color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
         ),
+        actions: [NewDailyFlow.closeButton(context)],
         centerTitle: true,
       ),
       body: Column(

@@ -5,6 +5,9 @@ import 'SavedItemStorage.dart';
 import 'SendDailyMessage.dart';
 import 'SavedItemViewer.dart';
 
+bool _isNetworkPath(String path) =>
+    path.startsWith('http://') || path.startsWith('https://');
+
 class InsideArchiveScreen extends StatefulWidget {
   final ArchiveData archive;
 
@@ -103,35 +106,51 @@ class _InsideArchiveScreenState extends State<InsideArchiveScreen> {
 
   Widget _buildGridItem(DailyMessage message, int index) {
     final hasImage = message.imagePath != null && message.imagePath!.isNotEmpty;
+    final hasVideo = message.videoPath != null && message.videoPath!.isNotEmpty;
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SavedItemViewer(
-              items: _savedItems,
-              initialIndex: index,
+    Widget tileContent;
+    if (hasImage) {
+      tileContent = _isNetworkPath(message.imagePath!)
+          ? Image.network(
+        message.imagePath!,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            color: Colors.grey[100],
+            child: const Center(
+              child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2),
             ),
-          ),
-        );
-      },
-      child: hasImage
-          ? Image.file(
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: Colors.grey[200],
+            child: Icon(Icons.broken_image, color: Colors.grey[400], size: 40),
+          );
+        },
+      )
+          : Image.file(
         File(message.imagePath!),
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
           return Container(
             color: Colors.grey[200],
-            child: Icon(
-              Icons.broken_image,
-              color: Colors.grey[400],
-              size: 40,
-            ),
+            child: Icon(Icons.broken_image, color: Colors.grey[400], size: 40),
           );
         },
-      )
-          : Container(
+      );
+    } else if (hasVideo) {
+      // Simple placeholder tile for saved clips — full playback happens
+      // in SavedItemViewer once tapped. Revisit this view later.
+      tileContent = Container(
+        color: Colors.black87,
+        child: const Center(
+          child: Icon(Icons.play_circle_fill, color: Colors.white, size: 40),
+        ),
+      );
+    } else {
+      tileContent = Container(
         color: Colors.grey[100],
         alignment: Alignment.center,
         padding: const EdgeInsets.all(8),
@@ -147,7 +166,22 @@ class _InsideArchiveScreenState extends State<InsideArchiveScreen> {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
         ),
-      ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SavedItemViewer(
+              items: _savedItems,
+              initialIndex: index,
+            ),
+          ),
+        );
+      },
+      child: tileContent,
     );
   }
 

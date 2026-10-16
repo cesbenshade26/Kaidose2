@@ -2,23 +2,35 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'YourDailyBubbles.dart';
 
-/// Bottom sheet shown after posting/sharing a Your Daily, letting the user
-/// optionally attach the photo to one or more existing Daily Bubbles.
+/// Bottom sheet shown after posting/sharing a Your Daily (photo or video
+/// clip), letting the user optionally attach it to one or more existing
+/// Daily Bubbles.
 ///
 /// Only ever shown when at least one Daily Bubble exists — if there are
 /// none, the caller should skip straight to [onPost] instead.
-///
+///Choose one of the following controversial practices in sports, and respond to the two prompts that follow:
+//
+// Strategic Fouling (fouling an opponent to gain an advantage or prevent them from doing so)
+// FloppingLinks to an external site. (pretending to be fouledLinks to an external site., to draw a call against the opponentLinks to an external site.) [my techniqueLinks to an external site.]
+// Stalling (aiming to run the clock out, rather than trying to score, to maintain a lead)
+// Trash Talking (insulting or bragging to an opponent to gain a psychological advantage)
+// Load Management (sitting out games over minor injuries or to rest, to stay fresh & protect long-term health)
+// (1) Present a logical argument for whether or not there is anything wrong with this practice. You may specify a particular sport that you are focusing on.
+//
+// (2) Which of the following perspectives does your argument align best with: externalism, formalism, conventionalism, or interpretivism (broad internalism)? Explain.
 /// Dismiss via the back arrow or by swiping the sheet down (default
 /// bottom-sheet drag-to-dismiss). "Post" runs [onPost] — the actual post
 /// action — regardless of whether any bubbles are checked, then attaches
-/// the photo to whichever bubbles were checked.
+/// the media to whichever bubbles were checked.
 class YourDailyBubbleSelectSheet extends StatefulWidget {
-  final File photo;
+  final File mediaFile;
+  final bool isVideo;
   final Future<void> Function() onPost;
 
   const YourDailyBubbleSelectSheet({
     Key? key,
-    required this.photo,
+    required this.mediaFile,
+    this.isVideo = false,
     required this.onPost,
   }) : super(key: key);
 
@@ -46,7 +58,11 @@ class _YourDailyBubbleSelectSheetState
 
     for (int i = 0; i < YourDailyBubbleManager.bubbles.length; i++) {
       if (i < _checked.length && _checked[i]) {
-        await YourDailyBubbleManager.addPhotoToBubble(i, widget.photo);
+        await YourDailyBubbleManager.addMediaToBubble(
+          i,
+          widget.mediaFile,
+          isVideo: widget.isVideo,
+        );
       }
     }
 
@@ -69,7 +85,7 @@ class _YourDailyBubbleSelectSheetState
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle bar — also indicates it can be swiped down to dismiss
+          // Handle bar
           Container(
             width: 40,
             height: 4,
@@ -78,29 +94,17 @@ class _YourDailyBubbleSelectSheetState
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: const Icon(Icons.arrow_back, size: 24),
-              ),
-              const Expanded(
-                child: Text(
-                  'Add to Daily Bubbles',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(width: 24), // balances the back arrow
-            ],
+          const SizedBox(height: 16),
+          const Text(
+            'Add to Daily Bubbles',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
             'Optional — Post works either way',
             style: TextStyle(fontSize: 13, color: Colors.grey[600]),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.4,
