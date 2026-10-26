@@ -126,11 +126,16 @@ class DailyJoinRequestService {
         .collection('daily_join_requests')
         .where('toUserId', isEqualTo: currentUid)
         .where('status', isEqualTo: 'pending')
-        .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => DailyJoinRequest.fromFirestore(doc))
-        .toList());
+        .map((snapshot) {
+      // Sorted here (newest first) instead of with orderBy, so no Firestore
+      // composite index is needed.
+      final items = snapshot.docs
+          .map((doc) => DailyJoinRequest.fromFirestore(doc))
+          .toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return items;
+    });
   }
 
   /// Accept a join request — caller is responsible for then copying

@@ -1,14 +1,26 @@
 // KaidoseAnimation.dart
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'KaidoseBrand.dart';
 
+/// The opening animation: "Kaidose" draws in letter by letter, a cyan
+/// underline sweeps beneath, a short hold, then [onAnimationComplete].
+///
+/// It plays at most once per app run, and not at all when someone is already
+/// signed in (they should land straight in the app) — in those cases
+/// [onAnimationComplete] is called right away.
 class KaidoseAnimation extends StatefulWidget {
   final VoidCallback onAnimationComplete;
   final bool fadeOutAtEnd;
+
+  /// Play even if it already played this run or someone is signed in.
+  final bool force;
 
   const KaidoseAnimation({
     Key? key,
     required this.onAnimationComplete,
     this.fadeOutAtEnd = false,
+    this.force = false,
   }) : super(key: key);
 
   @override
@@ -17,104 +29,62 @@ class KaidoseAnimation extends StatefulWidget {
 
 class _KaidoseAnimationState extends State<KaidoseAnimation>
     with TickerProviderStateMixin {
-  late AnimationController _drawController;
-  late Animation<double> _drawProgress;
-
-  late AnimationController _fadeController;
-  late Animation<double> _fadeOpacity;
-
-  bool moveToTop = false;
+  late final AnimationController _draw;
+  late final AnimationController _fade;
+  bool _skipped = false;
 
   @override
   void initState() {
     super.initState();
-
-    _drawController = AnimationController(
-      duration: const Duration(seconds: 4),
+    _draw = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _fade = AnimationController(
+      duration: const Duration(milliseconds: 400),
       vsync: this,
     );
 
-    _drawProgress = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _drawController, curve: Curves.easeInOut),
-    );
-
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-
-    _fadeOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
-    );
-
-    _startAnimation();
+    final alreadySignedIn = FirebaseAuth.instance.currentUser != null;
+    if (!widget.force && (KaidoseIntro.played || alreadySignedIn)) {
+      _skipped = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onAnimationComplete();
+      });
+      return;
+    }
+    KaidoseIntro.played = true;
+    _run();
   }
 
-  void _startAnimation() {
-    _drawController.forward().whenComplete(() async {
-      setState(() {
-        moveToTop = true;
-      });
-
-      await Future.delayed(const Duration(milliseconds: 2000));
-
-      if (widget.fadeOutAtEnd) {
-        // Fade out and then call completion
-        _fadeController.forward().whenComplete(() {
-          widget.onAnimationComplete();
-        });
-      } else {
-        // Just call completion without fade
-        widget.onAnimationComplete();
-      }
-    });
+  Future<void> _run() async {
+    await KaidoseBrand.preloadFonts();
+    if (!mounted) return;
+    await _draw.forward();
+    await Future.delayed(const Duration(milliseconds: 450));
+    if (!mounted) return;
+    if (widget.fadeOutAtEnd) await _fade.forward();
+    if (mounted) widget.onAnimationComplete();
   }
 
   @override
   void dispose() {
-    _drawController.dispose();
-    _fadeController.dispose();
+    _draw.dispose();
+    _fade.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const titleText = 'Kaidose';
-    const slackeyStyle = TextStyle(
-      fontFamily: 'Slackey',
-      fontSize: 64,
-      color: Colors.cyan,
-    );
+    if (_skipped) return const Scaffold(backgroundColor: Colors.white);
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          AnimatedPositioned(
-            duration: const Duration(seconds: 2),
-            curve: Curves.easeInOut,
-            top: moveToTop ? 80 : MediaQuery.of(context).size.height / 2 - 32,
-            left: 0,
-            right: 0,
-            child: FadeTransition(
-              opacity: _fadeOpacity,
-              child: AnimatedBuilder(
-                animation: _drawProgress,
-                builder: (context, child) {
-                  return Center(
-                    child: ClipRect(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: _drawProgress.value,
-                        child: Text(titleText, style: slackeyStyle),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
+      body: Center(
+        child: FadeTransition(
+          opacity: ReverseAnimation(_fade),
+          child: KaidoseWordmark(progress: _draw, fontSize: 60),
+        ),
       ),
     );
   }

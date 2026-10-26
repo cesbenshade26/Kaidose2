@@ -8,6 +8,23 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
   bool get isLoggedIn => _auth.currentUser != null;
 
+  // USERNAME AVAILABILITY
+  // Login looks accounts up by username, so two people can't share one.
+  // (Exact match; returns false if the check itself fails so a network hiccup
+  // doesn't block sign-up.)
+  Future<bool> isUsernameTaken(String username) async {
+    try {
+      final query = await _firestore
+          .collection('users')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+      return query.docs.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // SIGN UP
   Future<Map<String, dynamic>> signUp({
     required String email,
@@ -88,12 +105,12 @@ class AuthService {
     User? user = _auth.currentUser;
     if (user != null) {
       await user.reload();
-      return _auth.currentUser!.emailVerified;
+      return _auth.currentUser?.emailVerified ?? false;
     }
     return false;
   }
 
-  // RESEND VERIFICATION (FIXED TYPE)
+  // RESEND VERIFICATION
   Future<String?> resendVerificationEmail() async {
     try {
       await _auth.currentUser?.sendEmailVerification();

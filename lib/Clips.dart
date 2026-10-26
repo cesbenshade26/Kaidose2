@@ -5,11 +5,23 @@ import 'ClipSideBar.dart';
 import 'Clipcommentsheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'Add.dart';
+import 'FeedService.dart';
 
 class ClipsWidget extends StatefulWidget {
   final bool isTabActive;
 
-  const ClipsWidget({Key? key, this.isTabActive = true}) : super(key: key);
+  /// Viewer mode (opened from Search): plays exactly these clips, starting at
+  /// [startIndex], with a back button instead of the + button. Null = the
+  /// normal ranked feed.
+  final List<ClipData>? pinnedClips;
+  final int startIndex;
+
+  const ClipsWidget({
+    Key? key,
+    this.isTabActive = true,
+    this.pinnedClips,
+    this.startIndex = 0,
+  }) : super(key: key);
 
   @override
   State<ClipsWidget> createState() => _ClipsWidgetState();
@@ -22,10 +34,42 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   // pauses instead of playing behind it.
   bool _covered = false;
 
+  // Feed order, decided once per session by FeedService.rankClipIds so clips
+  // never reshuffle under the user mid-scroll. Clips that arrive later are
+  // appended; deleted ones drop out.
+  List<String>? _order;
+  bool _ranking = false;
+
+  Future<void> _rankOnce(List<ClipData> clips) async {
+    if (_ranking || _order != null || clips.isEmpty) return;
+    _ranking = true;
+    List<String> order;
+    try {
+      order = await FeedService.rankClipIds(clips);
+    } catch (e) {
+      print('Clips: ranking failed, using newest-first: $e');
+      order = clips.map((c) => c.id).toList();
+    }
+    if (mounted) setState(() => _order = order);
+  }
+
+  List<ClipData> _applyOrder(List<ClipData> clips) {
+    final order = _order!;
+    final byId = {for (final c in clips) c.id: c};
+    final ordered = <ClipData>[
+      for (final id in order)
+        if (byId.containsKey(id)) byId[id]!,
+    ];
+    final known = order.toSet();
+    ordered.addAll(clips.where((c) => !known.contains(c.id)));
+    return ordered;
+  }
+
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _currentPage = widget.pinnedClips != null ? widget.startIndex : 0;
+    _pageController = PageController(initialPage: _currentPage);
   }
 
   @override
@@ -41,26 +85,49 @@ class _ClipsWidgetState extends State<ClipsWidget> {
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          Positioned.fill(child: _buildFeed()),
+          Positioned.fill(
+              child: widget.pinnedClips != null
+                  ? _buildPager(widget.pinnedClips!)
+                  : _buildFeed()),
+          if (widget.pinnedClips != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 12,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white54, width: 1),
+                  ),
+                  child: const Icon(Icons.arrow_back,
+                      color: Colors.white, size: 22),
+                ),
+              ),
+            )
+          else
           // Add a clip: opens the Add Clip screen, and closing it comes
           // straight back here.
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            right: 12,
-            child: GestureDetector(
-              onTap: _openAddClip,
-              child: Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.35),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white54, width: 1),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 12,
+              child: GestureDetector(
+                onTap: _openAddClip,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white54, width: 1),
+                  ),
+                  child: const Icon(Icons.add, color: Colors.white, size: 24),
                 ),
-                child: const Icon(Icons.add, color: Colors.white, size: 24),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -90,7 +157,15 @@ class _ClipsWidgetState extends State<ClipsWidget> {
           );
         }
 
-        final clips = snapshot.data ?? [];
+        var clips = snapshot.data ?? [];
+
+        if (clips.isNotEmpty && _order == null) {
+          _rankOnce(clips);
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.cyan),
+          );
+        }
+        if (_order != null) clips = _applyOrder(clips);
 
         if (clips.isEmpty) {
           return Center(
@@ -114,18 +189,21 @@ class _ClipsWidgetState extends State<ClipsWidget> {
           );
         }
 
-        return PageView.builder(
-          controller: _pageController,
-          scrollDirection: Axis.vertical,
-          onPageChanged: (index) =>
-              setState(() => _currentPage = index),
-          itemCount: clips.length,
-          itemBuilder: (context, index) {
-            return _ClipPage(
-              clip: clips[index],
-              isActive: index == _currentPage && widget.isTabActive && !_covered,
-            );
-          },
+        return _buildPager(clips);
+      },
+    );
+  }
+
+  Widget _buildPager(List<ClipData> clips) {
+    return PageView.builder(
+      controller: _pageController,
+      scrollDirection: Axis.vertical,
+      onPageChanged: (index) => setState(() => _currentPage = index),
+      itemCount: clips.length,
+      itemBuilder: (context, index) {
+        return _ClipPage(
+          clip: clips[index],
+          isActive: index == _currentPage && widget.isTabActive && !_covered,
         );
       },
     );
@@ -151,6 +229,10 @@ class _ClipPageState extends State<_ClipPage>
 
   LikeTrigger? _likeTrigger;
 
+  // When this clip became the one on screen; used to tell a skip from a
+  // watch when it stops being active.
+  DateTime? _activeSince;
+
   // Comment sheet
   bool _showComments = false;
   late AnimationController _commentAnimController;
@@ -167,6 +249,7 @@ class _ClipPageState extends State<_ClipPage>
   @override
   void initState() {
     super.initState();
+    if (widget.isActive) _activeSince = DateTime.now();
     _loadVideo();
 
     _commentAnimController = AnimationController(
@@ -204,6 +287,11 @@ class _ClipPageState extends State<_ClipPage>
   void didUpdateWidget(_ClipPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isActive != widget.isActive) {
+      if (widget.isActive) {
+        _activeSince = DateTime.now();
+      } else {
+        _reportWatch();
+      }
       if (widget.isActive && !_userPaused) {
         _controller?.play();
       } else {
@@ -244,8 +332,39 @@ class _ClipPageState extends State<_ClipPage>
     }
   }
 
+  /// Quick swipe-away = skipped; watching most of it = watched. Anything in
+  /// between says nothing either way.
+  void _reportWatch() {
+    final since = _activeSince;
+    if (since == null) return;
+    _activeSince = null;
+
+    final secs = DateTime.now().difference(since).inMilliseconds / 1000.0;
+    final c = _controller;
+    final total = (c != null && c.value.isInitialized)
+        ? c.value.duration.inMilliseconds / 1000.0
+        : null;
+
+    ClipEvent? event;
+    if (secs < 2) {
+      event = ClipEvent.skipped;
+    } else if (widget.clip.isPhoto) {
+      if (secs >= 4) event = ClipEvent.watched;
+    } else if (total != null && total > 0 && secs >= total * 0.8) {
+      event = ClipEvent.watched;
+    }
+    if (event != null) {
+      FeedService.recordClipEvent(
+          creatorUid: widget.clip.creatorUid,
+          event: event,
+          clipId: widget.clip.id,
+          terms: widget.clip.terms);
+    }
+  }
+
   @override
   void dispose() {
+    _reportWatch();
     _controller?.dispose();
     _commentAnimController.dispose();
     _floatingHeartController.dispose();
@@ -388,6 +507,7 @@ class _ClipPageState extends State<_ClipPage>
             },
             child: ClipSideBar(
               clipId: widget.clip.id,
+              creatorUid: widget.clip.creatorUid,
               onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
               onCommentTap: _openComments,
             ),

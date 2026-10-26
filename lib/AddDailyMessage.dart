@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
+import 'FeedService.dart';
 import 'DrawPad.dart';
 import 'MessageStorage.dart';
 import 'SendDailyMessage.dart';
@@ -172,6 +173,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
           username: username,
         );
         await MessageStorage.saveMessages(daily.id, [message]);
+        FeedService.recordEvent(daily, FeedEvent.post);
       }
 
       messenger.showSnackBar(

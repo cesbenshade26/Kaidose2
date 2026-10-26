@@ -38,12 +38,17 @@ class DailyCover extends StatefulWidget {
   /// dropping it from under their thumb.
   final VoidCallback? onAdded;
 
+  /// For You only: called after the viewer picks "Not interested", so the
+  /// feed can drop this card.
+  final VoidCallback? onHidden;
+
   const DailyCover({
     Key? key,
     required this.daily,
     required this.hasBeenViewed,
     this.forYou = false,
     this.onAdded,
+    this.onHidden,
   }) : super(key: key);
 
   @override
@@ -153,6 +158,65 @@ class _DailyCoverState extends State<DailyCover> {
           ],
         ),
       ),
+    );
+  }
+
+  /// For You only: small "..." next to Add with "Not interested". Hides the
+  /// Daily for good and teaches the feed to show fewer like it.
+  Widget _forYouMenu() {
+    return PopupMenuButton<String>(
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+      icon: Icon(Icons.more_vert, color: Colors.grey[600], size: 22),
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) {
+        if (value == 'interested') {
+          FeedService.recordEvent(widget.daily, FeedEvent.interested);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Got it — we'll show more Dailies like this"),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else if (value == 'not_interested') {
+          FeedService.markNotInterested(widget.daily);
+          widget.onHidden?.call();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Got it — we'll show fewer Dailies like this"),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem<String>(
+          value: 'interested',
+          child: Row(
+            children: [
+              Icon(Icons.thumb_up_alt_outlined,
+                  size: 20, color: Colors.black87),
+              SizedBox(width: 12),
+              Text('Interested',
+                  style: TextStyle(fontSize: 16, color: Colors.black87)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'not_interested',
+          child: Row(
+            children: [
+              Icon(Icons.visibility_off_outlined,
+                  size: 20, color: Colors.black87),
+              SizedBox(width: 12),
+              Text('Not interested',
+                  style: TextStyle(fontSize: 16, color: Colors.black87)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -444,7 +508,15 @@ class _DailyCoverState extends State<DailyCover> {
   }
 
   Widget _menuButton(BuildContext context) {
-    if (widget.forYou) return _addButton();
+    if (widget.forYou) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _addButton(),
+          _forYouMenu(),
+        ],
+      );
+    }
     final daily = widget.daily;
     final isUserCreated = _isUserCreatedDaily(daily);
 
@@ -454,6 +526,8 @@ class _DailyCoverState extends State<DailyCover> {
         color: Colors.grey[600],
         size: 24,
       ),
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),

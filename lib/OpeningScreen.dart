@@ -4,9 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'CreateAccount.dart';
 import 'ForgotPasswordScreen.dart';
 import 'InterestOnboarding.dart';
-import 'Home.dart';
 import 'auth_service.dart';
+import 'KaidoseBrand.dart';
 
+/// The logged-out front door: the Kaidose wordmark and the login form.
+///
+/// The wordmark animation plays once per app run. Coming back here later
+/// (logging out, backing out of sign-up) shows the finished screen at once.
 class OpeningScreen extends StatefulWidget {
   final bool skipAnimation;
   const OpeningScreen({super.key, this.skipAnimation = false});
@@ -17,310 +21,243 @@ class OpeningScreen extends StatefulWidget {
 
 class _OpeningScreenState extends State<OpeningScreen>
     with TickerProviderStateMixin {
-
-  late AnimationController _drawController;
-  late Animation<double> _drawProgress;
-  late AnimationController _formController;
-  late Animation<double> _formOpacity;
-  late AnimationController _fadeController;
-  late Animation<double> _fadeOpacity;
+  late final AnimationController _draw;
+  late final AnimationController _form;
 
   final _authService = AuthService();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _passwordFocus = FocusNode();
 
-  bool moveToTop = false;
-  bool showForm = false;
-  bool isCheckingLoginState = true;
-
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-
-  String loginError = '';
+  bool _moveToTop = false;
+  bool _isLoggingIn = false;
+  String _loginError = '';
 
   @override
   void initState() {
     super.initState();
-
-    _drawController = AnimationController(
-      duration: const Duration(seconds: 4),
+    _draw = AnimationController(
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
-    _drawProgress = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _drawController, curve: Curves.easeInOut),
-    );
-
-    _formController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
+    _form = AnimationController(
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-    _formOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _formController, curve: Curves.easeIn),
-    );
 
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    _fadeOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
-    );
-
-    _initializeScreen();
-  }
-
-  Future<void> _initializeScreen() async {
-    setState(() => isCheckingLoginState = false);
-
-    if (widget.skipAnimation) {
-      setState(() { moveToTop = true; showForm = true; });
-      _drawController.value = 1.0;
-      _formController.value = 1.0;
+    if (widget.skipAnimation || KaidoseIntro.played) {
+      _moveToTop = true;
+      _draw.value = 1.0;
+      _form.value = 1.0;
     } else {
-      _startAnimation();
+      KaidoseIntro.played = true;
+      _playIntro();
     }
   }
 
-  void _startAnimation() {
-    _drawController.forward().whenComplete(() async {
-      setState(() => moveToTop = true);
-      await Future.delayed(const Duration(milliseconds: 1500));
-      setState(() => showForm = true);
-      _formController.forward();
-    });
+  Future<void> _playIntro() async {
+    await KaidoseBrand.preloadFonts();
+    if (!mounted) return;
+    await _draw.forward();
+    await Future.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() => _moveToTop = true);
+    await Future.delayed(const Duration(milliseconds: 450));
+    if (mounted) _form.forward();
   }
 
   @override
   void dispose() {
-    _drawController.dispose();
-    _formController.dispose();
-    _fadeController.dispose();
+    _draw.dispose();
+    _form.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   Future<void> _attemptLogin() async {
-    setState(() => loginError = '');
+    if (_isLoggingIn) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _loginError = '');
 
     final inputUser = _usernameController.text.trim();
     final inputPass = _passwordController.text;
 
     if (inputUser.isEmpty || inputPass.isEmpty) {
-      setState(() => loginError = 'Please enter username and password');
+      setState(() => _loginError = 'Enter your username (or email) and password');
       return;
     }
 
-    setState(() => isCheckingLoginState = true);
-
+    setState(() => _isLoggingIn = true);
     final result = await _authService.login(
       usernameOrEmail: inputUser,
       password: inputPass,
     );
-
-    setState(() => isCheckingLoginState = false);
     if (!mounted) return;
 
-    if (result['success']) {
-      // Check if user has completed onboarding
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .get();
-        final onboardingDone = doc.data()?['onboardingComplete'] == true;
-        if (!mounted) return;
-        if (onboardingDone) {
-          Navigator.pushReplacementNamed(context, '/user-account');
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-                builder: (_) => const InterestOnboarding()),
-          );
-        }
-      } else {
-        Navigator.pushReplacementNamed(context, '/user-account');
-      }
+    if (result['success'] != true) {
+      setState(() {
+        _isLoggingIn = false;
+        _loginError = authErrorMessage(result['error'] as String?);
+      });
+      return;
+    }
+
+    // Signed in. Has this person finished onboarding?
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    var onboardingDone = true;
+    if (uid != null) {
+      try {
+        final doc =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        onboardingDone = doc.data()?['onboardingComplete'] == true;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+
+    if (onboardingDone) {
+      Navigator.pushReplacementNamed(context, '/user-account');
     } else {
-      setState(() => loginError = result['error']);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const InterestOnboarding()),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (isCheckingLoginState) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator(color: Colors.cyan)),
-      );
-    }
+    final size = MediaQuery.of(context).size;
+    final topInset = MediaQuery.of(context).padding.top;
 
     return Scaffold(
       backgroundColor: Colors.white,
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        children: [
-          // Animated title
-          AnimatedPositioned(
-            duration: const Duration(seconds: 2),
-            curve: Curves.easeInOut,
-            top: moveToTop
-                ? 80
-                : MediaQuery.of(context).size.height / 2 - 32,
-            left: 0,
-            right: 0,
-            child: FadeTransition(
-              opacity: _fadeOpacity,
-              child: AnimatedBuilder(
-                animation: _drawProgress,
-                builder: (context, child) {
-                  return Center(
-                    child: ClipRect(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: _drawProgress.value,
-                        child: const Text(
-                          'Kaidose',
-                          style: TextStyle(
-                            fontFamily: 'Slackey',
-                            fontSize: 64,
-                            color: Colors.cyan,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          children: [
+            // This spacer is what slides the wordmark from the middle of the
+            // screen up to the top.
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeInOutCubic,
+              height: _moveToTop ? topInset + 56 : size.height / 2 - 44,
             ),
-          ),
-
-          // Login form
-          if (showForm)
-            FadeTransition(
-              opacity: _formOpacity,
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 60.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Login to Kaidose',
-                        style: TextStyle(
-                          fontFamily: 'Slackey',
-                          fontSize: 24,
-                          color: Colors.cyan,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      _buildTextField(
-                          _usernameController, 'Username or Email', false),
-                      const SizedBox(height: 16),
-                      _buildTextField(
-                          _passwordController, 'Password', true),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Padding(
-                          padding:
-                          const EdgeInsets.only(right: 45.0, top: 8.0),
-                          child: GestureDetector(
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                  const ForgotPasswordScreen()),
-                            ),
-                            child: const Text(
-                              'Forgot password?',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 13,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Padding(
-                        padding:
-                        const EdgeInsets.symmetric(horizontal: 40),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
-                            minimumSize: const Size(double.infinity, 50),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: _attemptLogin,
-                          child: const Text('Login',
-                              style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                      if (loginError.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12.0),
-                          child: Text(loginError,
-                              style:
-                              const TextStyle(color: Colors.red)),
-                        ),
-                      const SizedBox(height: 20),
-                      const Divider(
-                          color: Colors.grey,
-                          thickness: 1,
-                          indent: 40,
-                          endIndent: 40),
-                      const SizedBox(height: 20),
-                      Padding(
-                        padding:
-                        const EdgeInsets.symmetric(horizontal: 40),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
-                            minimumSize: const Size(double.infinity, 50),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const CreateAccount()),
-                          ),
-                          child: const Text('Create Account',
-                              style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                    ],
-                  ),
+            KaidoseWordmark(progress: _draw, fontSize: 56),
+            const SizedBox(height: 28),
+            Expanded(
+              child: FadeTransition(
+                opacity: _form,
+                child: IgnorePointer(
+                  ignoring: !_moveToTop,
+                  child: _buildForm(),
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTextField(
-      TextEditingController controller, String hint, bool obscure) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40),
-      child: TextField(
-        controller: controller,
-        obscureText: obscure,
-        cursorColor: Colors.black,
-        decoration: InputDecoration(
-          hintText: hint,
-          contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          focusedBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.black),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+  Widget _buildForm() {
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(28, 4, 28, 28),
+      child: AutofillGroup(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AuthField(
+              controller: _usernameController,
+              label: 'Username or email',
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.username],
+              onSubmitted: (_) => _passwordFocus.requestFocus(),
+            ),
+            const SizedBox(height: 14),
+            AuthField(
+              controller: _passwordController,
+              focusNode: _passwordFocus,
+              label: 'Password',
+              obscure: true,
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.password],
+              onSubmitted: (_) => _attemptLogin(),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const ForgotPasswordScreen()),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey[600],
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Forgot password?',
+                    style: TextStyle(fontSize: 13.5)),
+              ),
+            ),
+            if (_loginError.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(top: 4, bottom: 8),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.07),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline,
+                        size: 18, color: Colors.red.shade400),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(_loginError,
+                          style: TextStyle(
+                              fontSize: 13.5, color: Colors.red.shade700)),
+                    ),
+                  ],
+                ),
+              )
+            else
+              const SizedBox(height: 12),
+            AuthButton(
+              label: 'Log in',
+              loading: _isLoggingIn,
+              onPressed: _attemptLogin,
+            ),
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                Expanded(child: Divider(color: Colors.grey[300])),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Text('or',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                ),
+                Expanded(child: Divider(color: Colors.grey[300])),
+              ],
+            ),
+            const SizedBox(height: 22),
+            AuthButton(
+              label: 'Create account',
+              secondary: true,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CreateAccount()),
+              ),
+            ),
+          ],
         ),
       ),
     );

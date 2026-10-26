@@ -127,11 +127,16 @@ class DailyInvitationService {
         .collection('daily_invitations')
         .where('toUserId', isEqualTo: currentUid)
         .where('status', isEqualTo: 'pending')
-        .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => DailyInvitation.fromFirestore(doc))
-        .toList());
+        .map((snapshot) {
+      // Sorted here (newest first) instead of with orderBy, so no Firestore
+      // composite index is needed.
+      final items = snapshot.docs
+          .map((doc) => DailyInvitation.fromFirestore(doc))
+          .toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return items;
+    });
   }
 
   // Get accepted invitations (for notifications)
@@ -143,11 +148,16 @@ class DailyInvitationService {
         .collection('daily_invitations')
         .where('fromUserId', isEqualTo: currentUid)
         .where('status', isEqualTo: 'accepted')
-        .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => DailyInvitation.fromFirestore(doc))
-        .toList());
+        .map((snapshot) {
+      // Sorted here (newest first) instead of with orderBy, so no Firestore
+      // composite index is needed.
+      final items = snapshot.docs
+          .map((doc) => DailyInvitation.fromFirestore(doc))
+          .toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return items;
+    });
   }
 
   /// Accept a daily invitation.

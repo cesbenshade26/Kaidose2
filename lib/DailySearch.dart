@@ -5,15 +5,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'DailyList.dart';
 import 'DailyData.dart';
 import 'FeedService.dart';
+import 'SearchService.dart';
 import 'InsideDaily.dart';
 import 'daily_join_request_service.dart';
 import 'DailyMembershipService.dart';
 
-/// The Dailies tab of the Search screen: query results only. The discovery
-/// feed that used to live here is now the For You tab on Dailies
-/// (DailyForYou.dart). Search still draws from the same pool (what
-/// FeedService ranks plus the user's own Dailies), so anything in For You can
-/// also be found by typing.
+/// Dailies in Search. Typed queries are ranked by how well they match AND how
+/// well they fit the user's feed profile (see SearchService); with nothing
+/// typed it shows Dailies suggested from the user's taste.
+///
+/// [embedded] renders a plain Column of at most [limit] cards (for the All
+/// tab) instead of a scrolling list, with an optional [onSeeAll].
 class DailySearchWidget extends StatefulWidget {
   final String searchQuery;
 
@@ -21,10 +23,17 @@ class DailySearchWidget extends StatefulWidget {
   /// closes it. False in the Search tab, where there is nothing to close.
   final bool closeSearchOnOpen;
 
+  final bool embedded;
+  final int limit;
+  final VoidCallback? onSeeAll;
+
   const DailySearchWidget({
     Key? key,
     required this.searchQuery,
     this.closeSearchOnOpen = true,
+    this.embedded = false,
+    this.limit = 4,
+    this.onSeeAll,
   }) : super(key: key);
 
   @override
@@ -32,9 +41,9 @@ class DailySearchWidget extends StatefulWidget {
 }
 
 class _DailySearchWidgetState extends State<DailySearchWidget> {
-  List<DailyData> _pool = [];
   List<DailyData> _searchResults = [];
-  bool _isLoadingPool = true;
+  bool _isLoading = true;
+  int _requestId = 0; // drops answers to outdated keystrokes
   VoidCallback? _dailyListListener;
 
   final DailyJoinRequestService _joinRequestService = DailyJoinRequestService();
@@ -45,7 +54,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
   @override
   void initState() {
     super.initState();
-    _loadPool();
+    _filterSearch();
     _loadMembershipInfo();
 
     _dailyListListener = () {
@@ -82,42 +91,23 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadPool() async {
+  Future<void> _filterSearch() async {
+    final id = ++_requestId;
+    final query = widget.searchQuery.trim();
     try {
-      final ranked = await FeedService.getRankedFeed();
-      if (!mounted) return;
+      final results = query.isEmpty
+          ? await SearchService.suggestedDailies(
+          limit: widget.embedded ? widget.limit : 12)
+          : await SearchService.searchDailies(query);
+      if (!mounted || id != _requestId) return;
       setState(() {
-        _pool = ranked.map((s) => s.daily).toList();
-        _isLoadingPool = false;
+        _searchResults = results.map((r) => r.daily).toList();
+        _isLoading = false;
       });
-      _filterSearch();
     } catch (e) {
-      print('DailySearchWidget: pool load error: $e');
-      if (mounted) setState(() => _isLoadingPool = false);
+      print('DailySearchWidget: search error: $e');
+      if (mounted && id == _requestId) setState(() => _isLoading = false);
     }
-  }
-
-  void _filterSearch() {
-    final query = widget.searchQuery.toLowerCase().trim();
-
-    if (query.isEmpty) {
-      setState(() => _searchResults = []);
-      return;
-    }
-
-    // De-duplicated by id: my own copy wins over the feed's.
-    final byId = <String, DailyData>{
-      for (final d in _pool) d.id: d,
-      for (final d in DailyList.dailies) d.id: d,
-    };
-
-    setState(() {
-      _searchResults = byId.values.where((daily) {
-        return daily.title.toLowerCase().contains(query) ||
-            daily.description.toLowerCase().contains(query) ||
-            daily.keywords.any((tag) => tag.toLowerCase().contains(query));
-      }).toList();
-    });
   }
 
   void _openDaily(DailyData daily) {
@@ -153,7 +143,10 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
       _addingDailyIds.remove(daily.id);
       if (ok) _myDailyIds.add(daily.id);
     });
-    if (ok) FeedService.recordInteraction(daily);
+    if (ok) {
+      FeedService.recordInteraction(daily);
+      SearchService.invalidate();
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -208,12 +201,71 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.searchQuery.trim().isEmpty) return _buildIdle();
-    if (_isLoadingPool && _searchResults.isEmpty) {
+    final typed = widget.searchQuery.trim().isNotEmpty;
+
+    if (widget.embedded) {
+      if (_isLoading && _searchResults.isEmpty) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(
+              child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2)),
+        );
+      }
+      if (_searchResults.isEmpty) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            typed ? 'No Dailies match' : 'Nothing to suggest yet',
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+          ),
+        );
+      }
+      final shown = _searchResults.take(widget.limit).toList();
+      return Column(
+        children: [
+          ...shown.map(_buildDailyCard),
+          if (widget.onSeeAll != null && _searchResults.length > shown.length)
+            TextButton(
+              onPressed: widget.onSeeAll,
+              child: Text('See all ${_searchResults.length} Dailies',
+                  style: const TextStyle(
+                      color: Colors.cyan, fontWeight: FontWeight.w600)),
+            ),
+        ],
+      );
+    }
+
+    if (_isLoading && _searchResults.isEmpty) {
       return const Center(child: CircularProgressIndicator(color: Colors.cyan));
     }
-    return _buildSearchResults();
+    if (_searchResults.isEmpty) {
+      return typed
+          ? _centerMessage(Icons.search_off, 'No Results Found',
+          'Try different words — Dailies are matched on title, topic and description')
+          : _centerMessage(Icons.explore_outlined, 'Nothing to suggest yet',
+          'Search for a Daily by title, topic or description');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: _searchResults.length + (typed ? 0 : 1),
+      itemBuilder: (context, index) {
+        if (!typed) {
+          if (index == 0) return _sectionTitle('Suggested for you');
+          return _buildDailyCard(_searchResults[index - 1]);
+        }
+        return _buildDailyCard(_searchResults[index]);
+      },
+    );
   }
+
+  Widget _sectionTitle(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12, left: 2),
+    child: Text(text,
+        style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Colors.grey[800])),
+  );
 
   Widget _centerMessage(IconData icon, String title, String body) {
     return Center(
@@ -222,46 +274,20 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
         children: [
           Icon(icon, size: 80, color: Colors.grey[400]),
           const SizedBox(height: 16),
-          Text(
-            title,
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700]),
-          ),
+          Text(title,
+              style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700])),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              body,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              textAlign: TextAlign.center,
-            ),
+            child: Text(body,
+                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                textAlign: TextAlign.center),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildIdle() => _centerMessage(
-    Icons.search,
-    'Search Dailies',
-    'Look up a Daily by its title, description, or tags',
-  );
-
-  Widget _buildSearchResults() {
-    if (_searchResults.isEmpty) {
-      return _centerMessage(
-        Icons.search_off,
-        'No Results Found',
-        'Try searching with different keywords',
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      itemCount: _searchResults.length,
-      itemBuilder: (context, index) => _buildDailyCard(_searchResults[index]),
     );
   }
 

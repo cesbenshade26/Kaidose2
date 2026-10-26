@@ -33,6 +33,9 @@ class _DailyForYouFeedState extends State<DailyForYouFeed>
   // Dailies added from a card this session: they stay on screen (as
   // "Added") until the next refresh, instead of vanishing mid-scroll.
   final Set<String> _addedHere = {};
+  // "Not interested" this session: gone from the list right away (the
+  // choice itself is saved by FeedService and also filters future loads).
+  final Set<String> _hiddenHere = {};
   VoidCallback? _dailyListListener;
 
   @override
@@ -88,6 +91,7 @@ class _DailyForYouFeedState extends State<DailyForYouFeed>
         _feed = ranked.map((s) => s.daily).toList();
         _visibleCount = _pageSize;
         _addedHere.clear();
+        _hiddenHere.clear();
         _isLoading = false;
       });
     } catch (e) {
@@ -109,7 +113,8 @@ class _DailyForYouFeedState extends State<DailyForYouFeed>
     final mine = DailyList.dailies.map((d) => d.id).toSet();
     return _feed
         .where((d) =>
-    d.privacy == 'Public' &&
+    !_hiddenHere.contains(d.id) &&
+        d.privacy == 'Public' &&
         d.creatorUid != uid &&
         (!mine.contains(d.id) || _addedHere.contains(d.id)))
         .toList();
@@ -160,6 +165,11 @@ class _DailyForYouFeedState extends State<DailyForYouFeed>
     final shown = eligible.take(_visibleCount).toList();
     final hasMore = shown.length < eligible.length;
 
+    // Count these cards as shown (once per Daily per app session).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FeedService.recordImpressions(shown);
+    });
+
     return RefreshIndicator(
       color: Colors.cyan,
       onRefresh: _loadFeed,
@@ -189,6 +199,7 @@ class _DailyForYouFeedState extends State<DailyForYouFeed>
             hasBeenViewed: true,
             forYou: true,
             onAdded: () => _addedHere.add(daily.id),
+            onHidden: () => setState(() => _hiddenHere.add(daily.id)),
           );
         },
       ),

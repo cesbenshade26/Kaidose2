@@ -18,6 +18,10 @@ class ClipData {
   final String mediaType;
   final String? photoUrl;
 
+  /// Topic keywords generated from the caption by a Cloud Function (may be
+  /// empty for a brand-new clip). Used by the feed, not shown to users.
+  final List<String> terms;
+
   bool get isPhoto => mediaType == 'photo';
 
   ClipData({
@@ -30,6 +34,7 @@ class ClipData {
     required this.createdAt,
     this.mediaType = 'video',
     this.photoUrl,
+    this.terms = const [],
   });
 
   factory ClipData.fromFirestore(Map<String, dynamic> data, String id) {
@@ -43,6 +48,9 @@ class ClipData {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       mediaType: data['mediaType'] ?? 'video',
       photoUrl: data['photoUrl'],
+      terms: data['terms'] is List
+          ? List<String>.from((data['terms'] as List).whereType<String>())
+          : const [],
     );
   }
 

@@ -164,9 +164,9 @@ class BackgroundPicManager {
         // Compress before saving — backgrounds can be large
         final compressed = await FlutterImageCompress.compressWithFile(
           file.absolute.path,
-          minWidth: 800,
-          minHeight: 200,
-          quality: 75,
+          minWidth: 1000,
+          minHeight: 330,
+          quality: 80,
           format: CompressFormat.jpeg,
         );
 

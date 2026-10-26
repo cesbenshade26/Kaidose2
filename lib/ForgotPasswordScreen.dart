@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'auth_service.dart';
+import 'KaidoseBrand.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({Key? key}) : super(key: key);
@@ -15,6 +16,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   bool _emailSent = false;
   bool _isLoading = false;
+  String _sentTo = '';
   int _timerValue = 60;
   Timer? _timer;
 
@@ -22,24 +24,46 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => _timerValue = 60);
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_timerValue == 0) t.cancel();
-      else setState(() => _timerValue--);
+      if (_timerValue == 0) {
+        t.cancel();
+      } else if (mounted) {
+        setState(() => _timerValue--);
+      }
     });
   }
 
-  Future<void> _handleReset() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) return;
+  Future<void> _handleReset({bool resend = false}) async {
+    final email = resend ? _sentTo : _emailController.text.trim();
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter the email you signed up with'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    FocusScope.of(context).unfocus();
 
     setState(() => _isLoading = true);
-    String? error = await _authService.sendPasswordReset(email);
+    final error = await _authService.sendPasswordReset(email);
+    if (!mounted) return;
     setState(() => _isLoading = false);
 
     if (error == null) {
-      setState(() => _emailSent = true);
+      setState(() {
+        _emailSent = true;
+        _sentTo = email;
+      });
       _startTimer();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -54,48 +78,71 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(elevation: 0, backgroundColor: Colors.white, leading: const BackButton(color: Colors.black)),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(_emailSent ? Icons.mark_email_read_outlined : Icons.lock_reset, size: 80, color: Colors.cyan),
-            const SizedBox(height: 24),
-            Text(_emailSent ? "Check your email" : "Forgot Password?", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text(
-              _emailSent
-                  ? "We sent a reset link to ${_emailController.text}. Follow the link to set a new password."
-                  : "Enter your account email and we'll send you a link to reset your password.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[600]),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AuthHeader(
+                  icon: _emailSent
+                      ? Icons.mark_email_read_outlined
+                      : Icons.lock_reset,
+                  title: _emailSent ? 'Check your email' : 'Forgot password?',
+                  subtitle: _emailSent
+                      ? 'We sent a reset link to\n$_sentTo\nFollow it to choose a new password.'
+                      : 'Enter your account email and we\'ll send you a link to reset your password.',
+                ),
+                const SizedBox(height: 32),
+                if (!_emailSent) ...[
+                  AuthField(
+                    controller: _emailController,
+                    label: 'Email address',
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.done,
+                    autofillHints: const [AutofillHints.email],
+                    onSubmitted: (_) => _handleReset(),
+                  ),
+                  const SizedBox(height: 20),
+                  AuthButton(
+                    label: 'Send reset link',
+                    loading: _isLoading,
+                    onPressed: _handleReset,
+                  ),
+                ] else ...[
+                  AuthButton(
+                    label: 'Back to log in',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: _timerValue == 0 && !_isLoading
+                        ? () => _handleReset(resend: true)
+                        : null,
+                    child: Text(
+                      _timerValue == 0
+                          ? 'Resend link'
+                          : 'Resend in ${_timerValue}s',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: _timerValue == 0
+                            ? KaidoseBrand.cyan
+                            : Colors.grey[400],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 32),
-            if (!_emailSent) ...[
-              TextField(
-                controller: _emailController,
-                decoration: InputDecoration(hintText: "Email Address", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _handleReset,
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.black),
-                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("Send Reset Link", style: TextStyle(color: Colors.white)),
-              ),
-            ] else ...[
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.black),
-                child: const Text("I've Reset My Password", style: TextStyle(color: Colors.white)),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: _timerValue == 0 ? _handleReset : null,
-                child: Text(_timerValue == 0 ? "Resend Link" : "Resend in ${_timerValue}s", style: TextStyle(color: _timerValue == 0 ? Colors.cyan : Colors.grey)),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );

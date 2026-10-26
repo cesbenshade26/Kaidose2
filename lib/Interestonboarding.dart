@@ -5,6 +5,8 @@ import 'Home.dart';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
+/// Same 16 topics as the tags on a Daily (kDailyTags in ManageDaily.dart), so
+/// what someone picks here lines up with what Dailies are tagged with.
 const List<Map<String, dynamic>> _interestOptions = [
   {'label': 'Sports',      'emoji': '🏆'},
   {'label': 'Music',       'emoji': '🎵'},
@@ -18,6 +20,10 @@ const List<Map<String, dynamic>> _interestOptions = [
   {'label': 'Tech',        'emoji': '💻'},
   {'label': 'Movies / TV', 'emoji': '🎬'},
   {'label': 'Books',       'emoji': '📚'},
+  {'label': 'Health',      'emoji': '🧘'},
+  {'label': 'Finance',     'emoji': '💰'},
+  {'label': 'Science',     'emoji': '🔬'},
+  {'label': 'Comedy',      'emoji': '😂'},
 ];
 
 const List<Map<String, dynamic>> _vibeOptions = [
@@ -141,12 +147,12 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
 
   Future<void> _advance({bool skip = false}) async {
     if (_transitioning) return;
-    if (_page == _totalPages - 1 || skip && _page == _totalPages - 1) {
+    if (_page == _totalPages - 1) {
       await _finish();
       return;
     }
 
-    final nextPage = skip ? _page + 1 : _page + 1;
+    final nextPage = _page + 1;
 
     setState(() {
       _transitioning = true;
@@ -399,7 +405,7 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
                   disabledBackgroundColor: Colors.cyan,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+                      borderRadius: BorderRadius.circular(14)),
                 ),
                 child: _saving
                     ? const SizedBox(

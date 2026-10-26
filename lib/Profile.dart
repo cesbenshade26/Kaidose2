@@ -14,6 +14,7 @@ import 'DailyPostActivity.dart';
 import 'ClipsActivity.dart';
 import 'Archives.dart';
 import 'NotificationScreen.dart';
+import 'NotificationBell.dart';
 import 'friend_request_service.dart';
 import 'YourDailyBubbles.dart';
 import 'Add.dart';
@@ -302,116 +303,135 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
 
     return Column(
       children: [
-        const SizedBox(height: 40),
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
-            ).then((_) {
-              setState(() {
-                _profilePic = ProfilePicManager.globalProfilePic;
-              });
-            });
-          },
+        const SizedBox(height: BackgroundSpec.bannerHeight - BackgroundSpec.avatarSize / 2),
+        // Avatar row: counts sit under the banner on either side of the avatar
+        SizedBox(
+          height: BackgroundSpec.avatarSize,
           child: Stack(
+            alignment: Alignment.center,
             clipBehavior: Clip.none,
             children: [
-              Container(
-                width: 160,
-                height: 160,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.grey[300],
-                  border: Border.all(color: Colors.grey[400]!, width: 3),
-                ),
-                child: ClipOval(
-                  child: _profilePic != null && _profilePic!.existsSync()
-                      ? Image.file(
-                    _profilePic!,
-                    fit: BoxFit.cover,
-                    width: 160,
-                    height: 160,
-                    key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-                    errorBuilder: (context, error, stackTrace) {
-                      return const DefaultProfilePic(size: 160, borderWidth: 0);
-                    },
-                  )
-                      : const DefaultProfilePic(size: 160, borderWidth: 0),
-                ),
-              ),
-              // Small "+" — post to Your Daily. Closing that screen comes
-              // straight back to the profile.
-              Positioned(
-                right: 6,
-                bottom: 6,
-                child: GestureDetector(
-                  onTap: _openAddYourDaily,
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.cyan,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+              Center(child:
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
+                  ).then((_) {
+                    setState(() {
+                      _profilePic = ProfilePicManager.globalProfilePic;
+                    });
+                  });
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: BackgroundSpec.avatarSize,
+                      height: BackgroundSpec.avatarSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[300],
+                        border: Border.all(color: Colors.white, width: 3),
+                      ),
+                      child: ClipOval(
+                        child: _profilePic != null && _profilePic!.existsSync()
+                            ? Image.file(
+                          _profilePic!,
+                          fit: BoxFit.cover,
+                          width: BackgroundSpec.avatarSize,
+                          height: BackgroundSpec.avatarSize,
+                          key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
+                          errorBuilder: (context, error, stackTrace) {
+                            return const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0);
+                          },
+                        )
+                            : const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0),
+                      ),
                     ),
-                    child: const Icon(Icons.add, color: Colors.white, size: 18),
+                    // Small "+" — post to Your Daily. Closing that screen comes
+                    // straight back to the profile.
+                    Positioned(
+                      right: 2,
+                      bottom: 2,
+                      child: GestureDetector(
+                        onTap: _openAddYourDaily,
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: Colors.cyan,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.add, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ),
+              Positioned(
+                left: 0,
+                width: (screenWidth - BackgroundSpec.avatarSize) / 2,
+                top: BackgroundSpec.avatarSize / 2 + 6,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$_followersCount',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Followers',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[700]),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Column(
-                children: [
-                  Text(
-                    '$_followersCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+              Positioned(
+                right: 0,
+                width: (screenWidth - BackgroundSpec.avatarSize) / 2,
+                top: BackgroundSpec.avatarSize / 2 + 6,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$_followingCount',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Following',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[700]),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'Followers',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
-                  ),
-                ],
-              ),
-              if (_username != null && _username!.isNotEmpty)
-                Text(
-                  _username!,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
-                  textAlign: TextAlign.center,
                 ),
-              Column(
-                children: [
-                  Text(
-                    '$_followingCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'Following',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
-                  ),
-                ],
               ),
             ],
           ),
         ),
         const SizedBox(height: 8),
+        if (_username != null && _username!.isNotEmpty)
+          Text(
+            _username!,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+            textAlign: TextAlign.center,
+          ),
+        const SizedBox(height: 6),
         GestureDetector(
           onTap: () async {
             await Navigator.push(
@@ -432,7 +452,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           const SizedBox(height: 12),
           YourDailyBubbleRow(),
         ],
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
           child: Column(
@@ -498,7 +518,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         Expanded(
           child: _buildTabContent(),
         ),
@@ -609,47 +629,37 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    const double backgroundHeight = 160.0;
+    const double backgroundHeight = BackgroundSpec.bannerHeight;
+    final bool hasPic = _backgroundPic != null && _backgroundPic!.existsSync();
 
     return Scaffold(
       body: Stack(
         children: [
-          if (_backgroundPic != null && _backgroundPic!.existsSync())
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: backgroundHeight,
+            child: hasPic
+                ? Image.file(
+              _backgroundPic!,
+              fit: BoxFit.cover,
+              width: double.infinity,
               height: backgroundHeight,
-              child: Stack(
-                children: [
-                  Image.file(
-                    _backgroundPic!,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: backgroundHeight,
-                    key: ValueKey(_backgroundPic!.path + _backgroundPic!.lastModifiedSync().toString()),
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(color: Colors.white);
-                    },
-                  ),
-                  if (_showSeparator)
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Container(height: 3, color: _separatorColor),
-                    ),
-                ],
-              ),
-            ),
-          if (_backgroundPic == null || !_backgroundPic!.existsSync())
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: backgroundHeight,
-              child: Container(color: Colors.white),
-            ),
+              key: ValueKey(_backgroundPic!.path + _backgroundPic!.lastModifiedSync().toString()),
+              errorBuilder: (context, error, stackTrace) =>
+                  Container(decoration: BackgroundSpec.defaultDecoration),
+            )
+                : Container(decoration: BackgroundSpec.defaultDecoration),
+          ),
+          // Light scrim so the status bar and top icons stay readable
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: backgroundHeight,
+            child: IgnorePointer(child: Container(decoration: BackgroundSpec.scrimDecoration)),
+          ),
           Positioned(
             top: backgroundHeight,
             left: 0,
@@ -660,94 +670,24 @@ class _ProfilePageState extends State<ProfilePage> {
           const ProfileWidget(),
 
           // Notification Bell (Top Left)
-          Positioned(
+          const Positioned(
             top: 50,
             left: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.8),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 3,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const NotificationsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  StreamBuilder<int>(
-                    stream: FriendRequestService().getIncomingRequestCount(),
-                    builder: (context, snapshot) {
-                      final count = snapshot.data ?? 0;
-                      if (count == 0) return const SizedBox();
-                      return Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                          child: Text(
-                            '$count',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
+            child: NotificationBell(color: Colors.white),
           ),
 
           // Settings Button (Top Right)
           Positioned(
             top: 50,
             right: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.8),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 3,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.settings),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                  );
-                },
-              ),
+            child: IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                );
+              },
             ),
           ),
 

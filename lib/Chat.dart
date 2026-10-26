@@ -4,6 +4,7 @@ import 'user_service.dart';
 import 'AddToDaily.dart';
 import 'ChatScreen.dart';
 import 'ManageChat.dart';
+import 'KaidoseBrand.dart';
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -134,14 +135,9 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
             color: Colors.black,
           ),
         )
-            : const Text(
+            : Text(
           'Chats',
-          style: TextStyle(
-            fontFamily: 'Slackey',
-            fontSize: 32,
-            color: Colors.cyan,
-            fontWeight: FontWeight.normal,
-          ),
+          style: KaidoseBrand.wordmark(32),
         ),
         centerTitle: false,
         actions: [
@@ -318,6 +314,8 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                       color: Colors.grey[600],
                       size: 24,
                     ),
+                    color: Colors.white,
+                    surfaceTintColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),

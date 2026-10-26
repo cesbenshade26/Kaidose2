@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import 'VideoClipPlayer.dart';
 import 'NetworkVideoPlayer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'FeedService.dart';
 
 /// One photo or video attached to a message. A message can carry several
 /// of these — picking multiple items from the gallery grid at once
@@ -552,6 +553,10 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
         timestamp: DateTime.now(),
       ));
     });
+
+    // The feed learns from what you react to.
+    FeedService.recordEventForDailyId(
+        widget.message.dailyId, FeedEvent.react);
 
     if (widget.onReactionAdded != null) {
       widget.onReactionAdded!(emoji);

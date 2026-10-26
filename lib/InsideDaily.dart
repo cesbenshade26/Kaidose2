@@ -13,6 +13,7 @@ import 'user_service.dart';
 import 'UnifiedMediaPicker.dart';
 import 'DailyMembershipService.dart';
 import 'DailyCoverData.dart';
+import 'FeedService.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
@@ -727,6 +728,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     });
 
     _saveMessages();
+    FeedService.recordEvent(widget.daily, FeedEvent.post);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {

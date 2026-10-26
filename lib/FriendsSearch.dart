@@ -3,9 +3,30 @@ import 'AccessContacts.dart';
 import 'LinkedFriends.dart';
 import 'user_service.dart';
 import 'friend_request_service.dart';
+import 'SearchService.dart';
 
+/// People in Search.
+///
+/// Nothing typed: your friends, then "People you may know" (friends of your
+/// friends and verified accounts), then your phone contacts. Typed: matching
+/// people ranked so friends, friends-of-friends and verified accounts come
+/// before strangers, plus matching phone contacts.
+///
+/// [embedded] renders a plain Column of at most [limit] people (no contacts)
+/// for the All tab, with an optional [onSeeAll].
 class FriendsSearchWidget extends StatefulWidget {
-  const FriendsSearchWidget({Key? key}) : super(key: key);
+  final String searchQuery;
+  final bool embedded;
+  final int limit;
+  final VoidCallback? onSeeAll;
+
+  const FriendsSearchWidget({
+    Key? key,
+    this.searchQuery = '',
+    this.embedded = false,
+    this.limit = 3,
+    this.onSeeAll,
+  }) : super(key: key);
 
   @override
   State<FriendsSearchWidget> createState() => _FriendsSearchWidgetState();
@@ -13,180 +34,176 @@ class FriendsSearchWidget extends StatefulWidget {
 
 class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
   List<ContactData> _contacts = [];
-  List<KaidoseUser> _kaidoseUsers = [];
-  List<KaidoseUser> _filteredKaidoseUsers = [];
+  List<PersonResult> _friends = [];
+  List<PersonResult> _suggested = [];
+  List<PersonResult> _results = [];
   bool _isLoadingContacts = false;
-  bool _isLoadingUsers = false;
-  bool _hasContactsPermission = false;
+  bool _isLoadingPeople = true;
+  int _requestId = 0;
 
   final UserService _userService = UserService();
   final FriendRequestService _friendRequestService = FriendRequestService();
 
+  bool get _typed => widget.searchQuery.trim().isNotEmpty;
+
   @override
   void initState() {
     super.initState();
-    _loadContacts();
-    _loadKaidoseUsers();
+    if (!widget.embedded) _loadContacts();
+    _loadPeople();
+  }
+
+  @override
+  void didUpdateWidget(FriendsSearchWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.searchQuery != widget.searchQuery) _loadPeople();
   }
 
   Future<void> _loadContacts() async {
-    setState(() {
-      _isLoadingContacts = true;
-    });
-
+    setState(() => _isLoadingContacts = true);
     try {
       final contacts = await AccessContacts.loadContacts(context);
-
       if (mounted) {
         setState(() {
-          _contacts = _sortContactsByFrequency(contacts);
-          _hasContactsPermission = contacts.isNotEmpty;
+          _contacts = _sortContacts(contacts);
           _isLoadingContacts = false;
         });
       }
     } catch (e) {
       print('Error loading contacts: $e');
-      if (mounted) {
-        setState(() {
-          _hasContactsPermission = false;
-          _isLoadingContacts = false;
-        });
-      }
+      if (mounted) setState(() => _isLoadingContacts = false);
     }
   }
 
-  Future<void> _loadKaidoseUsers() async {
-    setState(() {
-      _isLoadingUsers = true;
-    });
-
+  Future<void> _loadPeople() async {
+    final id = ++_requestId;
     try {
-      final users = await _userService.getAllUsers();
-
-      // Filter out users who are already friends
-      final filteredUsers = <KaidoseUser>[];
-      for (var user in users) {
-        final isFriend = await _friendRequestService.areFriends(
-          _friendRequestService.currentUserId ?? '',
-          user.uid,
-        );
-        if (!isFriend) {
-          filteredUsers.add(user);
-        }
-      }
-
-      if (mounted) {
+      if (_typed) {
+        final results = await SearchService.searchPeople(widget.searchQuery);
+        if (!mounted || id != _requestId) return;
         setState(() {
-          _kaidoseUsers = users;
-          _filteredKaidoseUsers = filteredUsers;
-          _isLoadingUsers = false;
+          _results = results;
+          _isLoadingPeople = false;
+        });
+      } else if (widget.embedded) {
+        final suggested = await SearchService.suggestedPeople(limit: widget.limit);
+        if (!mounted || id != _requestId) return;
+        setState(() {
+          _suggested = suggested;
+          _isLoadingPeople = false;
+        });
+      } else {
+        final both = await Future.wait([
+          SearchService.myFriends(),
+          SearchService.suggestedPeople(limit: 10),
+        ]);
+        if (!mounted || id != _requestId) return;
+        setState(() {
+          _friends = both[0];
+          _suggested = both[1];
+          _isLoadingPeople = false;
         });
       }
     } catch (e) {
-      print('Error loading Kaidose users: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingUsers = false;
-        });
-      }
+      print('Error loading people: $e');
+      if (mounted && id == _requestId) setState(() => _isLoadingPeople = false);
     }
   }
 
-  List<ContactData> _sortContactsByFrequency(List<ContactData> contacts) {
-    final sortedContacts = List<ContactData>.from(contacts);
-    sortedContacts.sort((a, b) {
-      final nameA = a.displayName?.toLowerCase() ?? '';
-      final nameB = b.displayName?.toLowerCase() ?? '';
-      return nameA.compareTo(nameB);
-    });
-    return sortedContacts;
+  List<ContactData> _sortContacts(List<ContactData> contacts) {
+    final sorted = List<ContactData>.from(contacts);
+    sorted.sort((a, b) => (a.displayName?.toLowerCase() ?? '')
+        .compareTo(b.displayName?.toLowerCase() ?? ''));
+    return sorted;
   }
+
+  String _subtitle(PersonResult p) {
+    if (p.isFriend) return 'Friend';
+    if (p.mutualCount > 0) {
+      return p.mutualCount == 1 ? '1 mutual friend' : '${p.mutualCount} mutual friends';
+    }
+    if (p.isVerified) return 'Verified';
+    return 'Kaidose User';
+  }
+
+  Widget _header(IconData icon, Color color, String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12, left: 4),
+    child: Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Text(text,
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[800])),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingContacts || _isLoadingUsers) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: Colors.cyan,
-        ),
-      );
+    if (widget.embedded) return _buildEmbedded();
+
+    if (_isLoadingPeople && _isLoadingContacts) {
+      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
     }
+
+    final q = widget.searchQuery.trim().toLowerCase();
+    final contacts = _typed
+        ? _contacts
+        .where((c) => (c.displayName ?? '').toLowerCase().contains(q))
+        .toList()
+        : _contacts;
+
+    final people = _typed ? _results : const <PersonResult>[];
+    final nothing = _typed
+        ? people.isEmpty && contacts.isEmpty
+        : _friends.isEmpty && _suggested.isEmpty && contacts.isEmpty;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // Kaidose Users Section
-        if (_filteredKaidoseUsers.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12, left: 4),
-            child: Row(
-              children: [
-                Icon(Icons.people, color: Colors.cyan, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Kaidose Users',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ..._filteredKaidoseUsers.map((user) => _buildKaidoseUserCard(user)).toList(),
+        if (_typed && people.isNotEmpty) ...[
+          _header(Icons.people, Colors.cyan, 'People'),
+          ...people.map(_buildKaidoseUserCard),
           const SizedBox(height: 24),
         ],
-
-        // Contacts Section
-        if (_contacts.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12, left: 4),
-            child: Row(
-              children: [
-                Icon(Icons.contacts, color: Colors.grey[600], size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Phone Contacts',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ..._contacts.map((contact) => _buildContactCard(contact)).toList(),
+        if (!_typed && _friends.isNotEmpty) ...[
+          _header(Icons.people, Colors.cyan, 'Your Friends'),
+          ..._friends.map(_buildKaidoseUserCard),
+          const SizedBox(height: 24),
         ],
-
-        // Empty state
-        if (_filteredKaidoseUsers.isEmpty && _contacts.isEmpty)
+        if (!_typed && _suggested.isNotEmpty) ...[
+          _header(Icons.person_add_alt_1, Colors.cyan, 'People You May Know'),
+          ..._suggested.map(_buildKaidoseUserCard),
+          const SizedBox(height: 24),
+        ],
+        if (contacts.isNotEmpty) ...[
+          _header(Icons.contacts, Colors.grey[600]!, 'Phone Contacts'),
+          ...contacts.map(_buildContactCard),
+        ],
+        if (nothing && !_isLoadingPeople)
           Center(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 80),
-                Icon(
-                  Icons.people_outline,
-                  size: 80,
-                  color: Colors.grey[400],
-                ),
+                Icon(Icons.people_outline, size: 80, color: Colors.grey[400]),
                 const SizedBox(height: 16),
-                Text(
-                  'No Users Found',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[700],
-                  ),
-                ),
+                Text(_typed ? 'No People Found' : 'Find your people',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700])),
                 const SizedBox(height: 8),
-                Text(
-                  'All users are already your friends!',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Text(
+                    _typed
+                        ? 'Try a different name'
+                        : 'Search a username to link up with friends',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
@@ -196,9 +213,41 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
     );
   }
 
-  Widget _buildKaidoseUserCard(KaidoseUser user) {
-    final isLinked = LinkedFriends.isLinkedByUserId(user.uid);
-    final isPending = LinkedFriends.isPendingByUserId(user.uid);
+  Widget _buildEmbedded() {
+    if (_isLoadingPeople) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+            child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2)),
+      );
+    }
+    final all = _typed ? _results : _suggested;
+    if (all.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(_typed ? 'No people match' : 'No suggestions yet',
+            style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+      );
+    }
+    final shown = all.take(widget.limit).toList();
+    return Column(
+      children: [
+        ...shown.map(_buildKaidoseUserCard),
+        if (widget.onSeeAll != null && all.length > shown.length)
+          TextButton(
+            onPressed: widget.onSeeAll,
+            child: Text('See all ${all.length} people',
+                style: const TextStyle(
+                    color: Colors.cyan, fontWeight: FontWeight.w600)),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildKaidoseUserCard(PersonResult person) {
+    final user = person.user;
+    final isFriend = person.isFriend || LinkedFriends.isLinkedByUserId(user.uid);
+    final isPending = !isFriend && LinkedFriends.isPendingByUserId(user.uid);
 
     return GestureDetector(
       onTap: () {
@@ -272,16 +321,27 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    user.username,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          user.username,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                      if (person.isVerified) ...[
+                        const SizedBox(width: 4),
+                        const Icon(Icons.verified, size: 16, color: Colors.cyan),
+                      ],
+                    ],
                   ),
                   Text(
-                    'Kaidose User',
+                    _subtitle(person),
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.cyan[700],
@@ -291,7 +351,20 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
               ),
             ),
             // Link button or status
-            if (isPending)
+            if (isFriend)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text('Friends',
+                    style: TextStyle(
+                        color: Colors.grey[700],
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+              )
+            else if (isPending)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -348,6 +421,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                         user.username,
                         userId: user.uid,
                       );
+                      SearchService.invalidate();
 
                       setState(() {});
                       ScaffoldMessenger.of(context).showSnackBar(

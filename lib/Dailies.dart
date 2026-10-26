@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'Add.dart';
+import 'KaidoseBrand.dart';
+import 'NotificationBell.dart';
 import 'AddSheet.dart';
 import 'NewDaily.dart';
 import 'YourDailyBubbles.dart';
@@ -538,18 +540,15 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Dailies',
-                    style: TextStyle(
-                      fontFamily: 'Slackey',
-                      fontSize: 32,
-                      color: Colors.cyan,
-                      fontWeight: FontWeight.normal,
-                    ),
+                    style: KaidoseBrand.wordmark(32),
                   ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Notifications (friend requests, invites, join requests)
+                      const NotificationBell(),
                       // Opens the Add sheet
                       IconButton(
                         icon: const Icon(Icons.add_circle_outline,

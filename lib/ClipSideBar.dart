@@ -9,11 +9,16 @@ import 'SendDailyMessage.dart';
 import 'SelectArchiveFolder.dart';
 import 'user_service.dart';
 import 'ClipFeed.dart';
+import 'FeedService.dart';
 
 typedef LikeTrigger = void Function();
 
 class ClipSideBar extends StatefulWidget {
   final String clipId;
+
+  /// The clip's creator — lets likes and shares teach the feed which
+  /// creators the viewer likes.
+  final String? creatorUid;
   final void Function(LikeTrigger)? onLikeTriggerReady;
   final VoidCallback? onCommentTap;
   final VoidCallback? onShareTap;
@@ -21,6 +26,7 @@ class ClipSideBar extends StatefulWidget {
   const ClipSideBar({
     Key? key,
     required this.clipId,
+    this.creatorUid,
     this.onLikeTriggerReady,
     this.onCommentTap,
     this.onShareTap,
@@ -132,6 +138,12 @@ class _ClipSideBarState extends State<ClipSideBar>
             _likeCount += 1;
           });
         }
+        if (widget.creatorUid != null) {
+          FeedService.recordClipEvent(
+              creatorUid: widget.creatorUid!,
+              event: ClipEvent.like,
+              clipId: widget.clipId);
+        }
       }
     } catch (e) {
       print('ClipSideBar: like error: $e');
@@ -141,6 +153,12 @@ class _ClipSideBarState extends State<ClipSideBar>
   }
 
   void _handleShareTap() {
+    if (widget.creatorUid != null) {
+      FeedService.recordClipEvent(
+          creatorUid: widget.creatorUid!,
+          event: ClipEvent.share,
+          clipId: widget.clipId);
+    }
     if (widget.onShareTap != null) {
       // Lets whatever screen hosts this sidebar apply the same
       // dilate/move-up treatment it already uses for comments.

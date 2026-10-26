@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'DailyData.dart';
+import 'FeedService.dart';
 
 /// Joined vs. guest.
 ///
@@ -92,6 +93,9 @@ class DailyMembershipService {
         'isMemberCopy': true,
         'creatorUid': ownerUid,
       });
+
+      // Adding a Daily is the strongest "I like this" signal the feed gets.
+      FeedService.recordEvent(daily, FeedEvent.add);
 
       return {'success': true};
     } catch (e) {
