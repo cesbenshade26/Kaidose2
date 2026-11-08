@@ -5,8 +5,11 @@ import 'package:video_player/video_player.dart';
 import 'ClipTracker.dart';
 import 'clip_service.dart';
 import 'UnifiedMediaPicker.dart';
+import 'PhotoEditor.dart';
+import 'MusicSearch.dart';
+import 'ClipMusic.dart';
 
-/// Create a Clip: one video (up to 60s) or one photo, plus a caption.
+/// Create a Clip: one video (up to 60s) or up to 10 photos, plus a caption.
 ///
 /// Empty state offers Library (the inline picker, videos first with a small
 /// Videos | Photos switch) and Film (camera). Once something is chosen the
@@ -29,7 +32,14 @@ class _AddClipScreenState extends State<AddClipScreen> {
   final TextEditingController _captionController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
 
-  File? _file;
+  static const int _maxPhotos = ClipService.maxPhotosPerClip;
+
+  File? _file; // the video, when this is a video clip
+  final List<File> _photos = []; // the photos, when this is a photo clip
+  int _previewIndex = 0;
+  bool _editorOpen = false; // song is silent here while the editor is open
+  MusicTrack? _music; // song picked in the editor (replaces the clip's audio)
+  bool _pickerPhotos = false; // picker opened to add photos
   bool _isVideo = true;
   VideoPlayerController? _videoController;
 
@@ -38,7 +48,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
   bool _isPosting = false;
   String? _errorMessage;
 
-  bool get _hasMedia => _file != null;
+  bool get _hasMedia => _isVideo ? _file != null : _photos.isNotEmpty;
 
   @override
   void dispose() {
@@ -55,13 +65,12 @@ class _AddClipScreenState extends State<AddClipScreen> {
 
     setState(() {
       _file = file;
+      _photos.clear();
       _isVideo = isVideo;
       _showPicker = false;
       _errorMessage = null;
       _isInitializing = isVideo;
     });
-
-    if (!isVideo) return;
 
     try {
       final controller = VideoPlayerController.file(file);
@@ -71,6 +80,8 @@ class _AddClipScreenState extends State<AddClipScreen> {
         return;
       }
       controller.setLooping(true);
+      // A picked song replaces the video's own sound.
+      controller.setVolume(_music != null ? 0 : 1);
       controller.play();
       setState(() {
         _videoController = controller;
@@ -91,8 +102,92 @@ class _AddClipScreenState extends State<AddClipScreen> {
       setState(() => _showPicker = false);
       return;
     }
-    final item = items.first;
-    _setMedia(item.file, isVideo: item.isVideo);
+    final videos = items.where((i) => i.isVideo).toList();
+    if (videos.isNotEmpty) {
+      _setMedia(videos.first.file, isVideo: true);
+      return;
+    }
+    _addPhotos(items.map((i) => i.file).toList());
+  }
+
+  Future<void> _addPhotos(List<File> files) async {
+    await _videoController?.dispose();
+    if (!mounted) return;
+    final room = _maxPhotos - _photos.length;
+    setState(() {
+      _videoController = null;
+      _file = null;
+      _isVideo = false;
+      _isInitializing = false;
+      _errorMessage = null;
+      _showPicker = false;
+      final start = _photos.length;
+      _photos.addAll(files.take(room));
+      // Jump to the first photo that was just added.
+      _previewIndex = start < _photos.length ? start : 0;
+    });
+  }
+
+  /// Edit (crop, text, draw, music) the photo being previewed; the edited
+  /// copy takes its place in the clip.
+  Future<void> _editCurrentPhoto() async {
+    if (_photos.isEmpty) return;
+    final i = _previewIndex.clamp(0, _photos.length - 1);
+    setState(() => _editorOpen = true);
+    final r = await PhotoEditor.open(context, _photos[i], withAudio: true);
+    if (mounted) setState(() => _editorOpen = false);
+    if (r != null && mounted && i < _photos.length) {
+      setState(() {
+        _photos[i] = r.file;
+        _music = r.music ?? _music;
+      });
+    }
+  }
+
+  /// Edit the video (text, draw, music). Music replaces its own audio.
+  Future<void> _editVideo() async {
+    final f = _file;
+    if (f == null) return;
+    setState(() => _editorOpen = true);
+    final r =
+    await PhotoEditor.open(context, f, isVideo: true, withAudio: true);
+    if (mounted) setState(() => _editorOpen = false);
+    if (r != null && mounted) {
+      _music = r.music ?? _music;
+      await _setMedia(r.file, isVideo: true);
+    }
+  }
+
+  void _removePhotoAt(int i) {
+    setState(() {
+      _photos.removeAt(i);
+      if (_photos.isEmpty) {
+        _previewIndex = 0;
+        _isVideo = true;
+      } else if (_previewIndex >= _photos.length) {
+        _previewIndex = _photos.length - 1;
+      } else if (i < _previewIndex) {
+        _previewIndex--;
+      }
+    });
+  }
+
+  void _reorderPhotos(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex -= 1;
+    setState(() {
+      final current = _photos[_previewIndex];
+      final moved = _photos.removeAt(oldIndex);
+      _photos.insert(newIndex, moved);
+      _previewIndex = _photos.indexOf(current);
+    });
+  }
+
+  void _openPicker({required bool photos}) {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _pickerPhotos = photos;
+      _showPicker = !_showPicker;
+    });
   }
 
   Future<void> _film() async {
@@ -112,6 +207,10 @@ class _AddClipScreenState extends State<AddClipScreen> {
     setState(() {
       _videoController = null;
       _file = null;
+      _photos.clear();
+      _previewIndex = 0;
+      _isVideo = true;
+      _music = null;
       _errorMessage = null;
       _isInitializing = false;
     });
@@ -120,7 +219,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
   // ─── Posting ──────────────────────────────────────────────────────────────
 
   Future<void> _post() async {
-    if (_file == null || _isPosting) return;
+    if (!_hasMedia || _isPosting) return;
     FocusScope.of(context).unfocus();
     setState(() => _isPosting = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -136,11 +235,13 @@ class _AddClipScreenState extends State<AddClipScreen> {
         success = await ClipService.uploadClip(
           videoFile: _file!,
           caption: caption,
+          music: _music,
         );
       } else {
         success = await ClipService.uploadPhotoClip(
-          photoFile: _file!,
+          photoFiles: List<File>.of(_photos),
           caption: caption,
+          music: _music,
         );
       }
 
@@ -158,6 +259,10 @@ class _AddClipScreenState extends State<AddClipScreen> {
         setState(() {
           _videoController = null;
           _file = null;
+          _photos.clear();
+          _previewIndex = 0;
+          _isVideo = true;
+          _music = null;
           _captionController.clear();
         });
       } else {
@@ -210,6 +315,10 @@ class _AddClipScreenState extends State<AddClipScreen> {
       ),
       body: Column(
         children: [
+          ClipMusicPlayer(
+            track: _music,
+            active: _hasMedia && !_editorOpen && !_isPosting,
+          ),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
@@ -232,6 +341,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
               ),
             ),
           ),
+          if (_hasMedia && !_isVideo) _buildFilmstrip(),
           if (_hasMedia) _buildCaptionAndPost(),
           AnimatedSize(
             duration: const Duration(milliseconds: 280),
@@ -239,11 +349,16 @@ class _AddClipScreenState extends State<AddClipScreen> {
             alignment: Alignment.bottomCenter,
             child: _showPicker
                 ? UnifiedMediaPickerPanel(
+              key: ValueKey('picker-$_pickerPhotos'),
               height: _pickerHeight,
-              title: 'Choose media',
-              initialFilter: MediaFilter.videos,
-              allowFilterToggle: true,
+              title: _pickerPhotos ? 'Add photos' : 'Choose media',
+              initialFilter: _pickerPhotos
+                  ? MediaFilter.photos
+                  : MediaFilter.videos,
+              allowFilterToggle: !_pickerPhotos,
               singleSelect: true,
+              multiSelectPhotos: true,
+              maxSelect: _maxPhotos - _photos.length,
               showDraw: false,
               maxVideoDuration: _maxClipLength,
               onMediaSelected: _onLibraryPicked,
@@ -293,7 +408,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'A video up to 60 seconds, or a photo',
+                'A video up to 60 seconds, or up to 10 photos',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: Colors.grey[600]),
               ),
@@ -301,10 +416,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
               _primaryButton(
                 icon: Icons.photo_library_outlined,
                 label: 'Choose from library',
-                onTap: () {
-                  FocusScope.of(context).unfocus();
-                  setState(() => _showPicker = !_showPicker);
-                },
+                onTap: () => _openPicker(photos: false),
               ),
               const SizedBox(height: 10),
               _secondaryButton(
@@ -383,23 +495,55 @@ class _AddClipScreenState extends State<AddClipScreen> {
           fit: StackFit.expand,
           children: [
             _buildMedia(),
-            // Swap / remove
-            Positioned(
-              top: 10,
-              right: 10,
-              child: GestureDetector(
-                onTap: _isPosting ? null : _clearMedia,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(
-                    color: Colors.black54,
-                    shape: BoxShape.circle,
+            // Swap / remove (video only; photos are removed in the strip below)
+            if (_isVideo)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: GestureDetector(
+                  onTap: _isPosting ? null : _clearMedia,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child:
+                    const Icon(Icons.close, color: Colors.white, size: 18),
                   ),
-                  child:
-                  const Icon(Icons.close, color: Colors.white, size: 18),
                 ),
               ),
-            ),
+            if (_hasMedia && _errorMessage == null)
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: GestureDetector(
+                  onTap: _isPosting
+                      ? null
+                      : (_isVideo ? _editVideo : _editCurrentPhoto),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.auto_fix_high_rounded,
+                            color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text('Edit',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             if (!_isVideo)
               Positioned(
                 left: 12,
@@ -411,8 +555,11 @@ class _AddClipScreenState extends State<AddClipScreen> {
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text('Photo',
-                      style: TextStyle(
+                  child: Text(
+                      _photos.length > 1
+                          ? '${_previewIndex + 1} / ${_photos.length}'
+                          : 'Photo',
+                      style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.w600)),
@@ -443,7 +590,19 @@ class _AddClipScreenState extends State<AddClipScreen> {
     }
 
     if (!_isVideo) {
-      return Image.file(_file!, fit: BoxFit.cover);
+      if (_photos.isEmpty) return const SizedBox.shrink();
+      final f = _photos[_previewIndex.clamp(0, _photos.length - 1)];
+      return AnimatedSwitcher(
+        duration: const Duration(milliseconds: 160),
+        child: Image.file(
+          f,
+          key: ValueKey(f.path),
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          cacheWidth: 1080,
+        ),
+      );
     }
 
     final c = _videoController;
@@ -474,6 +633,134 @@ class _AddClipScreenState extends State<AddClipScreen> {
                   color: Colors.white70, size: 64),
             ),
         ],
+      ),
+    );
+  }
+
+  /// Thumbnails of the photos: tap to preview, hold and drag to reorder, x to
+  /// remove, plus a tile to add more. The first one is the cover.
+  Widget _buildFilmstrip() {
+    const double size = 60;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      child: SizedBox(
+        height: size + 8,
+        child: Row(
+          children: [
+            Expanded(
+              child: ReorderableListView.builder(
+                scrollDirection: Axis.horizontal,
+                buildDefaultDragHandles: false,
+                padding: const EdgeInsets.only(top: 8),
+                itemCount: _photos.length,
+                onReorder: _reorderPhotos,
+                proxyDecorator: (child, i, anim) => Material(
+                  color: Colors.transparent,
+                  elevation: 4,
+                  borderRadius: BorderRadius.circular(12),
+                  child: child,
+                ),
+                itemBuilder: (context, i) {
+                  final selected = i == _previewIndex;
+                  return ReorderableDelayedDragStartListener(
+                    key: ValueKey(_photos[i].path),
+                    index: i,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _previewIndex = i),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: SizedBox(
+                          width: size,
+                          height: size,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                width: size,
+                                height: size,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: selected
+                                        ? const Color(0xFFFFB300)
+                                        : Colors.transparent,
+                                    width: 2.5,
+                                  ),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(9.5),
+                                  child: Image.file(
+                                    _photos[i],
+                                    fit: BoxFit.cover,
+                                    cacheWidth: 180,
+                                  ),
+                                ),
+                              ),
+                              if (i == 0)
+                                Positioned(
+                                  left: 4,
+                                  bottom: 4,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 5, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text('Cover',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w700)),
+                                  ),
+                                ),
+                              Positioned(
+                                top: -6,
+                                right: -6,
+                                child: GestureDetector(
+                                  onTap: _isPosting
+                                      ? null
+                                      : () => _removePhotoAt(i),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(3),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.black87,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.close,
+                                        color: Colors.white, size: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (_photos.length < _maxPhotos)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: GestureDetector(
+                  onTap: _isPosting ? null : () => _openPicker(photos: true),
+                  child: Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[400]!),
+                    ),
+                    child: Icon(Icons.add, color: Colors.grey[700]),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

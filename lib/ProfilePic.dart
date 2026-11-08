@@ -1,16 +1,15 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
-import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'ProfilePicManager.dart';
+import 'UnifiedMediaPicker.dart';
 import 'DrawPad.dart';
-import 'CamRoll.dart';
 import 'UseCam.dart';
-import 'ProfilePicService.dart';
 
+// ---------------------------------------------------------------------------
+// Crop screen: choose which part of the photo becomes your profile picture.
+// ---------------------------------------------------------------------------
 class ProfilePicEditor extends StatefulWidget {
   final File imageFile;
   final Function(File) onImageCropped;
@@ -26,260 +25,170 @@ class ProfilePicEditor extends StatefulWidget {
 }
 
 class _ProfilePicEditorState extends State<ProfilePicEditor> {
-  final GlobalKey _imageKey = GlobalKey();
-  double _scale = 1.0;
-  Offset _offset = Offset.zero;
-  bool _imageLoaded = false;
+  final GlobalKey _cropKey = GlobalKey();
+  Size? _imageSize;
+  double _scale = 1.0; // user zoom on top of "cover"
+  Offset _offset = Offset.zero; // image center relative to frame center
+  double _startScale = 1.0;
+  Offset _startOffset = Offset.zero;
+  Offset _startFocal = Offset.zero;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        _imageLoaded = true;
-      });
-    });
-  }
-
-  void _onScaleUpdate(ScaleUpdateDetails details) {
-    setState(() {
-      if (details.scale != 1.0) {
-        _scale = (_scale * details.scale).clamp(0.5, 3.0);
+    final stream = FileImage(widget.imageFile).resolve(const ImageConfiguration());
+    late ImageStreamListener l;
+    l = ImageStreamListener((info, _) {
+      if (mounted) {
+        setState(() => _imageSize =
+            Size(info.image.width.toDouble(), info.image.height.toDouble()));
       }
-      _offset += details.focalPointDelta;
+      stream.removeListener(l);
+    }, onError: (_, __) {
+      if (mounted) Navigator.pop(context);
     });
+    stream.addListener(l);
   }
 
-  Future<void> _cropAndSave() async {
+  double _base(double frame) {
+    final a = frame / _imageSize!.width;
+    final b = frame / _imageSize!.height;
+    return a > b ? a : b;
+  }
+
+  Offset _clamp(Offset o, double frame) {
+    final disp = _imageSize! * (_base(frame) * _scale);
+    final maxX = ((disp.width - frame) / 2).clamp(0.0, double.infinity);
+    final maxY = ((disp.height - frame) / 2).clamp(0.0, double.infinity);
+    return Offset(o.dx.clamp(-maxX, maxX), o.dy.clamp(-maxY, maxY));
+  }
+
+  Future<void> _save(double frame) async {
+    if (_saving) return;
+    setState(() => _saving = true);
     try {
-      final RenderBox renderBox = _imageKey.currentContext!.findRenderObject() as RenderBox;
-      final size = renderBox.size;
-
-      // Calculate the circle's position and size
-      final circleSize = 300.0;
-      final circleCenter = Offset(size.width / 2, size.height / 2);
-      final circleRect = Rect.fromCircle(center: circleCenter, radius: circleSize / 2);
-
-      // Create a picture recorder to capture just the circular area
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-
-      // Clip to circular area
-      canvas.clipPath(Path()..addOval(Rect.fromLTWH(0, 0, circleSize, circleSize)));
-
-      // Load and decode the image
-      final imageBytes = await widget.imageFile.readAsBytes();
-      final codec = await ui.instantiateImageCodec(imageBytes);
-      final frame = await codec.getNextFrame();
-      final originalImage = frame.image;
-
-      // Calculate source rectangle from the original image based on scale and offset
-      final imageWidth = originalImage.width.toDouble();
-      final imageHeight = originalImage.height.toDouble();
-      final imageAspect = imageWidth / imageHeight;
-      final screenAspect = size.width / size.height;
-
-      double displayWidth, displayHeight;
-      if (imageAspect > screenAspect) {
-        displayHeight = size.height;
-        displayWidth = displayHeight * imageAspect;
-      } else {
-        displayWidth = size.width;
-        displayHeight = displayWidth / imageAspect;
-      }
-
-      // Apply scale
-      displayWidth *= _scale;
-      displayHeight *= _scale;
-
-      // Calculate the image position on screen
-      final imageLeft = (size.width - displayWidth) / 2 + _offset.dx;
-      final imageTop = (size.height - displayHeight) / 2 + _offset.dy;
-
-      // Calculate what portion of the image is visible in the circle
-      final visibleLeft = (circleRect.left - imageLeft) / displayWidth;
-      final visibleTop = (circleRect.top - imageTop) / displayHeight;
-      final visibleWidth = circleSize / displayWidth;
-      final visibleHeight = circleSize / displayHeight;
-
-      // Define source rectangle from original image
-      final srcRect = Rect.fromLTWH(
-        (visibleLeft * imageWidth).clamp(0, imageWidth),
-        (visibleTop * imageHeight).clamp(0, imageHeight),
-        (visibleWidth * imageWidth).clamp(0, imageWidth),
-        (visibleHeight * imageHeight).clamp(0, imageHeight),
-      );
-
-      // Draw the portion of the image
-      final dstRect = Rect.fromLTWH(0, 0, circleSize, circleSize);
-      canvas.drawImageRect(originalImage, srcRect, dstRect, Paint());
-
-      // Convert to image
-      final picture = recorder.endRecording();
-      final img = await picture.toImage(circleSize.toInt(), circleSize.toInt());
-      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-      final pngBytes = byteData!.buffer.asUint8List();
-
-      // Save to file
-      final String fileName = 'cropped_profile_${DateTime.now().millisecondsSinceEpoch}.png';
-      final Directory tempDir = Directory.systemTemp;
-      final File croppedFile = File('${tempDir.path}/$fileName');
-      await croppedFile.writeAsBytes(pngBytes);
-
-      widget.onImageCropped(croppedFile);
-      Navigator.pop(context);
+      final boundary =
+      _cropKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final ui.Image image = await boundary.toImage(pixelRatio: 600 / frame);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      final file = File(
+          '${Directory.systemTemp.path}/cropped_profile_${DateTime.now().millisecondsSinceEpoch}.png');
+      await file.writeAsBytes(data!.buffer.asUint8List());
+      widget.onImageCropped(file);
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      print('Error cropping image: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error cropping image: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not crop that photo. Try another.')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_imageLoaded) {
-      return const Scaffold(
-        backgroundColor: Colors.black54,
-        body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-      );
-    }
+    final frame = MediaQuery.of(context).size.width - 48;
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text('Position photo',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 18)),
+        centerTitle: true,
+      ),
+      body: _imageSize == null
+          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          : Column(
         children: [
-          // Full screen interactive image
-          Positioned.fill(
-            child: Listener(
-              onPointerSignal: (event) {
-                if (event is PointerScrollEvent) {
-                  setState(() {
-                    final scrollDelta = event.scrollDelta.dy;
-                    final scaleDelta = scrollDelta > 0 ? 0.9 : 1.1;
-                    _scale = (_scale * scaleDelta).clamp(0.5, 3.0);
-                  });
-                }
-              },
-              child: GestureDetector(
-                onScaleUpdate: _onScaleUpdate,
-                child: Container(
-                  key: _imageKey,
-                  color: Colors.black,
-                  child: Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.identity()
-                      ..translate(_offset.dx, _offset.dy)
-                      ..scale(_scale),
-                    child: Center(
-                      child: Image.file(
-                        widget.imageFile,
-                        fit: BoxFit.contain,
+          const SizedBox(height: 24),
+          SizedBox(
+            width: frame,
+            height: frame,
+            child: Stack(
+              children: [
+                GestureDetector(
+                  onScaleStart: (d) {
+                    _startScale = _scale;
+                    _startOffset = _offset;
+                    _startFocal = d.focalPoint;
+                  },
+                  onScaleUpdate: (d) {
+                    setState(() {
+                      _scale = (_startScale * d.scale).clamp(1.0, 4.0);
+                      _offset = _clamp(
+                          _startOffset + (d.focalPoint - _startFocal), frame);
+                    });
+                  },
+                  child: RepaintBoundary(
+                    key: _cropKey,
+                    child: SizedBox(
+                      width: frame,
+                      height: frame,
+                      child: ClipRect(
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: frame / 2 -
+                                  (_imageSize!.width * _base(frame) * _scale) / 2 +
+                                  _offset.dx,
+                              top: frame / 2 -
+                                  (_imageSize!.height * _base(frame) * _scale) / 2 +
+                                  _offset.dy,
+                              width: _imageSize!.width * _base(frame) * _scale,
+                              height: _imageSize!.height * _base(frame) * _scale,
+                              child: Image.file(widget.imageFile, fit: BoxFit.fill),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-
-          // Dark overlay with circular hole
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: CircularHolePainter(),
-              ),
-            ),
-          ),
-
-          // Circle border
-          Center(
-            child: IgnorePointer(
-              child: Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 3,
+                // Preview-only: fades what falls outside the circle.
+                IgnorePointer(
+                  child: CustomPaint(
+                    size: Size(frame, frame),
+                    painter: _CircleMaskPainter(),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
-
-          // Instructions text
-          Positioned(
-            top: 100,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Text(
-                'Drag to move • Pinch/scroll to zoom',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  shadows: [
-                    Shadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 4,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Back button
-          Positioned(
-            top: 50,
-            left: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(
-                  Icons.arrow_back,
-                  color: Colors.white,
-                  size: 24,
-                ),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ),
-
-          // Confirm button
-          Positioned(
-            bottom: 50,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: ElevatedButton(
-                onPressed: _cropAndSave,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(25),
+          const SizedBox(height: 24),
+          Text('Drag to move, pinch to zoom',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+          const Spacer(),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : () => _save(frame),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                    foregroundColor: Colors.white,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
-                ),
-                child: const Text(
-                  'Confirm',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  child: _saving
+                      ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                      : const Text('Use this photo',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
             ),
@@ -290,37 +199,32 @@ class _ProfilePicEditorState extends State<ProfilePicEditor> {
   }
 }
 
-// Custom painter to create the dark overlay with circular hole
-class CircularHolePainter extends CustomPainter {
+class _CircleMaskPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.black.withOpacity(0.7)
-      ..style = PaintingStyle.fill;
-
-    final circlePath = Path()
-      ..addOval(Rect.fromCircle(
-        center: Offset(size.width / 2, size.height / 2),
-        radius: 150,
-      ));
-
-    final fullScreenPath = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    final holePath = Path.combine(
-      PathOperation.difference,
-      fullScreenPath,
-      circlePath,
+    final full = Path()..addRect(Offset.zero & size);
+    final circle = Path()..addOval(Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2));
+    canvas.drawPath(
+      Path.combine(PathOperation.difference, full, circle),
+      Paint()..color = Colors.white.withOpacity(0.75),
     );
-
-    canvas.drawPath(holePath, paint);
+    canvas.drawCircle(
+      size.center(Offset.zero),
+      size.width / 2,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.cyan,
+    );
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// ProfilePicScreen class - keeping this unchanged
+// ---------------------------------------------------------------------------
+// Selector screen: preview on top, inline photo picker below.
+// ---------------------------------------------------------------------------
 class ProfilePicScreen extends StatefulWidget {
   final Function(File?)? onProfilePicChanged;
 
@@ -332,270 +236,149 @@ class ProfilePicScreen extends StatefulWidget {
 
 class _ProfilePicScreenState extends State<ProfilePicScreen> {
   File? _selectedImage;
+  VoidCallback? _listener;
 
   @override
   void initState() {
     super.initState();
     _selectedImage = ProfilePicManager.globalProfilePic;
-// Refresh from Firebase in case another device updated it
-    ProfilePicManager.forceRefresh().then((_) {
-      if (mounted) {
-        setState(() {
-          _selectedImage = ProfilePicManager.globalProfilePic;
-        });
-      }
-    });
+    _listener = () {
+      if (mounted) setState(() => _selectedImage = ProfilePicManager.globalProfilePic);
+    };
+    ProfilePicManager.addListener(_listener!);
+    // Refresh from Firebase in case another device updated it
+    ProfilePicManager.forceRefresh();
   }
 
-  Future<void> _openCameraRoll() async {
-    final XFile? image = await CamRoll.openCameraRoll(context);
-    if (image != null) {
-      _navigateToEditor(image, 'Photos');
-    }
+  @override
+  void dispose() {
+    if (_listener != null) ProfilePicManager.removeListener(_listener!);
+    super.dispose();
   }
 
-  Future<void> _openCamera() async {
-    final XFile? image = await UseCam.openCamera(context);
-    if (image != null) {
-      _navigateToEditor(image, 'Camera');
-    }
-  }
-
-  void _navigateToEditor(XFile image, String source) {
+  void _openEditor(File file) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ProfilePicEditor(
-          imageFile: File(image.path),
-          onImageCropped: (File croppedFile) {
-            print('Image from $source cropped! Path: ${croppedFile.path}');
-            setState(() {
-              _selectedImage = croppedFile;
-            });
-            ProfilePicManager.globalProfilePic = croppedFile;
-            print('ProfilePicManager.globalProfilePic set to: ${ProfilePicManager.globalProfilePic?.path}');
-            if (widget.onProfilePicChanged != null) {
-              widget.onProfilePicChanged!(croppedFile);
-            }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Profile picture updated from $source!'),
-                duration: Duration(seconds: 2),
-                backgroundColor: Colors.green,
-              ),
-            );
+        builder: (_) => ProfilePicEditor(
+          imageFile: file,
+          onImageCropped: (cropped) {
+            ProfilePicManager.globalProfilePic = cropped;
+            widget.onProfilePicChanged?.call(cropped);
           },
         ),
       ),
     );
+  }
+
+  Future<void> _openCamera() async {
+    final image = await UseCam.openCamera(context);
+    if (image != null && mounted) _openEditor(File(image.path));
   }
 
   void _openDrawingPad() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => DrawingScreen(
-          onDrawingComplete: (File drawingFile) {
-            print('Drawing completed! File: ${drawingFile.path}');
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ProfilePicEditor(
-                  imageFile: drawingFile,
-                  onImageCropped: (File croppedFile) {
-                    print('Drawing cropped! Path: ${croppedFile.path}');
-                    setState(() {
-                      _selectedImage = croppedFile;
-                    });
-                    ProfilePicManager.globalProfilePic = croppedFile;
-                    if (widget.onProfilePicChanged != null) {
-                      widget.onProfilePicChanged!(croppedFile);
-                    }
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Profile picture updated from drawing!'),
-                        duration: Duration(seconds: 2),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            );
+        builder: (_) => DrawingScreen(
+          onDrawingComplete: (File drawing) {
+            Navigator.pop(context); // close the drawing pad
+            _openEditor(drawing);
           },
         ),
       ),
     );
   }
 
+  void _useDefault() {
+    ProfilePicManager.globalProfilePic = null;
+    setState(() => _selectedImage = null);
+    widget.onProfilePicChanged?.call(null);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasPic = _selectedImage != null && _selectedImage!.existsSync();
+
     return Scaffold(
-      body: Stack(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text('Profile photo',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 18)),
+        centerTitle: true,
+      ),
+      body: Column(
         children: [
-          Column(
+          const SizedBox(height: 8),
+          Container(
+            width: 140,
+            height: 140,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.grey[300],
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 2)),
+              ],
+            ),
+            child: ClipOval(
+              child: hasPic
+                  ? Image.file(
+                _selectedImage!,
+                fit: BoxFit.cover,
+                key: ValueKey(_selectedImage!.path + _selectedImage!.lastModifiedSync().toString()),
+                errorBuilder: (_, __, ___) => const DefaultProfilePic(size: 140, borderWidth: 0),
+              )
+                  : const DefaultProfilePic(size: 140, borderWidth: 0),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Expanded(
-                flex: 1,
-                child: Container(
-                  width: double.infinity,
-                  color: Colors.white,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(height: 20),
-                        Container(
-                          width: 200,
-                          height: 200,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.grey[300],
-                            border: Border.all(
-                              color: Colors.grey[400]!,
-                              width: 3,
-                            ),
-                          ),
-                          child: ClipOval(
-                            child: _selectedImage != null
-                                ? Image.file(_selectedImage!, fit: BoxFit.cover, width: 200, height: 200)
-                                : const DefaultProfilePic(size: 200, borderWidth: 0),
-                          ),
-                        ),
-                        if (_selectedImage != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: ElevatedButton(
-                              onPressed: () {
-                                setState(() {
-                                  _selectedImage = null;
-                                  ProfilePicManager.globalProfilePic = null;
-                                });
-                                if (widget.onProfilePicChanged != null) {
-                                  widget.onProfilePicChanged!(null);
-                                }
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Profile picture removed!'),
-                                    duration: Duration(seconds: 2),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.grey[600],
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text('Remove Photo'),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+              OutlinedButton.icon(
+                onPressed: _openCamera,
+                icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                label: const Text('Take photo'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.black87,
+                  side: BorderSide(color: Colors.grey[300]!),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 ),
               ),
-              Expanded(
-                flex: 1,
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(30),
-                      topRight: Radius.circular(30),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildOptionButton(
-                              icon: Platform.isIOS ? Icons.photo_library : Icons.photo,
-                              label: 'Photos',
-                              onTap: _openCameraRoll,
-                              enabled: true,
-                            ),
-                            _buildOptionButton(
-                              icon: Icons.camera_alt,
-                              label: 'Camera',
-                              onTap: _openCamera,
-                              enabled: true,
-                            ),
-                            _buildOptionButton(
-                              icon: Icons.edit,
-                              label: 'Draw',
-                              onTap: _openDrawingPad,
-                              enabled: true,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Tap Photos to select from camera roll, Camera to take a new photo, or Draw to create art',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
+              if (hasPic) ...[
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _useDefault,
+                  style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+                  child: const Text('Use default'),
                 ),
-              ),
+              ],
             ],
           ),
-          Positioned(
-            top: 50,
-            left: 16,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
-                onPressed: () => Navigator.pop(context),
+          const SizedBox(height: 8),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, c) => UnifiedMediaPickerPanel(
+                height: c.maxHeight,
+                title: 'Photos',
+                initialFilter: MediaFilter.photos,
+                allowFilterToggle: false,
+                singleSelect: true,
+                showDraw: true,
+                onDrawTap: _openDrawingPad,
+                onClose: () => Navigator.pop(context),
+                onMediaSelected: (items) {
+                  if (items.isEmpty) return;
+                  _openEditor(items.first.file);
+                },
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildOptionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    required bool enabled,
-  }) {
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          color: enabled ? Colors.white : Colors.grey[400],
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: enabled ? [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 3,
-              offset: const Offset(0, 2),
-            ),
-          ] : null,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 32, color: enabled ? Colors.grey[700] : Colors.grey[500]),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontSize: 12, color: enabled ? Colors.grey[700] : Colors.grey[500], fontWeight: FontWeight.w500)),
-          ],
-        ),
       ),
     );
   }

@@ -153,6 +153,7 @@ class ProfilePicManager {
   }
 }
 
+/// The classic grey head-and-shoulders avatar, used whenever no photo is set.
 class DefaultProfilePic extends StatelessWidget {
   final double size;
   final double borderWidth;
@@ -171,30 +172,32 @@ class DefaultProfilePic extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.grey[300],
-        border: Border.all(color: Colors.grey[400]!, width: borderWidth),
+        border: borderWidth > 0 ? Border.all(color: Colors.grey[400]!, width: borderWidth) : null,
       ),
       child: ClipOval(
         child: Stack(
           alignment: Alignment.center,
           children: [
+            // head
             Positioned(
-              top: size * 0.1875,
+              top: size * 0.2,
               child: Container(
-                width: size * 0.3125,
-                height: size * 0.3125,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[600]),
+                width: size * 0.34,
+                height: size * 0.34,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[500]),
               ),
             ),
+            // shoulders
             Positioned(
-              bottom: -size * 0.125,
+              bottom: -size * 0.12,
               child: Container(
-                width: size * 0.875,
+                width: size * 0.85,
                 height: size * 0.5,
                 decoration: BoxDecoration(
-                  color: Colors.grey[600],
+                  color: Colors.grey[500],
                   borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(size * 0.4375),
-                    topRight: Radius.circular(size * 0.4375),
+                    topLeft: Radius.circular(size * 0.42),
+                    topRight: Radius.circular(size * 0.42),
                   ),
                 ),
               ),

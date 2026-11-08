@@ -8,6 +8,7 @@ import 'Clips.dart';
 import 'Chat.dart';
 import 'HomeSwipe.dart';
 import 'YourDailyBubbles.dart';
+import 'ClipsActivity.dart' show MyClipsCache;
 
 class HomeScreen extends StatefulWidget {
   final bool fadeInFromAnimation;
@@ -51,6 +52,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _previousIndex = _selectedIndex;
 
+    // Start loading your clips (and their thumbnails) right away, so the
+    // Clips tab on your profile is ready before you ever open it.
+    MyClipsCache.instance.start();
+    MyClipsCache.instance.addListener(_warmClipThumbnails);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _warmClipThumbnails());
+
     _contentFadeController = AnimationController(
         duration: const Duration(milliseconds: 1200), vsync: this);
     _contentFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -90,13 +97,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     // Lets YourDaily.dart force-switch to the Profile tab when the user
-    // taps "Add a Daily Bubble!", without Add.dart needing to know about it.
+    // taps Daily Bubble in the Add sheet, without Add.dart needing to know about it.
     YourDailyBubbleManager.registerNavigateToProfile(() {
       // Add is opened on top of Home for now; close it first so the tab
       // switch isn't hidden behind it.
       Navigator.of(context).popUntil((route) => route.settings.name != kAddRouteName);
       _onItemTapped(_profileTabIndex);
     });
+  }
+
+  void _warmClipThumbnails() {
+    if (!mounted) return;
+    MyClipsCache.instance.precacheThumbnails(context);
   }
 
   void _startEntryAnimations() async {
@@ -119,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     YourDailyBubbleManager.unregisterNavigateToProfile();
+    MyClipsCache.instance.removeListener(_warmClipThumbnails);
     _contentFadeController.dispose();
     _navBarSlideController.dispose();
     _staggerController.dispose();

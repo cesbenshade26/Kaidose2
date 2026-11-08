@@ -1,3 +1,4 @@
+import 'PhotoFlipper.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'clip_service.dart';
@@ -6,6 +7,9 @@ import 'Clipcommentsheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'Add.dart';
 import 'FeedService.dart';
+import 'UserProfileScreen.dart';
+import 'MediaPreloader.dart';
+import 'ClipMusic.dart';
 
 class ClipsWidget extends StatefulWidget {
   final bool isTabActive;
@@ -75,7 +79,25 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   @override
   void dispose() {
     _pageController.dispose();
+    PreloadedMediaPool.instance.clearWindow();
     super.dispose();
+  }
+
+  int _preloadedCount = -1;
+
+  /// Keeps the clip on screen and the next few below it ready to play (and
+  /// one above), the same way your own clips viewer does.
+  void _preload(List<ClipData> clips, int index) {
+    PreloadedMediaPool.instance.preloadAround<ClipData>(
+      clips,
+      index,
+      id: (c) => c.id,
+      url: (c) => c.isPhoto ? (c.photoUrl ?? '') : c.videoUrl,
+      isImage: (c) => c.isPhoto,
+      photos: (c) => c.allPhotos,
+      ahead: 3,
+      behind: 1,
+    );
   }
 
   @override
@@ -195,10 +217,21 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   }
 
   Widget _buildPager(List<ClipData> clips) {
+    // First build, or clips were added/removed: (re)start the preload window.
+    if (clips.length != _preloadedCount) {
+      _preloadedCount = clips.length;
+      final at = _currentPage.clamp(0, clips.isEmpty ? 0 : clips.length - 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && clips.isNotEmpty) _preload(clips, at);
+      });
+    }
     return PageView.builder(
       controller: _pageController,
       scrollDirection: Axis.vertical,
-      onPageChanged: (index) => setState(() => _currentPage = index),
+      onPageChanged: (index) {
+        setState(() => _currentPage = index);
+        _preload(clips, index);
+      },
       itemCount: clips.length,
       itemBuilder: (context, index) {
         return _ClipPage(
@@ -307,20 +340,25 @@ class _ClipPageState extends State<_ClipPage>
       return;
     }
     try {
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(widget.clip.videoUrl),
-      );
-      await controller.initialize();
-      controller.setLooping(true);
-      if (mounted) {
+      // Borrowed from the preloader: usually already initialised, so it
+      // plays the moment the page appears.
+      final controller = await PreloadedMediaPool.instance
+          .lease(widget.clip.id, widget.clip.videoUrl);
+      if (!mounted) return;
+      if (controller == null) {
         setState(() {
-          _controller = controller;
+          _hasError = true;
           _isLoading = false;
         });
-        if (widget.isActive) controller.play();
-      } else {
-        controller.dispose();
+        return;
       }
+      // A clip with a song plays that instead of its own audio.
+      controller.setVolume(widget.clip.music != null ? 0 : 1);
+      setState(() {
+        _controller = controller;
+        _isLoading = false;
+      });
+      if (widget.isActive && !_userPaused) controller.play();
     } catch (e) {
       print('_ClipPage: load error: $e');
       if (mounted) {
@@ -365,7 +403,12 @@ class _ClipPageState extends State<_ClipPage>
   @override
   void dispose() {
     _reportWatch();
-    _controller?.dispose();
+    try {
+      _controller?.pause();
+    } catch (_) {}
+    if (!widget.clip.isPhoto) {
+      PreloadedMediaPool.instance.release(widget.clip.id);
+    }
     _commentAnimController.dispose();
     _floatingHeartController.dispose();
     super.dispose();
@@ -431,6 +474,9 @@ class _ClipPageState extends State<_ClipPage>
         children: [
           // Black background
           Container(color: Colors.black),
+
+          // The clip's song (if any); plays only while this clip is on screen.
+          ClipMusicPlayer(track: widget.clip.music, active: widget.isActive),
 
           // ── Clip area — shrinks when comments open ──
           AnimatedBuilder(
@@ -529,44 +575,51 @@ class _ClipPageState extends State<_ClipPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.3),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: Colors.white, width: 1.5),
-                      ),
-                      child: Center(
-                        child: Text(
-                          widget.clip.creatorUsername.isNotEmpty
-                              ? widget.clip.creatorUsername[0]
-                              .toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => UserProfileScreen.open(
+                      context, widget.clip.creatorUid,
+                      username: widget.clip.creatorUsername),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.cyan.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: Colors.white, width: 1.5),
+                        ),
+                        child: Center(
+                          child: Text(
+                            widget.clip.creatorUsername.isNotEmpty
+                                ? widget.clip.creatorUsername[0]
+                                .toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '@${widget.clip.creatorUsername}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        shadows: [
-                          Shadow(
-                              color: Colors.black54, blurRadius: 4)
-                        ],
+                      const SizedBox(width: 8),
+                      Text(
+                        '@${widget.clip.creatorUsername}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          shadows: [
+                            Shadow(
+                                color: Colors.black54, blurRadius: 4)
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 if (widget.clip.caption.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -635,28 +688,7 @@ class _ClipPageState extends State<_ClipPage>
 
   Widget _buildVideoContent() {
     if (widget.clip.isPhoto) {
-      final url = widget.clip.photoUrl ?? widget.clip.thumbnailUrl;
-      if (url == null || url.isEmpty) {
-        return Container(color: Colors.black);
-      }
-      return CachedNetworkImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        placeholder: (context, url) => Container(
-          color: Colors.black,
-          child: const Center(
-              child: CircularProgressIndicator(color: Colors.cyan)),
-        ),
-        errorWidget: (context, url, error) => Container(
-          color: Colors.black,
-          child: Center(
-            child: Icon(Icons.broken_image_outlined,
-                color: Colors.grey[600], size: 48),
-          ),
-        ),
-      );
+      return PhotoFlipper(urls: widget.clip.allPhotos);
     }
     if (_isLoading) {
       return Container(

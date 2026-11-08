@@ -104,6 +104,7 @@ class ReactionPicker extends StatelessWidget {
   }
 }
 
+/// Reactions sit on their own under the message, with no bubble around them.
 class MessageReactionsDisplay extends StatelessWidget {
   final List<ChatReaction> reactions;
   final String currentUserId;
@@ -126,33 +127,28 @@ class MessageReactionsDisplay extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
       child: Wrap(
-        spacing: 4,
+        spacing: 8,
         runSpacing: 4,
         children: grouped.entries.map((entry) {
           final emoji = entry.key;
           final count = entry.value.length;
-          final userReacted = entry.value.any((r) => r.userId == currentUserId);
 
           return GestureDetector(
             onTap: () => onReactionTap?.call(emoji),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: userReacted ? Colors.cyan.withOpacity(0.1) : Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AnimatedReactionEmoji(emoji: emoji, size: 22),
-                  if (count > 1) ...[
-                    const SizedBox(width: 4),
-                    Text(count.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                  ],
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedReactionEmoji(emoji: emoji, size: 22),
+                if (count > 1) ...[
+                  const SizedBox(width: 3),
+                  Text(count.toString(),
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
                 ],
-              ),
+              ],
             ),
           );
         }).toList(),

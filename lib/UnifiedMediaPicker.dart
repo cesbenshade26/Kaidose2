@@ -41,6 +41,14 @@ class UnifiedMediaPickerPanel extends StatefulWidget {
   final MediaFilter initialFilter;
   final bool allowFilterToggle;
   final bool singleSelect;
+
+  /// With [singleSelect], lets the Photos view still be multi-select (tap
+  /// several, then Add) while Videos stay tap-to-pick. Used by Clips so a
+  /// photo clip can have several photos.
+  final bool multiSelectPhotos;
+
+  /// Most items that can be checked at once (null = no limit).
+  final int? maxSelect;
   final bool showDraw;
   final Duration? maxVideoDuration;
   final String title;
@@ -54,6 +62,8 @@ class UnifiedMediaPickerPanel extends StatefulWidget {
     this.initialFilter = MediaFilter.all,
     this.allowFilterToggle = false,
     this.singleSelect = false,
+    this.multiSelectPhotos = false,
+    this.maxSelect,
     this.showDraw = true,
     this.maxVideoDuration,
     this.title = 'Photos & Videos',
@@ -147,6 +157,10 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
     await _loadAssets();
   }
 
+  bool get _single =>
+      widget.singleSelect &&
+          !(widget.multiSelectPhotos && _filter == MediaFilter.photos);
+
   bool _isTooLong(AssetEntity asset) =>
       asset.type == AssetType.video &&
           widget.maxVideoDuration != null &&
@@ -163,11 +177,22 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
       );
       return;
     }
-    if (widget.singleSelect) {
+    if (_single) {
       _selectedAssetIds
         ..clear()
         ..add(asset.id);
       _handleAddPressed();
+      return;
+    }
+    if (!_selectedAssetIds.contains(asset.id) &&
+        widget.maxSelect != null &&
+        _selectedAssetIds.length >= widget.maxSelect!) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('Up to ${widget.maxSelect} at a time'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
       return;
     }
     setState(() {
@@ -354,7 +379,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
               child: Container(color: Colors.cyan.withOpacity(0.25)),
             ),
           // Checkmark indicator — always visible, filled when selected.
-          if (!widget.singleSelect)
+          if (!_single)
             Positioned(
               top: 4,
               right: 4,
@@ -524,7 +549,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
             Divider(height: 1, color: Colors.grey[200]),
           ],
           Expanded(child: _buildBody()),
-          if (_selectedAssetIds.isNotEmpty && !widget.singleSelect)
+          if (_selectedAssetIds.isNotEmpty && !_single)
             _buildAddButtonBar(),
         ],
       ),

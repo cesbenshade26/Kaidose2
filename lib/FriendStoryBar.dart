@@ -1,4 +1,7 @@
+import 'StoryPhotoFrame.dart';
+import 'StoryMusic.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
@@ -272,6 +275,12 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
 
     await FriendDailyService.markStoryViewed(widget.friendUserId);
 
+    // If you've already watched some of today's posts and they've posted
+    // more since, open at the first new one (the old ones stay one tap back).
+    final seen = await StorySeen.get(widget.friendUserId);
+    final start = (seen > 0 && seen < items.length) ? seen : 0;
+    if (!mounted) return;
+
     Navigator.push(
       context,
       CircleRevealRoute(
@@ -279,6 +288,8 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
         builder: (context) => FriendStoryViewer(
           items: items,
           username: widget.friendUsername,
+          userId: widget.friendUserId,
+          initialIndex: start,
         ),
       ),
     );
@@ -367,46 +378,7 @@ class StoryMediaView extends StatelessWidget {
       );
     }
 
-    final photo = media.file;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // Blurred background — same image scaled to cover full screen
-        Image.file(
-          photo,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          errorBuilder: (_, __, ___) => Container(color: Colors.black),
-        ),
-        // Heavy blur + dark tint over the background
-        BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-          child: Container(
-            color: Colors.black.withOpacity(0.35),
-          ),
-        ),
-        // Actual photo — padded, rounded corners, fills width minus margins
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Image.file(
-                photo,
-                fit: BoxFit.fitWidth,
-                width: double.infinity,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.error_outline,
-                  color: Colors.white,
-                  size: 48,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    return StoryPhotoFrame(file: media.file);
   }
 }
 
@@ -415,14 +387,19 @@ class StoryMediaView extends StatelessWidget {
 class OwnStoryViewer extends StatefulWidget {
   final List<StoryMediaItem> items;
 
-  const OwnStoryViewer({Key? key, required this.items}) : super(key: key);
+  /// Which post to open on (the first one you haven't seen yet).
+  final int initialIndex;
+
+  const OwnStoryViewer({Key? key, required this.items, this.initialIndex = 0})
+      : super(key: key);
 
   @override
   State<OwnStoryViewer> createState() => _OwnStoryViewerState();
 }
 
 class _OwnStoryViewerState extends State<OwnStoryViewer> {
-  int _currentIndex = 0;
+  late int _currentIndex =
+  widget.initialIndex.clamp(0, widget.items.length - 1);
 
   void _nextPhoto() {
     if (_currentIndex < widget.items.length - 1) {
@@ -457,6 +434,17 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
             // Blurred background + rounded photo/video
             Positioned.fill(
               child: StoryMediaView(media: widget.items[_currentIndex]),
+            ),
+
+            // The post's song, if it has one
+            // (Positioned so this zero-size widget doesn't shrink the Stack.)
+            Positioned(
+              left: 0,
+              top: 0,
+              child: StoryMusicLayer(
+                key: ValueKey(widget.items[_currentIndex].file.path),
+                item: widget.items[_currentIndex],
+              ),
             ),
 
             // Close button
@@ -528,11 +516,17 @@ class _OwnStoryViewerState extends State<OwnStoryViewer> {
 class FriendStoryViewer extends StatefulWidget {
   final List<StoryMediaItem> items;
   final String username;
+  final String userId;
+
+  /// Which post to open on (the first one you haven't seen yet).
+  final int initialIndex;
 
   const FriendStoryViewer({
     Key? key,
     required this.items,
     required this.username,
+    this.userId = '',
+    this.initialIndex = 0,
   }) : super(key: key);
 
   @override
@@ -541,7 +535,8 @@ class FriendStoryViewer extends StatefulWidget {
 
 class _FriendStoryViewerState extends State<FriendStoryViewer>
     with SingleTickerProviderStateMixin {
-  int _currentIndex = 0;
+  late int _currentIndex =
+  widget.initialIndex.clamp(0, widget.items.length - 1);
   late AnimationController _progressController;
   static const Duration _photoDuration = Duration(seconds: 5);
 
@@ -553,6 +548,9 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
   }
 
   void _startProgress() {
+    if (widget.userId.isNotEmpty) {
+      StorySeen.set(widget.userId, _currentIndex + 1);
+    }
     _progressController.reset();
     _progressController.forward().then((_) {
       if (mounted) _nextPhoto();
@@ -600,6 +598,17 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
             // Blurred background + rounded photo/video
             Positioned.fill(
               child: StoryMediaView(media: widget.items[_currentIndex]),
+            ),
+
+            // The post's song, if it has one
+            // (Positioned so this zero-size widget doesn't shrink the Stack.)
+            Positioned(
+              left: 0,
+              top: 0,
+              child: StoryMusicLayer(
+                key: ValueKey(widget.items[_currentIndex].file.path),
+                item: widget.items[_currentIndex],
+              ),
             ),
 
             // Progress bars
@@ -734,5 +743,33 @@ class _DefaultAvatar extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+
+/// How many of a friend's posts you've watched today, so reopening their
+/// story starts at the first new one.
+class StorySeen {
+  static String _key(String uid) {
+    final n = DateTime.now();
+    return 'story_seen_${uid}_${n.year}-${n.month}-${n.day}';
+  }
+
+  static Future<int> get(String uid) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      return p.getInt(_key(uid)) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<void> set(String uid, int count) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (count > (p.getInt(_key(uid)) ?? 0)) {
+        await p.setInt(_key(uid), count);
+      }
+    } catch (_) {}
   }
 }

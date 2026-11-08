@@ -8,6 +8,7 @@ import 'DailyList.dart';
 import 'DailyData.dart';
 import 'daily_service.dart';
 import 'KaidoseBrand.dart';
+import 'UserProfileScreen.dart';
 
 /// One screen for everything. At the top, "Requests": things waiting on an
 /// answer from you (friend requests, Daily invitations, requests to join your
@@ -269,6 +270,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// Accept / Decline buttons.
   Widget _card({
     required Widget leading,
+    String? profileUserId,
     required String name,
     required String action,
     String? bold,
@@ -282,6 +284,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }) {
     final busy = busyId != null && _busy.contains(busyId);
     final hasActions = onAccept != null && onDecline != null;
+    // Tapping the avatar opens that person's profile.
+    if (profileUserId != null && profileUserId.isNotEmpty) {
+      final original = leading;
+      leading = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () =>
+            UserProfileScreen.open(context, profileUserId, username: name),
+        child: original,
+      );
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -408,6 +420,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _buildIncomingRequestCard(FriendRequest request) {
     return _card(
       leading: _avatarBubble(),
+      profileUserId: request.fromUserId,
       name: request.fromUsername,
       action: 'wants to link with you',
       time: request.createdAt,
@@ -421,6 +434,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _buildDailyInvitationCard(DailyInvitation invitation) {
     return _card(
       leading: _iconBubble(Icons.event_outlined),
+      profileUserId: invitation.fromUserId,
       name: invitation.fromUsername,
       action: 'invited you to',
       bold: invitation.dailyTitle,
@@ -435,6 +449,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _buildJoinRequestCard(DailyJoinRequest request) {
     return _card(
       leading: _iconBubble(Icons.lock_person_outlined),
+      profileUserId: request.fromUserId,
       name: request.fromUsername,
       action: 'requested to join',
       bold: request.dailyTitle,
@@ -450,6 +465,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget _buildAcceptedDailyInvitationCard(DailyInvitation invitation) {
     return _card(
       leading: _iconBubble(Icons.check_rounded),
+      profileUserId: invitation.toUserId,
       name: invitation.toUsername,
       action: 'accepted your invite to',
       bold: invitation.dailyTitle,

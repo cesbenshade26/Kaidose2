@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'MusicSearch.dart';
 
 /// A single piece of story media, already downloaded/cached to a local
 /// file regardless of whether it originated as a photo (base64 in
@@ -8,5 +9,8 @@ class StoryMediaItem {
   final File file;
   final bool isVideo;
 
-  StoryMediaItem({required this.file, required this.isVideo});
+  /// The song attached to this post, if any.
+  final MusicTrack? music;
+
+  StoryMediaItem({required this.file, required this.isVideo, this.music});
 }

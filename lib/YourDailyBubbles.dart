@@ -508,15 +508,15 @@ class YourDailyBubbleRow extends StatelessWidget {
     }
 
     return SizedBox(
-      height: 92,
+      height: 76,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
         itemCount: items.length,
         itemBuilder: (context, i) {
           final item = items[i];
           return Padding(
-            padding: const EdgeInsets.only(right: 14),
+            padding: const EdgeInsets.only(right: 12),
             child: GestureDetector(
               onTap: item.index != null
                   ? () => _viewBubble(context, item.index!)
@@ -527,30 +527,30 @@ class YourDailyBubbleRow extends StatelessWidget {
               child: Column(
                 children: [
                   Container(
-                    width: 64,
-                    height: 64,
+                    width: 52,
+                    height: 52,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.grey[200],
-                      border: Border.all(color: Colors.cyan, width: 2),
+                      border: Border.all(color: Colors.cyan.withOpacity(0.55), width: 1.5),
                     ),
                     child: item.cover != null
                         ? ClipOval(
                       child: Image.file(
                         item.cover!,
-                        width: 64,
-                        height: 64,
+                        width: 52,
+                        height: 52,
                         fit: BoxFit.cover,
                       ),
                     )
-                        : Icon(Icons.person, color: Colors.grey[400], size: 28),
+                        : Icon(Icons.person, color: Colors.grey[400], size: 24),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   SizedBox(
-                    width: 70,
+                    width: 60,
                     child: Text(
                       item.name.isNotEmpty ? item.name : 'New',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: Colors.grey[700]),
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

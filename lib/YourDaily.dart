@@ -10,6 +10,11 @@ import 'YourDailyBubbles.dart';
 import 'YourDailyBubbleSelectSheet.dart';
 import 'VideoClipPlayer.dart';
 import 'UnifiedMediaPicker.dart';
+import 'PhotoEditor.dart';
+import 'StoryPhotoFrame.dart';
+import 'MusicSearch.dart';
+import 'ClipMusic.dart';
+import 'StoryMusic.dart';
 
 class UseCam {
   static final ImagePicker _picker = ImagePicker();
@@ -281,6 +286,13 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
 
   File? _selectedPhoto;
   File? _selectedVideo;
+  // True once text/drawing has been baked in: the photo is then already a
+  // whole story-shaped picture.
+  bool _composited = false;
+  // Song picked in the editor for the Daily being made, and whether the
+  // editor is open (the song is silent here while it is).
+  MusicTrack? _dailyMusic;
+  bool _editorOpen = false;
   // -1 = new-post mode; 0.._todaysPhotos.length-1 = browsing posted photos.
   int _currentPhotoIndex = -1;
   List<File> _todaysPhotos = [];
@@ -356,6 +368,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
       } else {
         _selectedPhoto = item.file;
         _selectedVideo = null;
+        _composited = false;
+        _dailyMusic = null;
       }
     });
   }
@@ -367,14 +381,49 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
       setState(() {
         _selectedPhoto = File(pickedFile.path);
         _selectedVideo = null;
+        _composited = false;
+        _dailyMusic = null;
         _currentPhotoIndex = -1;
         _showPicker = false;
       });
     }
   }
 
+  /// Opens the editor (crop, text, draw, music) on the chosen photo or
+  /// video. The edited copy replaces it, so posting and sharing work exactly
+  /// as before.
+  Future<void> _editSelected() async {
+    final photo = _selectedPhoto;
+    final video = _selectedVideo;
+    final file = photo ?? video;
+    if (file == null) return;
+    setState(() => _editorOpen = true);
+    final result = await PhotoEditor.open(
+      context,
+      file,
+      isVideo: video != null,
+      storyLayout: !_composited,
+      allowCrop: !_composited,
+      withAudio: true,
+    );
+    if (!mounted) return;
+    setState(() => _editorOpen = false);
+    if (result == null) return;
+    setState(() {
+      _dailyMusic = result.music ?? _dailyMusic;
+      if (video != null) {
+        _selectedVideo = result.file;
+      } else {
+        _selectedPhoto = result.file;
+        _composited = _composited || result.composite;
+      }
+    });
+  }
+
   void _clearSelection() {
     setState(() {
+      _composited = false;
+      _dailyMusic = null;
       _selectedPhoto = null;
       _selectedVideo = null;
     });
@@ -382,6 +431,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
 
   void _addAnotherDaily() {
     setState(() {
+      _composited = false;
+      _dailyMusic = null;
       _selectedPhoto = null;
       _selectedVideo = null;
       _currentPhotoIndex = -1;
@@ -501,7 +552,11 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
     try {
       await DailyPhotoTracker.addPhoto(_selectedPhoto!);
       await DailyPhotoManager.setDailyPhoto(_selectedPhoto!);
-      await FriendDailyService.uploadMyDailyPhoto(_selectedPhoto!);
+      if (_dailyMusic != null) {
+        await StoryMusic.remember(_selectedPhoto!, _dailyMusic!);
+      }
+      await FriendDailyService.uploadMyDailyPhoto(_selectedPhoto!,
+          music: _dailyMusic);
 
       print('Photo saved and uploaded to friend stories');
 
@@ -519,6 +574,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
         _todaysPhotos = DailyPhotoTracker.todaysPhotos;
         _currentPhotoIndex = _todaysPhotos.length - 1;
         _selectedPhoto = null;
+        _dailyMusic = null;
+        _composited = false;
       });
 
       print('Daily photo confirmed and saved successfully');
@@ -542,7 +599,11 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
 
     try {
       await DailyVideoTracker.addVideo(_selectedVideo!);
-      await FriendDailyService.uploadMyDailyVideo(_selectedVideo!);
+      if (_dailyMusic != null) {
+        await StoryMusic.remember(_selectedVideo!, _dailyMusic!);
+      }
+      await FriendDailyService.uploadMyDailyVideo(_selectedVideo!,
+          music: _dailyMusic);
 
       print('Video saved and uploaded to friend stories');
 
@@ -558,6 +619,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
 
       setState(() {
         _selectedVideo = null;
+        _dailyMusic = null;
+        _composited = false;
       });
 
       print('Daily video confirmed and saved successfully');
@@ -602,12 +665,17 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
 
     return Column(
       children: [
+        // The song picked for this Daily plays while you look at it here.
+        ClipMusicPlayer(
+          track: _dailyMusic,
+          active: _hasSelectedMedia && _isInNewPhotoMode && !_editorOpen,
+        ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
             child: Center(
               child: AspectRatio(
-                aspectRatio: 3 / 4,
+                aspectRatio: kStoryAspect,
                 child: Stack(
                   children: [
                     Positioned.fill(
@@ -694,12 +762,14 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
           fit: BoxFit.cover,
         ),
         onClose: _clearSelection,
+        onEdit: _editSelected,
       );
     }
     if (_selectedPhoto != null) {
       return _mediaCard(
         child: _photo(_selectedPhoto!),
         onClose: _clearSelection,
+        onEdit: _editSelected,
       );
     }
     final posted = _postedPhoto;
@@ -722,21 +792,15 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
         ),
       );
     }
-    return Image.file(
-      file,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => Container(
-        color: Colors.grey[900],
-        child: const Center(
-          child: Icon(Icons.broken_image_outlined,
-              color: Colors.white54, size: 44),
-        ),
-      ),
-    );
+    // Looks the way it will when posted: blurred backdrop, photo on top.
+    return StoryPhotoFrame(file: file);
   }
 
   Widget _mediaCard(
-      {required Widget child, VoidCallback? onClose, String? badge}) {
+      {required Widget child,
+        VoidCallback? onClose,
+        VoidCallback? onEdit,
+        String? badge}) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.black,
@@ -767,6 +831,35 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
                         color: Colors.black54, shape: BoxShape.circle),
                     child: const Icon(Icons.close,
                         color: Colors.white, size: 18),
+                  ),
+                ),
+              ),
+            if (onEdit != null)
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: GestureDetector(
+                  onTap: onEdit,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.auto_fix_high_rounded,
+                            color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text('Edit',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
+                      ],
+                    ),
                   ),
                 ),
               ),

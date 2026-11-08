@@ -207,3 +207,208 @@ exports.onInvitationWritten = onDocumentWritten(
     }
   }
 );
+
+// ===========================================================================
+// Disappearing messages (1:1 chats): soft delete + permanent purge
+//
+// Each person hides messages on their own schedule (expiresAt.{uid}). Nothing
+// is deleted from the server at that point. Once EVERY participant has hidden
+// a message, it's scheduled for permanent deletion RETENTION_DAYS after the
+// last person's hide time. If anyone never hides it ("Never"), it's kept.
+// ===========================================================================
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+
+const RETENTION_DAYS = 30; // change this to change the retention period
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// A message in a 1:1 chat was written -> work out (or clear) purgeAfter.
+exports.onChatMessageWritten = onDocumentWritten(
+  "chats/{chatId}/messages/{messageId}",
+  async (event) => {
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    if (!after) return; // deleted
+
+    const chatSnap = await db.doc(`chats/${event.params.chatId}`).get();
+    const participants = (chatSnap.data() || {}).participants;
+    if (!Array.isArray(participants) || participants.length < 2) return;
+
+    let target = null; // Date | null
+    if (!after.isSaved) {
+      const expires = after.expiresAt || {};
+      let latest = 0;
+      let everyone = true;
+      for (const uid of participants) {
+        const t = expires[uid];
+        if (!t || typeof t.toMillis !== "function") {
+          everyone = false;
+          break;
+        }
+        latest = Math.max(latest, t.toMillis());
+      }
+      if (everyone) target = new Date(latest + RETENTION_DAYS * DAY_MS);
+    }
+
+    const current = after.purgeAfter ? after.purgeAfter.toMillis() : null;
+    const wanted = target ? target.getTime() : null;
+    if (current === wanted) return; // nothing to change (also stops loops)
+
+    await event.data.after.ref.update({
+      purgeAfter: target ? admin.firestore.Timestamp.fromDate(target) : FieldValue.delete(),
+    });
+  }
+);
+
+// Pull Storage object paths out of a message's media download URLs.
+function storagePathsFor(message) {
+  const urls = [];
+  const md = message.metadata || {};
+  for (const k of ["imageUrl", "videoUrl", "thumbUrl"]) {
+    if (typeof md[k] === "string") urls.push(md[k]);
+  }
+  const paths = [];
+  for (const u of urls) {
+    const m = u.match(/\/o\/([^?]+)/);
+    if (!m) continue;
+    try {
+      const p = decodeURIComponent(m[1]);
+      if (p.startsWith("chat_media/")) paths.push(p); // safety: chat media only
+    } catch (_) {}
+  }
+  return paths;
+}
+
+// Daily: permanently delete messages past their retention window.
+exports.purgeExpiredChatMessages = onSchedule(
+  { schedule: "every 24 hours", timeZone: "America/New_York", timeoutSeconds: 540 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    let purged = 0;
+
+    for (let round = 0; round < 20; round++) {
+      const snap = await db
+        .collectionGroup("messages")
+        .where("purgeAfter", "<=", admin.firestore.Timestamp.now())
+        .limit(200)
+        .get();
+      if (snap.empty) break;
+
+      for (const doc of snap.docs) {
+        try {
+          for (const path of storagePathsFor(doc.data())) {
+            await bucket.file(path).delete({ ignoreNotFound: true });
+          }
+          await db.recursiveDelete(doc.ref); // message + its reactions
+          purged++;
+        } catch (e) {
+          console.log(`Failed to purge ${doc.ref.path}`, e.message);
+        }
+      }
+      if (snap.size < 200) break;
+    }
+    console.log(`Purged ${purged} chat messages`);
+  }
+);
+
+// ===========================================================================
+// Days lit
+//
+// A day is "lit" for someone when they post in a Daily (which includes
+// answering a Daily's prompt), post a clip, or add to a Daily bubble. Each
+// calendar day counts once.
+// Stored at userStats/{uid}:
+//   daysLit     - how many different days they've lit (only ever goes up)
+//   lastLitDay  - the most recent lit day, "YYYY-MM-DD"
+// plus one marker doc per lit day at userStats/{uid}/days/{YYYY-MM-DD}, which
+// is what keeps a day from counting twice (and is what milestones, a
+// calendar or "this month" can be built from later).
+//
+// Clients can't write any of this, so it can't be faked from the app.
+// ===========================================================================
+
+// Which calendar day an event is, for this person. Clients save their UTC
+// offset on users/{uid}.tzOffsetMinutes; without one we fall back to UTC.
+async function userDayKey(uid, eventMs) {
+  let offsetMin = 0;
+  try {
+    const v = (await db.doc(`users/${uid}`).get()).get("tzOffsetMinutes");
+    if (typeof v === "number" && Math.abs(v) <= 14 * 60) offsetMin = v;
+  } catch (e) {
+    console.log("tz lookup failed", e.message);
+  }
+  return new Date(eventMs + offsetMin * 60000).toISOString().slice(0, 10);
+}
+
+async function lightDay(uid, dayKey) {
+  const statsRef = db.doc(`userStats/${uid}`);
+  const dayRef = statsRef.collection("days").doc(dayKey);
+  await db.runTransaction(async (tx) => {
+    const [day, stats] = await Promise.all([tx.get(dayRef), tx.get(statsRef)]);
+    if (day.exists) return; // already lit
+    const last = stats.exists ? stats.get("lastLitDay") : null;
+    tx.set(dayRef, { litAt: FieldValue.serverTimestamp() });
+    tx.set(
+      statsRef,
+      {
+        daysLit: FieldValue.increment(1),
+        lastLitDay: last && last > dayKey ? last : dayKey,
+      },
+      { merge: true }
+    );
+  });
+}
+
+// A post or prompt answer in a Daily.
+exports.onDailyEntryLightsDay = onDocumentCreated(
+  "dailies/{dailyId}/daily_messages/{messageId}",
+  async (event) => {
+    const d = event.data.data();
+    const uid = d && d.user_id;
+    if (!uid || typeof uid !== "string" || uid === "current_user") return;
+
+    const eventMs = Date.parse(event.time) || Date.now();
+    let dayKey = await userDayKey(uid, eventMs);
+
+    // Messages carry the poster's own local date in `timestamp`. Use it when
+    // it's within a day of the server's view, so someone's evening post lands
+    // on their evening even if their offset was never saved.
+    const m = typeof d.timestamp === "string" && d.timestamp.match(/^(\d{4}-\d{2}-\d{2})T/);
+    if (m) {
+      const diffDays = Math.abs(Date.parse(m[1]) - Date.parse(dayKey)) / 86400000;
+      if (diffDays <= 1) dayKey = m[1];
+    }
+
+    try {
+      await lightDay(uid, dayKey);
+    } catch (e) {
+      console.log(`lightDay failed for ${uid}`, e.message);
+    }
+  }
+);
+
+// A clip.
+exports.onClipLightsDay = onDocumentCreated("clips/{clipId}", async (event) => {
+  const d = event.data.data();
+  const uid = d && d.creatorUid;
+  if (!uid || typeof uid !== "string") return;
+  const eventMs = Date.parse(event.time) || Date.now();
+  try {
+    await lightDay(uid, await userDayKey(uid, eventMs));
+  } catch (e) {
+    console.log(`lightDay failed for ${uid}`, e.message);
+  }
+});
+
+// A photo or video added to one of your Daily bubbles (the "+" on your
+// profile). The path itself tells us whose it is.
+exports.onBubbleItemLightsDay = onDocumentCreated(
+  "users/{uid}/dailyBubbles/{bubbleId}/photos/{itemId}",
+  async (event) => {
+    const { uid } = event.params;
+    const eventMs = Date.parse(event.time) || Date.now();
+    try {
+      await lightDay(uid, await userDayKey(uid, eventMs));
+    } catch (e) {
+      console.log(`lightDay failed for ${uid}`, e.message);
+    }
+  }
+);

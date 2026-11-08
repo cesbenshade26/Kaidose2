@@ -65,6 +65,7 @@ class MessageStorage {
   /// Save messages for a specific daily. Uploads any not-yet-uploaded
   /// image/video first, then upserts every message's document.
   static Future<void> saveMessages(String dailyId, List<DailyMessage> messages) async {
+    _prefetched.remove(dailyId);
     try {
       final batch = _firestore.batch();
 
@@ -109,8 +110,32 @@ class MessageStorage {
     return null;
   }
 
+  // Messages fetched ahead of time (see [prefetch]), used once.
+  static final Map<String, _Prefetched> _prefetched = {};
+  static const Duration _prefetchTtl = Duration(seconds: 45);
+
+  /// Starts loading a Daily's messages in the background, so opening that
+  /// Daily moments later finds them already there. Used once, then thrown
+  /// away, and discarded after 45 seconds so nothing stale lingers.
+  static void prefetch(String dailyId) {
+    final existing = _prefetched[dailyId];
+    if (existing != null &&
+        DateTime.now().difference(existing.at) < _prefetchTtl) {
+      return;
+    }
+    _prefetched[dailyId] = _Prefetched(_loadFresh(dailyId), DateTime.now());
+  }
+
   /// Load messages for a specific daily, oldest first.
-  static Future<List<DailyMessage>> loadMessages(String dailyId) async {
+  static Future<List<DailyMessage>> loadMessages(String dailyId) {
+    final p = _prefetched.remove(dailyId);
+    if (p != null && DateTime.now().difference(p.at) < _prefetchTtl) {
+      return p.future;
+    }
+    return _loadFresh(dailyId);
+  }
+
+  static Future<List<DailyMessage>> _loadFresh(String dailyId) async {
     try {
       final snapshot = await _messagesRef(dailyId)
           .orderBy('timestamp', descending: false)
@@ -127,8 +152,38 @@ class MessageStorage {
     }
   }
 
+  /// Deletes one message from a Daily, plus any files uploaded for it. It's
+  /// gone for everyone in the Daily. Returns false if the delete failed.
+  static Future<bool> deleteMessage(String dailyId, String messageId) async {
+    _prefetched.remove(dailyId);
+    try {
+      await _messagesRef(dailyId).doc(messageId).delete();
+    } catch (e) {
+      print('MessageStorage: delete message error: $e');
+      return false;
+    }
+
+    // The message is already gone; leftover files are only clutter, so a
+    // failure here is ignored.
+    try {
+      final listing = await _storage
+          .ref()
+          .child('daily_messages/$dailyId/$messageId')
+          .listAll();
+      for (final file in listing.items) {
+        try {
+          await file.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    _notifyListeners();
+    return true;
+  }
+
   /// Delete all messages for a specific daily.
   static Future<void> deleteMessages(String dailyId) async {
+    _prefetched.remove(dailyId);
     try {
       final snapshot = await _messagesRef(dailyId).get();
       final batch = _firestore.batch();
@@ -175,4 +230,10 @@ class MessageStorage {
       print('Error clearing all messages: $e');
     }
   }
+}
+
+class _Prefetched {
+  final Future<List<DailyMessage>> future;
+  final DateTime at;
+  const _Prefetched(this.future, this.at);
 }

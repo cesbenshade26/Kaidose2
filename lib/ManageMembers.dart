@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'DailyData.dart';
 import 'user_service.dart';
+import 'UserProfileScreen.dart';
 
 /// One resolved person for display — owner, active member, or pending
 /// invite, depending on which list they end up in.
@@ -380,6 +381,15 @@ class _ManageMembersState extends State<ManageMembers> {
   }
 
   Widget _memberCard(_MemberEntry member, {bool pending = false}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => UserProfileScreen.open(context, member.uid,
+          username: member.username),
+      child: _memberCardBody(member, pending: pending),
+    );
+  }
+
+  Widget _memberCardBody(_MemberEntry member, {bool pending = false}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),

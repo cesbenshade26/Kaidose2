@@ -251,6 +251,12 @@ class _ClipSearchWidgetState extends State<ClipSearchWidget> {
                 right: 6,
                 child: Icon(Icons.play_arrow_rounded,
                     color: Colors.white, size: 20),
+              )
+            else if (clip.isMultiPhoto)
+              const Positioned(
+                top: 6,
+                right: 6,
+                child: Icon(Icons.collections, color: Colors.white, size: 16),
               ),
           ],
         ),

@@ -5,6 +5,8 @@ import 'auth_service.dart';
 import 'ProfilePicManager.dart';
 import 'BioManager.dart';
 import 'BackgroundPicManager.dart';
+import 'SavedScreen.dart';
+import 'ClipsActivity.dart' show MyClipsCache;
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -53,6 +55,22 @@ class ProfileSettingsSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
+        // Saved & Archives (temporary home until it gets a better spot)
+        ListTile(
+          leading: const Icon(Icons.bookmark_rounded, color: Colors.grey, size: 28),
+          title: const Text(
+            'Saved & Archives',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SavedScreen()),
+            );
+          },
+        ),
+        const Divider(color: Colors.grey, thickness: 0.5),
         // Customization Option
         ListTile(
           leading: const Icon(Icons.palette, color: Colors.grey, size: 28),
@@ -121,6 +139,7 @@ class ProfileSettingsSection extends StatelessWidget {
               ProfilePicManager.clearForLogout();
               BioManager.clearForLogout();
               BackgroundPicManager.clearForLogout();
+              MyClipsCache.instance.clear();
               await AuthService().logout();
 
               Navigator.pushNamedAndRemoveUntil(

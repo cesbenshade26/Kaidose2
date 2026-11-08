@@ -4,6 +4,7 @@ import 'LinkedFriends.dart';
 import 'user_service.dart';
 import 'friend_request_service.dart';
 import 'SearchService.dart';
+import 'UserProfileScreen.dart';
 
 /// People in Search.
 ///
@@ -616,43 +617,6 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// User Profile Screen (for Kaidose users)
-class UserProfileScreen extends StatelessWidget {
-  final String userId;
-  final String username;
-
-  const UserProfileScreen({
-    Key? key,
-    required this.userId,
-    required this.username,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Center(
-        child: Text(
-          "$username's profile",
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
         ),
       ),
     );

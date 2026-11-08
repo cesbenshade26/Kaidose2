@@ -1119,6 +1119,8 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                   scrollController: _scrollController,
                   onEdit: _startEditingMessage,
                   onMessageUpdate: _saveMessages,
+                  dailyTitle: widget.daily.title,
+                  isPrivateDaily: widget.daily.privacy != 'Public',
                   topPadding: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
                 ),
               ),
@@ -1370,6 +1372,8 @@ class DailyMessageList extends StatelessWidget {
   final Function(String)? onEdit;
   final VoidCallback? onMessageUpdate;
   final double topPadding;
+  final String? dailyTitle;
+  final bool isPrivateDaily;
 
   const DailyMessageList({
     Key? key,
@@ -1377,6 +1381,8 @@ class DailyMessageList extends StatelessWidget {
     required this.scrollController,
     this.onEdit,
     this.onMessageUpdate,
+    this.dailyTitle,
+    this.isPrivateDaily = false,
     this.topPadding = 16,
   }) : super(key: key);
 
@@ -1509,6 +1515,8 @@ class DailyMessageList extends StatelessWidget {
           isCurrentUser: message.userId == currentUid,
           showUsername: !grouped,
           groupedWithPrevious: grouped,
+          dailyTitle: dailyTitle,
+          isPrivateDaily: isPrivateDaily,
           onEdit: onEdit,
           onSaveToggle: onMessageUpdate,
           onReactionAdded: (emoji) {

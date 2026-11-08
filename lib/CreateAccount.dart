@@ -96,7 +96,11 @@ class _CreateAccountState extends State<CreateAccount> {
         MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
       );
     } else {
-      _showError(authErrorMessage(result['error'] as String?));
+      if (result['error'] == 'username-taken') {
+        _showError('That username is taken — try another');
+      } else {
+        _showError(authErrorMessage(result['error'] as String?));
+      }
     }
   }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_reactions.dart';
@@ -19,9 +20,17 @@ class Message {
   final Map<String, dynamic>? metadata;
   final String? parentMessageId;
   final String? parentText;
-  final DateTime? deleteAfter; // NEW
-  final bool hasBeenViewed; // NEW
-  final bool isSaved; // NEW
+  final DateTime? deleteAfter; // legacy shared timer (old system)
+  final bool hasBeenViewed;
+  final bool isSaved;
+
+  /// When the recipient first saw it (1:1 chats).
+  final DateTime? readAt;
+
+  /// Per-person hide time: userId -> when the message disappears FOR THAT
+  /// PERSON. Hidden messages stay on the server (soft delete) until everyone
+  /// in the chat has hidden them and the retention period has passed.
+  final Map<String, DateTime> expiresAt;
 
   Message({
     required this.id,
@@ -37,10 +46,34 @@ class Message {
     this.deleteAfter,
     this.hasBeenViewed = false,
     this.isSaved = false,
+    this.readAt,
+    this.expiresAt = const {},
   });
+
+  /// When this message disappears for [uid] (null = never / not started).
+  DateTime? expiryFor(String uid) => expiresAt[uid];
+
+  /// Is this message visible to [uid] right now?
+  bool isVisibleTo(String uid, DateTime now) {
+    if (isSaved) return true;
+    final mine = expiresAt[uid];
+    if (mine != null && !now.isBefore(mine)) return false;
+    // Legacy shared timer from the old system.
+    if (deleteAfter != null && !now.isBefore(deleteAfter!)) return false;
+    return true;
+  }
 
   factory Message.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+
+    final rawExpires = data['expiresAt'];
+    final expires = <String, DateTime>{};
+    if (rawExpires is Map) {
+      rawExpires.forEach((k, v) {
+        if (v is Timestamp) expires[k.toString()] = v.toDate();
+      });
+    }
+
     return Message(
       id: doc.id,
       senderId: data['senderId'] ?? '',
@@ -58,6 +91,8 @@ class Message {
       deleteAfter: (data['deleteAfter'] as Timestamp?)?.toDate(),
       hasBeenViewed: data['hasBeenViewed'] ?? false,
       isSaved: data['isSaved'] ?? false,
+      readAt: (data['readAt'] as Timestamp?)?.toDate(),
+      expiresAt: expires,
     );
   }
 
@@ -75,6 +110,9 @@ class Message {
       'deleteAfter': deleteAfter != null ? Timestamp.fromDate(deleteAfter!) : null,
       'hasBeenViewed': hasBeenViewed,
       'isSaved': isSaved,
+      'readAt': readAt != null ? Timestamp.fromDate(readAt!) : null,
+      if (expiresAt.isNotEmpty)
+        'expiresAt': expiresAt.map((k, v) => MapEntry(k, Timestamp.fromDate(v))),
     };
   }
 
@@ -92,6 +130,8 @@ class Message {
     DateTime? deleteAfter,
     bool? hasBeenViewed,
     bool? isSaved,
+    DateTime? readAt,
+    Map<String, DateTime>? expiresAt,
   }) {
     return Message(
       id: id ?? this.id,
@@ -107,6 +147,8 @@ class Message {
       deleteAfter: deleteAfter ?? this.deleteAfter,
       hasBeenViewed: hasBeenViewed ?? this.hasBeenViewed,
       isSaved: isSaved ?? this.isSaved,
+      readAt: readAt ?? this.readAt,
+      expiresAt: expiresAt ?? this.expiresAt,
     );
   }
 }
@@ -122,37 +164,114 @@ class MessageService {
     return '${sortedIds[0]}_${sortedIds[1]}';
   }
 
-  // Get delete duration for a chat
-  Future<Duration?> _getDeleteDuration(String recipientUserId) async {
+  // ==================== DISAPPEARING MESSAGES (per person) ====================
+  //
+  // Each person picks their own setting for a chat, stored at
+  //   chats/{cid}.deleteOptions.{uid}
+  // It only controls what THAT person sees. Messages are never hard-deleted
+  // here: they get a per-person `expiresAt` stamp and are hidden for that
+  // person. A Cloud Function permanently purges a message (and its Storage
+  // files) 30 days after the last participant has hidden it.
+
+  /// Option -> how long after viewing a message disappears.
+  static const Map<String, Duration> _durations = {
+    '1h': Duration(hours: 1),
+    '3h': Duration(hours: 3),
+    '24h': Duration(hours: 24),
+    '3d': Duration(days: 3),
+    '7d': Duration(days: 7),
+    '30d': Duration(days: 30),
+    '365d': Duration(days: 365),
+  };
+
+  static Duration? durationFor(String option) => _durations[option];
+
+  /// "off", "after_viewing", or a timer key like "24h".
+  Future<String> _myOption(String conversationId) async {
+    final uid = currentUserId;
+    if (uid == null) return 'off';
     try {
-      final currentUid = currentUserId;
-      if (currentUid == null) return null;
-
-      final conversationId = getChatConversationId(currentUid, recipientUserId);
-      final chatDoc = await _firestore.collection('chats').doc(conversationId).get();
-
-      if (!chatDoc.exists) return null;
-
-      final data = chatDoc.data();
-      final deleteOption = data?['deleteOption'] as String?;
-
-      switch (deleteOption) {
-        case '24h':
-          return const Duration(hours: 24);
-        case '7d':
-          return const Duration(days: 7);
-        case 'on_close':
-          return null; // Handled separately
-        default:
-          return null; // Permanent
+      final doc = await _firestore.collection('chats').doc(conversationId).get();
+      final opts = doc.data()?['deleteOptions'];
+      if (opts is Map) {
+        final v = opts[uid];
+        if (v is String) return v == 'on_close' ? 'after_viewing' : v;
       }
     } catch (e) {
-      print('Error getting delete duration: $e');
-      return null;
+      print('Error reading chat option: $e');
+    }
+    return 'off';
+  }
+
+  /// Save MY setting for this chat. Doesn't touch the other person's.
+  Future<void> saveChatSettings({
+    required String recipientUserId,
+    required String deleteOption,
+  }) async {
+    final currentUid = currentUserId;
+    if (currentUid == null) return;
+    final conversationId = getChatConversationId(currentUid, recipientUserId);
+
+    await _firestore.collection('chats').doc(conversationId).set({
+      'participants': [currentUid, recipientUserId],
+      'deleteOptions': {currentUid: deleteOption},
+    }, SetOptions(merge: true));
+  }
+
+  /// MY setting for this chat.
+  Future<String> getChatSettings(String recipientUserId) async {
+    final currentUid = currentUserId;
+    if (currentUid == null) return 'off';
+    final conversationId = getChatConversationId(currentUid, recipientUserId);
+    return _myOption(conversationId);
+  }
+
+  /// For "After viewing": hide everything I've already seen (my own sent
+  /// messages, and received messages I've read). Call when the chat opens
+  /// (catches anything left from a session that was killed) and when it
+  /// closes.
+  Future<void> onChatClosed(String recipientUserId) async {
+    try {
+      final me = currentUserId;
+      if (me == null) return;
+      final cid = getChatConversationId(me, recipientUserId);
+      if (await _myOption(cid) != 'after_viewing') return;
+
+      final snap = await _firestore
+          .collection('chats')
+          .doc(cid)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(300)
+          .get();
+
+      final now = Timestamp.now();
+      WriteBatch batch = _firestore.batch();
+      int count = 0;
+
+      for (final doc in snap.docs) {
+        final m = Message.fromFirestore(doc);
+        if (m.isSaved) continue;
+        if (m.expiresAt.containsKey(me)) continue;
+        final seen = m.senderId == me || m.read;
+        if (!seen) continue;
+
+        batch.update(doc.reference, {'expiresAt.$me': now});
+        if (++count >= 400) {
+          await batch.commit();
+          batch = _firestore.batch();
+          count = 0;
+        }
+      }
+      if (count > 0) await batch.commit();
+    } catch (e) {
+      print('Error expiring seen messages: $e');
     }
   }
 
-  // Send a chat message with disappearing message support
+  // ==================== 1:1 CHAT ====================
+
+  // Send a chat message
   Future<bool> sendChatMessage({
     required String recipientUserId,
     required String text,
@@ -166,7 +285,14 @@ class MessageService {
       if (currentUid == null) return false;
 
       final conversationId = getChatConversationId(currentUid, recipientUserId);
-      final deleteDuration = await _getDeleteDuration(recipientUserId);
+
+      // MY timer starts when I send (I've obviously seen it). The other
+      // person's timer starts when THEY see it, using THEIR setting.
+      final option = await _myOption(conversationId);
+      final d = durationFor(option);
+      final expires = <String, DateTime>{
+        if (d != null) currentUid: DateTime.now().add(d),
+      };
 
       final message = Message(
         id: '',
@@ -179,11 +305,7 @@ class MessageService {
         metadata: metadata,
         parentMessageId: parentMessageId,
         parentText: parentText,
-        deleteAfter: deleteDuration != null
-            ? DateTime.now().add(deleteDuration)
-            : null,
-        hasBeenViewed: false,
-        isSaved: false,
+        expiresAt: expires,
       );
 
       await _firestore
@@ -192,9 +314,14 @@ class MessageService {
           .collection('messages')
           .add(message.toJson());
 
+      String preview = text;
+      if (preview.isEmpty && metadata != null) {
+        preview = metadata['type'] == 'clip' ? 'Video' : 'Photo';
+      }
+
       await _firestore.collection('chats').doc(conversationId).set({
         'participants': [currentUid, recipientUserId],
-        'lastMessage': text,
+        'lastMessage': preview,
         'lastMessageTime': FieldValue.serverTimestamp(),
         'lastMessageSender': currentUid,
       }, SetOptions(merge: true));
@@ -206,80 +333,85 @@ class MessageService {
     }
   }
 
-  // Get chat messages (filtered to exclude expired ones)
+  // Get chat messages as I see them. Nothing is deleted here -- messages that
+  // have expired for me are simply hidden. Re-checked every 20s so messages
+  // vanish while the chat is open.
   Stream<List<Message>> getChatMessages(String recipientUserId) {
-    final currentUid = currentUserId;
-    if (currentUid == null) return Stream.value([]);
-    final conversationId = getChatConversationId(currentUid, recipientUserId);
+    final me = currentUserId;
+    if (me == null) return Stream.value([]);
+    final conversationId = getChatConversationId(me, recipientUserId);
 
-    return _firestore
-        .collection('chats')
-        .doc(conversationId)
-        .collection('messages')
-        .orderBy('timestamp', descending: false)
-        .snapshots()
-        .asyncMap((snapshot) async {
-      final messages = snapshot.docs
-          .map((doc) => Message.fromFirestore(doc))
-          .toList();
+    late StreamController<List<Message>> controller;
+    StreamSubscription? sub;
+    Timer? timer;
+    List<Message> latest = [];
 
-      // Filter out expired messages (not saved)
+    void emit() {
+      if (controller.isClosed) return;
       final now = DateTime.now();
-      final validMessages = messages.where((msg) {
-        if (msg.isSaved) return true; // Saved messages never delete
-        if (msg.deleteAfter == null) return true; // Permanent messages
-        return now.isBefore(msg.deleteAfter!); // Not expired yet
-      }).toList();
+      controller.add(latest.where((m) => m.isVisibleTo(me, now)).toList());
+    }
 
-      // Delete expired messages from Firestore
-      for (var msg in messages) {
-        if (!msg.isSaved &&
-            msg.deleteAfter != null &&
-            now.isAfter(msg.deleteAfter!)) {
-          await _firestore
-              .collection('chats')
-              .doc(conversationId)
-              .collection('messages')
-              .doc(msg.id)
-              .delete();
-        }
-      }
-
-      return validMessages;
-    });
+    controller = StreamController<List<Message>>(
+      onListen: () {
+        sub = _firestore
+            .collection('chats')
+            .doc(conversationId)
+            .collection('messages')
+            .orderBy('timestamp', descending: false)
+            .snapshots()
+            .listen((snapshot) {
+          latest = snapshot.docs.map((d) => Message.fromFirestore(d)).toList();
+          emit();
+        }, onError: controller.addError);
+        timer = Timer.periodic(const Duration(seconds: 20), (_) => emit());
+      },
+      onCancel: () {
+        timer?.cancel();
+        sub?.cancel();
+      },
+    );
+    return controller.stream;
   }
 
-  // Mark messages as viewed and set delete timers
+  // Mark messages as read, and start MY timer on them
   Future<void> markChatMessagesAsRead(String recipientUserId) async {
     try {
-      final currentUid = currentUserId;
-      if (currentUid == null) return;
-      final conversationId = getChatConversationId(currentUid, recipientUserId);
+      final me = currentUserId;
+      if (me == null) return;
+      final conversationId = getChatConversationId(me, recipientUserId);
 
-      final unreadMessages = await _firestore
+      final unread = await _firestore
           .collection('chats')
           .doc(conversationId)
           .collection('messages')
           .where('senderId', isEqualTo: recipientUserId)
           .where('read', isEqualTo: false)
           .get();
+      if (unread.docs.isEmpty) return;
 
-      final deleteDuration = await _getDeleteDuration(recipientUserId);
+      final d = durationFor(await _myOption(conversationId));
+      final now = DateTime.now();
 
-      for (var doc in unreadMessages.docs) {
-        final Map<String, dynamic> updateData = {'read': true}; // FIXED: Explicit type
-
-        // If message hasn't been viewed yet and has a delete duration, set timer
-        final msgData = doc.data();
-        if (msgData['hasBeenViewed'] != true && deleteDuration != null) {
-          updateData['hasBeenViewed'] = true;
-          updateData['deleteAfter'] = Timestamp.fromDate(
-              DateTime.now().add(deleteDuration)
-          );
+      WriteBatch batch = _firestore.batch();
+      int count = 0;
+      for (final doc in unread.docs) {
+        final Map<String, dynamic> update = {
+          'read': true,
+          'readAt': Timestamp.fromDate(now),
+          'hasBeenViewed': true,
+        };
+        if (d != null) {
+          update['expiresAt.$me'] = Timestamp.fromDate(now.add(d));
         }
-
-        await doc.reference.update(updateData);
+        batch.update(doc.reference, update);
+        if (++count >= 400) {
+          await batch.commit();
+          batch = _firestore.batch();
+          count = 0;
+        }
       }
+      if (count > 0) await batch.commit();
     } catch (e) {
       print('Error marking messages as read: $e');
     }
@@ -307,77 +439,7 @@ class MessageService {
     }
   }
 
-  // Save chat settings (delete option)
-  Future<void> saveChatSettings({
-    required String recipientUserId,
-    required String deleteOption,
-  }) async {
-    try {
-      final currentUid = currentUserId;
-      if (currentUid == null) return;
-      final conversationId = getChatConversationId(currentUid, recipientUserId);
-
-      await _firestore.collection('chats').doc(conversationId).set({
-        'deleteOption': deleteOption,
-      }, SetOptions(merge: true));
-    } catch (e) {
-      print('Error saving chat settings: $e');
-    }
-  }
-
-  // Get chat settings
-  Future<String> getChatSettings(String recipientUserId) async {
-    try {
-      final currentUid = currentUserId;
-      if (currentUid == null) return 'off';
-      final conversationId = getChatConversationId(currentUid, recipientUserId);
-
-      final doc = await _firestore.collection('chats').doc(conversationId).get();
-      if (!doc.exists) return 'off';
-
-      final data = doc.data();
-      return data?['deleteOption'] as String? ?? 'off';
-    } catch (e) {
-      print('Error getting chat settings: $e');
-      return 'off';
-    }
-  }
-
-  // Clean up "on close" messages
-  Future<void> cleanupOnCloseMessages(String recipientUserId) async {
-    try {
-      final currentUid = currentUserId;
-      if (currentUid == null) return;
-      final conversationId = getChatConversationId(currentUid, recipientUserId);
-
-      // Check if "on_close" is enabled
-      final chatDoc = await _firestore.collection('chats').doc(conversationId).get();
-      if (!chatDoc.exists) return;
-
-      final data = chatDoc.data();
-      final deleteOption = data?['deleteOption'] as String?;
-
-      if (deleteOption != 'on_close') return;
-
-      // Delete all non-saved messages
-      final messages = await _firestore
-          .collection('chats')
-          .doc(conversationId)
-          .collection('messages')
-          .where('isSaved', isEqualTo: false)
-          .get();
-
-      for (var doc in messages.docs) {
-        await doc.reference.delete();
-      }
-
-      print('Cleaned up on-close messages for $conversationId');
-    } catch (e) {
-      print('Error cleaning up on-close messages: $e');
-    }
-  }
-
-  // Add reaction (unchanged from original)
+  // Add reaction (unchanged)
   Future<bool> addReaction({
     required String recipientUserId,
     required String messageId,

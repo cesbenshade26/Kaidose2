@@ -1,23 +1,24 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 import 'ProfilePicManager.dart';
+export 'ProfilePicManager.dart' show DefaultProfilePic;
 import 'BackgroundPicManager.dart';
 import 'BioManager.dart';
 import 'UserManager.dart';
-import 'UserFollowers.dart';
-import 'UserFollowing.dart';
 import 'ProfilePic.dart';
 import 'BackgroundPic.dart';
 import 'SettingBar.dart';
 import 'Bio.dart';
 import 'DailyPostActivity.dart';
 import 'ClipsActivity.dart';
-import 'Archives.dart';
 import 'NotificationScreen.dart';
 import 'NotificationBell.dart';
 import 'friend_request_service.dart';
 import 'YourDailyBubbles.dart';
 import 'Add.dart';
+import 'ProfileStatsRow.dart';
+import 'auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -34,22 +35,22 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   bool _showSeparator = false;
   Color _separatorColor = Colors.black;
   String? _bio;
-  bool _isBold = false;
-  bool _isItalic = false;
-  bool _isUnderlined = false;
-  TextAlign _textAlign = TextAlign.center;
-  Color _textColor = Colors.black;
   String? _username;
-  int _followersCount = 0;
-  int _followingCount = 0;
   int _selectedTabIndex = 0;
   VoidCallback? _profilePicListener;
   VoidCallback? _backgroundPicListener;
   VoidCallback? _bioListener;
   VoidCallback? _usernameListener;
-  VoidCallback? _followersListener;
-  VoidCallback? _followingListener;
   VoidCallback? _bubbleListener;
+
+  // Whole-page scrolling: the banner, avatar, stats, bio, bubbles and tab
+  // bar are one header that scrolls away with the content. Scrolling back
+  // UP a little brings in a compact bar (tabs, notifications, settings).
+  final ScrollController _outer = ScrollController();
+  final GlobalKey _headerKey = GlobalKey();
+  double _headerHeight = 460;
+  bool _showBar = false;
+  double _upAccum = 0;
 
   @override
   void initState() {
@@ -62,9 +63,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     _separatorColor = BackgroundPicManager.separatorColor;
     _loadBioData();
     _loadUsernameData();
-    _loadFollowersData();
-    _loadFollowingData();
-
     _loadFromStorage();
 
     _profilePicListener = () {
@@ -101,22 +99,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       }
     };
 
-    _followersListener = () {
-      if (mounted) {
-        setState(() {
-          _loadFollowersData();
-        });
-      }
-    };
-
-    _followingListener = () {
-      if (mounted) {
-        setState(() {
-          _loadFollowingData();
-        });
-      }
-    };
-
     // Rebuilds the bubble preview row as its name/cover are edited
     _bubbleListener = () {
       if (mounted) {
@@ -128,9 +110,18 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     BackgroundPicManager.addListener(_backgroundPicListener!);
     BioManager.addListener(_bioListener!);
     UserManager.addListener(_usernameListener!);
-    UserFollowers.addListener(_followersListener!);
-    UserFollowing.addListener(_followingListener!);
     YourDailyBubbleManager.addListener(_bubbleListener!);
+
+    // Load your clips now and warm the first thumbnails, so the Clips tab is
+    // ready the moment it's opened.
+    MyClipsCache.instance.start();
+    MyClipsCache.instance.addListener(_warmClipThumbnails);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _warmClipThumbnails());
+  }
+
+  void _warmClipThumbnails() {
+    if (!mounted) return;
+    MyClipsCache.instance.precacheThumbnails(context);
   }
 
   @override
@@ -142,11 +133,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
 
   void _loadBioData() {
     _bio = BioManager.globalBioText;
-    _isBold = BioManager.globalBold;
-    _isItalic = BioManager.globalItalic;
-    _isUnderlined = BioManager.globalUnderlined;
-    _textAlign = BioManager.globalAlign;
-    _textColor = BioManager.globalColor;
   }
 
   void _loadUsernameData() async {
@@ -158,18 +144,20 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       if (userDoc.exists && mounted) {
         setState(() {
           _username = userDoc.data()?['username'] ?? "No Name";
-          _bio = userDoc.data()?['bio'] ?? "";
         });
+        // Accounts made before username reservations existed claim their
+        // name the first time the profile loads.
+        final name = userDoc.data()?['username'] as String?;
+        if (name != null && name.isNotEmpty) {
+          AuthService().ensureUsernameReserved(name);
+        }
+        // The server uses this to decide which calendar day a post lights
+        // up for them.
+        userDoc.reference.set({
+          'tzOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+        }, SetOptions(merge: true));
       }
     }
-  }
-
-  void _loadFollowersData() {
-    _followersCount = UserFollowers.followersCount;
-  }
-
-  void _loadFollowingData() {
-    _followingCount = UserFollowing.followingCount;
   }
 
   @override
@@ -187,8 +175,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     await BackgroundPicManager.loadBackgroundPicFromStorage();
     await BioManager.loadBioFromStorage();
     await UserManager.loadUsernameFromStorage();
-    await UserFollowers.loadFollowersCountFromStorage();
-    await UserFollowing.loadFollowingCountFromStorage();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
@@ -197,8 +183,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         _separatorColor = BackgroundPicManager.separatorColor;
         _loadBioData();
         _loadUsernameData();
-        _loadFollowersData();
-        _loadFollowingData();
       });
     }
   }
@@ -210,9 +194,9 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     if (_backgroundPicListener != null) BackgroundPicManager.removeListener(_backgroundPicListener!);
     if (_bioListener != null) BioManager.removeListener(_bioListener!);
     if (_usernameListener != null) UserManager.removeListener(_usernameListener!);
-    if (_followersListener != null) UserFollowers.removeListener(_followersListener!);
-    if (_followingListener != null) UserFollowing.removeListener(_followingListener!);
     if (_bubbleListener != null) YourDailyBubbleManager.removeListener(_bubbleListener!);
+    MyClipsCache.instance.removeListener(_warmClipThumbnails);
+    _outer.dispose();
     super.dispose();
   }
 
@@ -228,60 +212,237 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     );
   }
 
-  Widget _buildBioText(double screenWidth) {
-    const double profilePicSize = 160.0;
-    final double profilePicStartX = (screenWidth - profilePicSize) / 2;
-
-    if (_bio == null || _bio!.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey[300]!, width: 1),
-            borderRadius: BorderRadius.circular(8),
-            color: Colors.grey[50],
-          ),
-          child: Text(
-            'Tap to add bio',
-            style: TextStyle(fontSize: 16, color: Colors.grey[600], fontStyle: FontStyle.italic),
-            textAlign: TextAlign.center,
+  Widget _buildBioText() {
+    final hasBio = _bio != null && _bio!.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: SizedBox(
+        width: double.infinity,
+        child: Text(
+          hasBio ? _bio! : 'Add a bio',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.3,
+            color: hasBio ? Colors.grey[800] : Colors.grey[500],
           ),
         ),
-      );
-    }
-
-    Widget bioText = Text(
-      _bio!,
-      style: TextStyle(
-        fontSize: 16,
-        color: _textColor,
-        fontWeight: _isBold ? FontWeight.bold : FontWeight.normal,
-        fontStyle: _isItalic ? FontStyle.italic : FontStyle.normal,
-        decoration: _isUnderlined ? TextDecoration.underline : TextDecoration.none,
       ),
-      textAlign: _textAlign,
     );
+  }
 
-    switch (_textAlign) {
-      case TextAlign.left:
-        return Padding(
-          padding: EdgeInsets.only(left: profilePicStartX, right: 24),
-          child: Align(alignment: Alignment.centerLeft, child: bioText),
-        );
-      case TextAlign.right:
-        return Padding(
-          padding: EdgeInsets.only(left: 24, right: profilePicStartX),
-          child: Align(alignment: Alignment.centerRight, child: bioText),
-        );
-      case TextAlign.center:
-      default:
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SizedBox(width: double.infinity, child: bioText),
-        );
+  void _setTab(int i) {
+    if (i == _selectedTabIndex) return;
+    setState(() {
+      _selectedTabIndex = i;
+      _showBar = false;
+      _upAccum = 0;
+    });
+  }
+
+  /// Shows the compact bar when the user scrolls UP after the header has
+  /// scrolled out of view; hides it when scrolling down or when the real
+  /// header is back on screen.
+  bool _onScrollNotification(ScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n is! ScrollUpdateNotification) return false;
+
+    final outerOffset = _outer.hasClients ? _outer.offset : 0.0;
+    if (outerOffset < _headerHeight - 2) {
+      _upAccum = 0;
+      if (_showBar) setState(() => _showBar = false);
+      return false;
     }
+
+    // Ignore the bounce past the end of a list.
+    if (n.metrics.pixels > n.metrics.maxScrollExtent) return false;
+
+    final delta = n.scrollDelta ?? 0;
+    if (delta < 0) {
+      _upAccum += -delta;
+      if (_upAccum > 8 && !_showBar) setState(() => _showBar = true);
+    } else if (delta > 0) {
+      _upAccum = 0;
+      if (_showBar) setState(() => _showBar = false);
+    }
+    return false;
+  }
+
+  Widget _barTab(int i, IconData off, IconData on, String label) {
+    final selected = _selectedTabIndex == i;
+    return Semantics(
+      label: label,
+      button: true,
+      selected: selected,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _setTab(i),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Icon(
+            selected ? on : off,
+            size: 24,
+            color: selected ? Colors.black : Colors.grey[400],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The compact bar: both tabs plus notifications and settings. Faint and
+  /// slightly see-through, it slides in from the top edge.
+  Widget _buildFloatingBar() {
+    final topInset = MediaQuery.of(context).padding.top;
+    return IgnorePointer(
+      ignoring: !_showBar,
+      child: AnimatedSlide(
+        offset: _showBar ? Offset.zero : const Offset(0, -1),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: AnimatedOpacity(
+          opacity: _showBar ? 1 : 0,
+          duration: const Duration(milliseconds: 180),
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+              child: Container(
+                padding: EdgeInsets.only(top: topInset, left: 8, right: 4),
+                height: topInset + 48,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.86),
+                  border: Border(
+                    bottom: BorderSide(color: Colors.grey.shade300, width: 0.5),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    _barTab(0, Icons.wb_sunny_outlined, Icons.wb_sunny_rounded,
+                        'Dailies'),
+                    _barTab(1, Icons.videocam_outlined, Icons.videocam, 'Clips'),
+                    const Spacer(),
+                    const NotificationBell(size: 26),
+                    IconButton(
+                      icon: const Icon(Icons.settings_outlined,
+                          color: Colors.black, size: 26),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const SettingsScreen()),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBanner() {
+    const double h = BackgroundSpec.bannerHeight;
+    final bool hasPic = _backgroundPic != null && _backgroundPic!.existsSync();
+    return SizedBox(
+      height: h,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          hasPic
+              ? Image.file(
+            _backgroundPic!,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: h,
+            key: ValueKey(_backgroundPic!.path +
+                _backgroundPic!.lastModifiedSync().toString()),
+            errorBuilder: (context, error, stackTrace) =>
+                Container(decoration: BackgroundSpec.defaultDecoration),
+          )
+              : Container(decoration: BackgroundSpec.defaultDecoration),
+          // Light scrim so the status bar and top icons stay readable
+          IgnorePointer(
+              child: Container(decoration: BackgroundSpec.scrimDecoration)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    // Dailies, Clips (Saved lives behind a button in Settings for now)
+    const icons = [
+      [Icons.wb_sunny_outlined, Icons.wb_sunny_rounded],
+      [Icons.videocam_outlined, Icons.videocam],
+    ];
+    const labels = ['Dailies', 'Clips'];
+
+    return Column(
+      children: [
+        Row(
+          children: List.generate(2, (i) {
+            final selected = _selectedTabIndex == i;
+            return Expanded(
+              child: Semantics(
+                label: labels[i],
+                button: true,
+                selected: selected,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _setTab(i),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: TweenAnimationBuilder<Color?>(
+                      duration: const Duration(milliseconds: 200),
+                      tween: ColorTween(
+                        end: selected ? Colors.black : Colors.grey[400],
+                      ),
+                      builder: (context, color, _) => Icon(
+                        icons[i][selected ? 1 : 0],
+                        size: 25,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+        SizedBox(
+          height: 2.5,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(height: 1, color: Colors.grey[200]),
+              ),
+              AnimatedAlign(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment(_selectedTabIndex * 2 - 1.0, 0),
+                child: FractionallySizedBox(
+                  widthFactor: 1 / 2,
+                  child: Center(
+                    child: Container(
+                      width: 28,
+                      height: 2.5,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildTabContent() {
@@ -290,8 +451,6 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         return const DailyPostActivity();
       case 1:
         return const ClipsActivity();
-      case 2:
-        return const ArchivesView();
       default:
         return const SizedBox();
     }
@@ -299,228 +458,180 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    // Measure the header so we know when it has fully scrolled away.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final h = _headerKey.currentContext?.size?.height;
+      if (h != null && h > 0) _headerHeight = h;
+    });
 
-    return Column(
+    return Stack(
       children: [
-        const SizedBox(height: BackgroundSpec.bannerHeight - BackgroundSpec.avatarSize / 2),
-        // Avatar row: counts sit under the banner on either side of the avatar
-        SizedBox(
-          height: BackgroundSpec.avatarSize,
-          child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              Center(child:
-              GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
-                  ).then((_) {
-                    setState(() {
-                      _profilePic = ProfilePicManager.globalProfilePic;
-                    });
-                  });
-                },
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      width: BackgroundSpec.avatarSize,
-                      height: BackgroundSpec.avatarSize,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.grey[300],
-                        border: Border.all(color: Colors.white, width: 3),
-                      ),
-                      child: ClipOval(
-                        child: _profilePic != null && _profilePic!.existsSync()
-                            ? Image.file(
-                          _profilePic!,
-                          fit: BoxFit.cover,
-                          width: BackgroundSpec.avatarSize,
-                          height: BackgroundSpec.avatarSize,
-                          key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-                          errorBuilder: (context, error, stackTrace) {
-                            return const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0);
-                          },
-                        )
-                            : const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0),
-                      ),
-                    ),
-                    // Small "+" — post to Your Daily. Closing that screen comes
-                    // straight back to the profile.
-                    Positioned(
-                      right: 2,
-                      bottom: 2,
-                      child: GestureDetector(
-                        onTap: _openAddYourDaily,
-                        child: Container(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: Colors.cyan,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(Icons.add, color: Colors.white, size: 16),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ),
-              Positioned(
-                left: 0,
-                width: (screenWidth - BackgroundSpec.avatarSize) / 2,
-                top: BackgroundSpec.avatarSize / 2 + 6,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '$_followersCount',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Followers',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[700]),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                right: 0,
-                width: (screenWidth - BackgroundSpec.avatarSize) / 2,
-                top: BackgroundSpec.avatarSize / 2 + 6,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '$_followingCount',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Following',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[700]),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+        NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: NestedScrollView(
+            controller: _outer,
+            headerSliverBuilder: (context, innerScrolled) => [
+              SliverToBoxAdapter(child: _buildHeader()),
             ],
+            body: _buildTabContent(),
           ),
         ),
-        const SizedBox(height: 8),
-        if (_username != null && _username!.isNotEmpty)
-          Text(
-            _username!,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
-            textAlign: TextAlign.center,
-          ),
-        const SizedBox(height: 6),
-        GestureDetector(
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const BioScreen()),
-            );
-            await BioManager.loadBioFromStorage();
-            setState(() {
-              _loadBioData();
-            });
-          },
-          child: _buildBioText(screenWidth),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: _buildFloatingBar(),
         ),
-        // Daily Bubble row — sits below followers/following/bio and above
-        // the tab bar. Only shown while a bubble is being created for now;
-        // this is where saved bubbles will eventually be listed.
-        if (YourDailyBubbleManager.isCreating || YourDailyBubbleManager.bubbles.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          YourDailyBubbleRow(),
-        ],
-        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    return Stack(
+      key: _headerKey,
+      children: [
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: BackgroundSpec.bannerHeight,
+          child: _buildBanner(),
+        ),
         SizedBox(
           width: double.infinity,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedTabIndex = 0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Icon(
-                          Icons.insert_chart_outlined,
-                          size: 24,
-                          color: _selectedTabIndex == 0 ? Colors.black : Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedTabIndex = 1),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Icon(
-                          Icons.videocam_outlined,
-                          size: 24,
-                          color: _selectedTabIndex == 1 ? Colors.black : Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedTabIndex = 2),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Icon(
-                          Icons.folder_outlined,
-                          size: 24,
-                          color: _selectedTabIndex == 2 ? Colors.black : Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              const SizedBox(height: BackgroundSpec.bannerHeight - BackgroundSpec.avatarSize / 2),
+              // Avatar row: counts sit under the banner on either side of the avatar
               SizedBox(
-                height: 2,
+                height: BackgroundSpec.avatarSize,
                 child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
                   children: [
-                    Container(width: double.infinity, height: 2, color: Colors.transparent),
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                      left: MediaQuery.of(context).size.width * _selectedTabIndex / 3,
-                      width: MediaQuery.of(context).size.width / 3,
-                      child: Container(height: 2, color: Colors.black),
+                    Center(child:
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
+                        ).then((_) {
+                          setState(() {
+                            _profilePic = ProfilePicManager.globalProfilePic;
+                          });
+                        });
+                      },
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: BackgroundSpec.avatarSize,
+                            height: BackgroundSpec.avatarSize,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.grey[300],
+                            ),
+                            child: ClipOval(
+                              child: _profilePic != null && _profilePic!.existsSync()
+                                  ? Image.file(
+                                _profilePic!,
+                                fit: BoxFit.cover,
+                                width: BackgroundSpec.avatarSize,
+                                height: BackgroundSpec.avatarSize,
+                                key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0);
+                                },
+                              )
+                                  : const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0),
+                            ),
+                          ),
+                          // Small "+" — post to Your Daily. Closing that screen comes
+                          // straight back to the profile.
+                          Positioned(
+                            right: 2,
+                            bottom: 2,
+                            child: GestureDetector(
+                              onTap: _openAddYourDaily,
+                              child: Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: Colors.cyan,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 3),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(Icons.add, color: Colors.white, size: 16),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 8),
+              ProfileStatsRow(
+                userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                username: _username ?? '',
+              ),
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const BioScreen()),
+                  );
+                  await BioManager.loadBioFromStorage();
+                  setState(() {
+                    _loadBioData();
+                  });
+                },
+                child: _buildBioText(),
+              ),
+              // Daily Bubble row — sits below the days-lit counter/bio and above
+              // the tab bar. Only shown while a bubble is being created for now;
+              // this is where saved bubbles will eventually be listed.
+              if (YourDailyBubbleManager.isCreating || YourDailyBubbleManager.bubbles.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                YourDailyBubbleRow(),
+              ],
+              const SizedBox(height: 4),
+              _buildTabBar(),
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: _buildTabContent(),
+
+        // Notification Bell (Top Left)
+        const Positioned(
+          top: 50,
+          left: 16,
+          child: NotificationBell(color: Colors.white),
+        ),
+
+        // Settings Button (Top Right)
+        Positioned(
+          top: 50,
+          right: 16,
+          child: IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -581,8 +692,6 @@ class _ProfilePageState extends State<ProfilePage> {
     await Future.wait([
       _safeLoad('BioManager', BioManager.loadBioFromStorage),
       _safeLoad('UserManager', UserManager.loadUsernameFromStorage),
-      _safeLoad('UserFollowers', UserFollowers.loadFollowersCountFromStorage),
-      _safeLoad('UserFollowing', UserFollowing.loadFollowingCountFromStorage),
       _safeLoad('YourDailyBubbleManager', YourDailyBubbleManager.loadBubblesFromFirestore),
     ]);
   }
@@ -629,126 +738,19 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    const double backgroundHeight = BackgroundSpec.bannerHeight;
-    final bool hasPic = _backgroundPic != null && _backgroundPic!.existsSync();
-
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: backgroundHeight,
-            child: hasPic
-                ? Image.file(
-              _backgroundPic!,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: backgroundHeight,
-              key: ValueKey(_backgroundPic!.path + _backgroundPic!.lastModifiedSync().toString()),
-              errorBuilder: (context, error, stackTrace) =>
-                  Container(decoration: BackgroundSpec.defaultDecoration),
-            )
-                : Container(decoration: BackgroundSpec.defaultDecoration),
-          ),
-          // Light scrim so the status bar and top icons stay readable
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: backgroundHeight,
-            child: IgnorePointer(child: Container(decoration: BackgroundSpec.scrimDecoration)),
-          ),
-          Positioned(
-            top: backgroundHeight,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(color: Colors.white),
-          ),
+          // Banner, avatar, stats, tabs and the page's scrolling all live in
+          // ProfileWidget now.
           const ProfileWidget(),
 
-          // Notification Bell (Top Left)
-          const Positioned(
-            top: 50,
-            left: 16,
-            child: NotificationBell(color: Colors.white),
-          ),
-
-          // Settings Button (Top Right)
-          Positioned(
-            top: 50,
-            right: 16,
-            child: IconButton(
-              icon: const Icon(Icons.settings_outlined, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                );
-              },
-            ),
-          ),
-
           // Dark "creating a bubble" overlay — covers the whole screen
-          // (including the bell/settings buttons above) until the user
-          // finishes or backs out via the X.
+          // (including the bell/settings buttons) until the user finishes
+          // or backs out via the X.
           if (YourDailyBubbleManager.isCreating) const YourDailyBubbleCreatorOverlay(),
         ],
-      ),
-    );
-  }
-}
-
-class DefaultProfilePic extends StatelessWidget {
-  final double size;
-  final double borderWidth;
-
-  const DefaultProfilePic({
-    Key? key,
-    this.size = 160,
-    this.borderWidth = 3,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.grey[300],
-        border: Border.all(color: Colors.grey[400]!, width: borderWidth),
-      ),
-      child: ClipOval(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Positioned(
-              top: size * 0.1875,
-              child: Container(
-                width: size * 0.3125,
-                height: size * 0.3125,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[600]),
-              ),
-            ),
-            Positioned(
-              bottom: -size * 0.125,
-              child: Container(
-                width: size * 0.875,
-                height: size * 0.5,
-                decoration: BoxDecoration(
-                  color: Colors.grey[600],
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(size * 0.4375),
-                    topRight: Radius.circular(size * 0.4375),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

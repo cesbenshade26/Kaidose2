@@ -3,7 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_windows
   cloud_firestore
+  ffmpeg_kit_flutter_new
   file_selector_windows
   firebase_app_check
   firebase_auth

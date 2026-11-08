@@ -201,7 +201,6 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.grey[300],
-                        border: Border.all(color: Colors.white, width: 3),
                       ),
                       child: ClipOval(
                         child: _profilePic != null && _profilePic!.existsSync()
@@ -368,7 +367,6 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.grey[300],
-                border: Border.all(color: Colors.white, width: 3),
               ),
               child: ClipOval(
                 child: _profilePic != null && _profilePic!.existsSync()

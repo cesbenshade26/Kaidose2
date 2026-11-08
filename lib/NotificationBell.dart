@@ -13,10 +13,17 @@ class NotificationBell extends StatefulWidget {
   final double size;
   final Color color;
 
+  /// Optional hooks so a screen can remember and restore its scroll
+  /// position around the Notifications screen.
+  final VoidCallback? onBeforeOpen;
+  final VoidCallback? onAfterClose;
+
   const NotificationBell({
     Key? key,
     this.size = 28,
     this.color = Colors.black,
+    this.onBeforeOpen,
+    this.onAfterClose,
   }) : super(key: key);
 
   @override
@@ -66,10 +73,14 @@ class _NotificationBellState extends State<NotificationBell> {
         IconButton(
           icon: Icon(Icons.notifications_none_rounded,
               color: widget.color, size: widget.size),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-          ),
+          onPressed: () async {
+            widget.onBeforeOpen?.call();
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+            );
+            widget.onAfterClose?.call();
+          },
         ),
         if (count > 0)
           Positioned(

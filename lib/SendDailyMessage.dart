@@ -11,6 +11,8 @@ import 'VideoClipPlayer.dart';
 import 'NetworkVideoPlayer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
+import 'DailyShare.dart';
+import 'UserProfileScreen.dart';
 
 /// One photo or video attached to a message. A message can carry several
 /// of these — picking multiple items from the gallery grid at once
@@ -452,12 +454,19 @@ class DailyMessageWidget extends StatefulWidget {
   /// one above it instead of leaving the usual gap.
   final bool groupedWithPrevious;
 
+  /// The Daily this message lives in. When given, a "send to chat" button
+  /// appears with the other message actions.
+  final String? dailyTitle;
+  final bool isPrivateDaily;
+
   const DailyMessageWidget({
     Key? key,
     required this.message,
     this.isCurrentUser = true,
     this.showUsername = true,
     this.groupedWithPrevious = false,
+    this.dailyTitle,
+    this.isPrivateDaily = false,
     this.onReply,
     this.onEdit,
     this.onSaveToggle,
@@ -616,6 +625,36 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   void _handleReply() => setState(() => _showComments = !_showComments);
 
+  /// Opens the "send to chat" sheet for this message.
+  void _shareToChat() {
+    final m = widget.message;
+    // Only media that's already uploaded (a URL) can be sent to a chat.
+    final media = [
+      for (final item in m.media)
+        if (_isNetworkVideoPath(item.path))
+          SharedMediaItem(url: item.path, isVideo: item.isVideo),
+    ].take(6).toList();
+    final text = (m.text ?? '').trim();
+
+    if (text.isEmpty && media.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('This is still uploading, try again in a moment'),
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
+    ShareToChatSheet.show(
+      context,
+      SharedDailyContent(
+        dailyId: m.dailyId,
+        dailyTitle: widget.dailyTitle ?? '',
+        isPrivate: widget.isPrivateDaily,
+        text: text,
+        media: media,
+      ),
+    );
+  }
+
   void _toggleOptionsMenu() => setState(() => _showOptionsMenu = !_showOptionsMenu);
 
   // ─── Shared pieces ─────────────────────────────────────────────────────────
@@ -670,19 +709,37 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
           color: widget.message.isSaved ? Colors.cyan : Colors.grey[600]!,
           onTap: _toggleSave,
         ),
+        if (widget.dailyTitle != null)
+          _actionIcon(
+            icon: Icons.send_outlined,
+            color: Colors.grey[600]!,
+            onTap: _shareToChat,
+          ),
       ],
     );
   }
 
   Widget _buildUsername() {
+    final uid = widget.message.userId;
+    final canOpen = !widget.isCurrentUser &&
+        uid.isNotEmpty &&
+        uid != 'current_user' &&
+        uid != FirebaseAuth.instance.currentUser?.uid;
     return Padding(
       padding: const EdgeInsets.only(left: 6, bottom: 1),
-      child: Text(
-        widget.message.username ?? (widget.isCurrentUser ? 'You' : 'Unknown'),
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[600],
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: canOpen
+            ? () => UserProfileScreen.open(context, uid,
+            username: widget.message.username)
+            : null,
+        child: Text(
+          widget.message.username ?? (widget.isCurrentUser ? 'You' : 'Unknown'),
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
+          ),
         ),
       ),
     );
@@ -725,7 +782,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   );
 
   // Roughly the width of the react/comment/save row.
-  static const double _actionsRowWidth = 90;
+  static const double _actionsRowWidth = 118;
 
   /// A message is "short" when it is a single line narrower than the
   /// actions row — those get a bare pill that opens on tap, since the

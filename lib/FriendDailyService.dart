@@ -1,3 +1,4 @@
+import 'MusicSearch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -45,7 +46,7 @@ class FriendDailyService {
   // ─── Public story (Daily Post) ──────────────────────────────────────────────
 
   /// Upload to the current user's public daily story so ALL friends can see it.
-  static Future<void> uploadMyDailyPhoto(File photo) async {
+  static Future<void> uploadMyDailyPhoto(File photo, {MusicTrack? music}) async {
     final uid = currentUid;
     if (uid == null) return;
 
@@ -70,6 +71,7 @@ class FriendDailyService {
         'mediaType': 'photo',
         'base64Data': base64String,
         'date': _today,
+        if (music != null) 'music': music.toMap(),
       });
 
       await _firestore
@@ -94,7 +96,7 @@ class FriendDailyService {
   /// photos, the video itself goes to Storage — only its URL is written
   /// to Firestore, since a compressed video would still blow past
   /// Firestore's 1MB document limit if stored inline like a photo is.
-  static Future<void> uploadMyDailyVideo(File video) async {
+  static Future<void> uploadMyDailyVideo(File video, {MusicTrack? music}) async {
     final uid = currentUid;
     if (uid == null) return;
 
@@ -118,6 +120,7 @@ class FriendDailyService {
         'mediaType': 'video',
         'videoUrl': videoUrl,
         'date': _today,
+        if (music != null) 'music': music.toMap(),
       });
 
       await _firestore
@@ -319,7 +322,10 @@ class FriendDailyService {
           final file = File('${directory.path}/friend_story_${userId}_pub_${doc.id}.mp4');
           try {
             await _storage.refFromURL(videoUrl).writeToFile(file);
-            items.add(StoryMediaItem(file: file, isVideo: true));
+            items.add(StoryMediaItem(
+                file: file,
+                isVideo: true,
+                music: MusicTrack.fromMap(data['music'])));
           } catch (e) {
             print('FriendDailyService: video download error: $e');
           }
@@ -328,7 +334,10 @@ class FriendDailyService {
           if (b64 == null) continue;
           final file = File('${directory.path}/friend_story_${userId}_pub_${doc.id}.jpg');
           await file.writeAsBytes(base64Decode(b64));
-          items.add(StoryMediaItem(file: file, isVideo: false));
+          items.add(StoryMediaItem(
+              file: file,
+              isVideo: false,
+              music: MusicTrack.fromMap(data['music'])));
         }
       }
 
