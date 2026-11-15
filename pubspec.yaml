@@ -41,6 +41,8 @@ dependencies:
   firebase_messaging: ^16.7.1
   geolocator: ^14.0.2
   geocoding: ^5.0.1
+  url_launcher: ^6.3.3
+  cloud_functions: ^6.5.1
 
 dev_dependencies:
   flutter_test:

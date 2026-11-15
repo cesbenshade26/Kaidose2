@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'auth_service.dart';
+import 'Legal.dart';
 import 'EmailVerificationScreen.dart';
 import 'PhoneVerificationScreen.dart';
 import 'KaidoseBrand.dart';
@@ -43,6 +45,12 @@ class _CreateAccountState extends State<CreateAccount> {
   bool _countryPickedByUser = false;
   bool _locationAsked = false;
 
+  // Taps on "Terms" / "Privacy Policy" in the agreement line.
+  final TapGestureRecognizer _termsTap = TapGestureRecognizer()
+    ..onTap = Legal.openTerms;
+  final TapGestureRecognizer _privacyTap = TapGestureRecognizer()
+    ..onTap = Legal.openPrivacy;
+
   final List<String> _years =
   List.generate(100, (i) => (DateTime.now().year - i).toString());
   final List<String> _days =
@@ -57,6 +65,8 @@ class _CreateAccountState extends State<CreateAccount> {
   @override
   void dispose() {
     _contactController.removeListener(_onContactChanged);
+    _termsTap.dispose();
+    _privacyTap.dispose();
     _usernameController.dispose();
     _contactController.dispose();
     _passwordController.dispose();
@@ -377,6 +387,40 @@ class _CreateAccountState extends State<CreateAccount> {
                         ? 'We\'ll text you a code to confirm your number.'
                         : 'We\'ll email you a link to confirm your address.',
                     style: TextStyle(fontSize: 12.5, color: Colors.grey[500]),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Agreeing happens by creating the account; the version and
+                // time are saved on the account (see AuthService).
+                Center(
+                  child: Text.rich(
+                    TextSpan(
+                      style: TextStyle(
+                          fontSize: 12.5, height: 1.4, color: Colors.grey[500]),
+                      children: [
+                        const TextSpan(
+                            text: 'By creating an account, you agree to our '),
+                        TextSpan(
+                          text: 'Terms',
+                          style: const TextStyle(
+                            color: KaidoseBrand.cyan,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          recognizer: _termsTap,
+                        ),
+                        const TextSpan(text: ' and '),
+                        TextSpan(
+                          text: 'Privacy Policy',
+                          style: const TextStyle(
+                            color: KaidoseBrand.cyan,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          recognizer: _privacyTap,
+                        ),
+                        const TextSpan(text: '.'),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],

@@ -16,20 +16,18 @@ import 'DailyUnread.dart';
 /// The cover card for a single Daily, as shown in the Dailies list.
 ///
 /// Two layouts:
-///  - With a cover (a photo/video was picked for this viewer's
-///    time-zone-day): header row (icon, title, pin badge, menu), the hook
-///    across the full width below it, then the cover image edge to edge
-///    at the bottom of the card.
-///  - Without one (nothing eligible was posted, or it's still being
-///    generated): the original card, unchanged.
+///  - With a cover: header row (icon, title, pin badge, menu), the hook
+///    across the full width below it (left out when there's no hook), then
+///    the cover image edge to edge at the bottom of the card.
+///  - Without one (nothing eligible was posted): the original card.
 ///
-/// Asking for the cover is what triggers its generation the first time
-/// anyone opens the app after their local midnight; see DailyCoverService.
+/// Covers are picked by the server three times a day and are the same for
+/// every viewer in every time zone, so For You cards and My Dailies cards
+/// show the same cover. Cards only read; nothing here generates anything.
 ///
 /// [forYou] switches the card to its For You feed form, for Dailies the
 /// viewer is not in: the pin/manage/delete menu becomes an "Add" button
-/// (join as a member), tapping opens the Daily as a guest, and the cover is
-/// only read — never generated — so scrolling the feed can't trigger AI.
+/// (join as a member) and tapping opens the Daily as a guest.
 ///
 /// My Dailies only: an unread pill ("3 new") sits in the header row, in the
 /// same spot on both layouts, counting messages from other people the
@@ -116,21 +114,17 @@ class _DailyCoverState extends State<DailyCover> {
         });
   }
 
-  /// (Re)subscribes to the cover doc and asks for it to be generated
-  /// when the viewer's time-zone-day has changed since we last looked.
-  /// Cheap to call from build(): it does nothing unless the key changed.
+  /// (Re)subscribes to the cover when the date has changed since we last
+  /// looked (the owner's schedule is per calendar day). Cheap to call from
+  /// build(): it does nothing unless the date changed.
   void _syncCover() {
-    final key = CoverWindow.forNow().key;
+    final key = CoverWindow.dateKey(DateTime.now());
     if (key == _activeKey && _coverStream != null) return;
     _activeKey = key;
-    if (widget.forYou) {
-      // Read-only: use a cover if a member's app already made one.
-      _coverStream =
-          Stream.fromFuture(DailyCoverService.getCoverOnce(widget.daily.id));
-      return;
-    }
     _coverStream = DailyCoverService.watchCover(widget.daily.id);
-    DailyCoverService.ensureCover(widget.daily.id);
+    // The owner's app keeps the Daily's time zone, title and description
+    // on the shared doc the server reads (once per session, owner only).
+    if (!widget.forYou) DailyCoverService.syncDailyInfo(widget.daily);
   }
 
   // For You only: 0 = not added, 1 = adding, 2 = added.
@@ -454,31 +448,6 @@ class _DailyCoverState extends State<DailyCover> {
   bool get _showBadge =>
       widget.forYou ? _hasPrompt : !widget.hasBeenViewed;
 
-  /// For You only: the Daily's entry prompt, one truncated line.
-  Widget _promptLine() {
-    if (!widget.forYou || !_hasPrompt) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(
-        children: [
-          const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.cyan),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              widget.daily.dailyEntryPrompt.trim(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
-                color: Colors.grey[600],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   /// My Dailies only: solid accent pill with the unread count, e.g.
   /// "3 new". Sits in the header row on both layouts, so it lands in the
@@ -759,38 +728,17 @@ class _DailyCoverState extends State<DailyCover> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                _promptLine(),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Text(
-                      'Active Friends: ',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[700],
-                      ),
+                // For You cards skip the date.
+                if (!widget.forYou) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _formatDate(daily.createdAt),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[500],
                     ),
-                    Expanded(
-                      child: Text(
-                        '',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _formatDate(daily.createdAt),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[500],
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -806,7 +754,8 @@ class _DailyCoverState extends State<DailyCover> {
       BuildContext context, Color dailyColor, DailyCoverData cover) {
     final daily = widget.daily;
     final imageUrl = cover.effectiveImageUrl!;
-    final hook = cover.effectiveHook ?? "See what's new in ${daily.title}";
+    // No hook (AI hooks turned off, or none could be written): no line.
+    final hook = cover.effectiveHook;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -842,23 +791,21 @@ class _DailyCoverState extends State<DailyCover> {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: Text(
-              hook,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.3,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[850],
-              ),
-            ),
-          ),
-          if (widget.forYou && _hasPrompt)
+          if (hook != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: _promptLine(),
-            ),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Text(
+                hook,
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.3,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[850],
+                ),
+              ),
+            )
+          else
+            const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: ClipRRect(
@@ -936,9 +883,7 @@ class _DailyCoverState extends State<DailyCover> {
         stream: _coverStream,
         builder: (context, snapshot) {
           final cover = snapshot.data;
-          final showCover = cover != null &&
-              cover.status == CoverStatus.ready &&
-              cover.effectiveImageUrl != null;
+          final showCover = cover != null && cover.isShowable;
 
           if (showCover) {
             _maybePrecache(context, cover.effectiveImageUrl);
@@ -949,7 +894,7 @@ class _DailyCoverState extends State<DailyCover> {
             child: showCover
                 ? KeyedSubtree(
               key: const ValueKey('cover'),
-              child: _buildCoverCard(context, dailyColor, cover),
+              child: _buildCoverCard(context, dailyColor, cover!),
             )
                 : KeyedSubtree(
               key: const ValueKey('classic'),

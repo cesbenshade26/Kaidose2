@@ -225,35 +225,97 @@ class SearchService {
     return _peopleFuture!;
   }
 
+  /// Only the people this user has a connection to are loaded: friends,
+  /// friends of friends, and verified accounts. Nobody else's profile is
+  /// downloaded until a typed search finds them by name (see [searchPeople]).
   static Future<_PeopleContext> _loadPeople() async {
     final me = FirebaseAuth.instance.currentUser?.uid;
     final results = await Future.wait([
-      UserService().getAllUsers(),
       FeedService.getFriendUids(),
-      _verifiedUids(),
+      _verifiedUsers(),
     ]);
-    final users = (results[0] as List<KaidoseUser>)
-        .where((u) => u.uid != me)
-        .toList();
-    final friends = (results[1] as List<String>).toSet();
-    final verified = results[2] as Set<String>;
+    final friends = (results[0] as List<String>).toSet();
+    final verifiedUsers = results[1] as List<KaidoseUser>;
+    final verified = verifiedUsers.map((u) => u.uid).toSet();
     final mutuals = await _mutualCounts(me, friends);
-    return _PeopleContext(users, friends, mutuals, verified);
+
+    // Friends, plus the friends-of-friends with the most mutuals.
+    final topMutuals = (mutuals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value)))
+        .take(60)
+        .map((e) => e.key);
+    final known = <String, KaidoseUser>{
+      for (final u in verifiedUsers) u.uid: u,
+    };
+    final toFetch = {...friends, ...topMutuals}
+        .where((id) => !known.containsKey(id))
+        .toList();
+    for (final u in await _usersByIds(toFetch)) {
+      known[u.uid] = u;
+    }
+    known.remove(me);
+    return _PeopleContext(known.values.toList(), friends, mutuals, verified);
+  }
+
+  /// User profiles by uid, 30 per query.
+  static Future<List<KaidoseUser>> _usersByIds(List<String> ids) async {
+    final out = <KaidoseUser>[];
+    final col = FirebaseFirestore.instance.collection('users');
+    for (var i = 0; i < ids.length; i += 30) {
+      final chunk = ids.sublist(i, i + 30 > ids.length ? ids.length : i + 30);
+      try {
+        final snap = await col.where(FieldPath.documentId, whereIn: chunk).get();
+        for (final d in snap.docs) {
+          final data = Map<String, dynamic>.from(d.data());
+          data['uid'] ??= d.id;
+          out.add(KaidoseUser.fromFirestore(data));
+        }
+      } catch (e) {
+        print('SearchService: user lookup failed: $e');
+      }
+    }
+    return out;
   }
 
   /// Accounts flagged `verified: true` on their user doc. (The verification
   /// system itself comes later; this just reads the flag.)
-  static Future<Set<String>> _verifiedUids() async {
+  static Future<List<KaidoseUser>> _verifiedUsers() async {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('users')
           .where('verified', isEqualTo: true)
           .limit(100)
           .get();
-      return snap.docs.map((d) => d.id).toSet();
+      return snap.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['uid'] ??= d.id;
+        return KaidoseUser.fromFirestore(data);
+      }).toList();
     } catch (e) {
       print('SearchService: verified lookup failed: $e');
-      return {};
+      return [];
+    }
+  }
+
+  /// Uids of anyone whose username starts with [q], looked up on the
+  /// server (usernames/{lowercased name}), at most 25.
+  static Future<List<String>> _uidsByNamePrefix(String q) async {
+    final key = Uri.encodeComponent(q.toLowerCase()).toLowerCase();
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('usernames')
+          .orderBy(FieldPath.documentId)
+          .startAt([key])
+          .endAt(['$key\uf8ff'])
+          .limit(25)
+          .get();
+      return snap.docs
+          .map((d) => d.data()['uid'] as String?)
+          .whereType<String>()
+          .toList();
+    } catch (e) {
+      print('SearchService: username lookup failed: $e');
+      return [];
     }
   }
 
@@ -350,14 +412,26 @@ class SearchService {
     return out.take(limit).toList();
   }
 
-  /// Typed search. Anyone whose name matches can be found, but friends and
+  /// Typed search. Anyone whose name STARTS with what's typed can be found
+  /// (looked up on the server, never by downloading everyone); people you're
+  /// connected to also match anywhere in their name. Friends,
   /// friends-of-friends and verified accounts sort above strangers.
   static Future<List<PersonResult>> searchPeople(String query) async {
     final q = query.toLowerCase().trim();
     if (q.isEmpty) return suggestedPeople();
+    final me = FirebaseAuth.instance.currentUser?.uid;
     final c = await _people();
+
+    final pool = <String, KaidoseUser>{for (final u in c.users) u.uid: u};
+    final newIds = (await _uidsByNamePrefix(q))
+        .where((id) => id != me && !pool.containsKey(id))
+        .toList();
+    for (final u in await _usersByIds(newIds)) {
+      pool[u.uid] = u;
+    }
+
     final out = <PersonResult>[];
-    for (final u in c.users) {
+    for (final u in pool.values) {
       final name = u.username.toLowerCase();
       double match = 0;
       if (name == q) {

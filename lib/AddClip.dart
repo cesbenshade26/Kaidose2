@@ -1,5 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'ClipTracker.dart';
@@ -50,6 +55,114 @@ class _AddClipScreenState extends State<AddClipScreen> {
 
   bool get _hasMedia => _isVideo ? _file != null : _photos.isNotEmpty;
 
+  // ─── AI caption ideas ─────────────────────────────────────────────────────
+  // Only runs when the user taps "Suggest a caption". A small frame (the
+  // video's still, or the first photo) is made in the background as soon as
+  // media is chosen, so the tap goes straight to the AI.
+  int _mediaVersion = 0; // bumps whenever the chosen media changes
+  Uint8List? _frame;
+  String _frameMime = 'image/jpeg';
+  bool _suggesting = false;
+  List<String> _suggestions = [];
+
+  void _mediaChanged() {
+    _mediaVersion++;
+    _frame = null;
+    _suggestions = [];
+    _suggesting = false;
+  }
+
+  Future<void> _prepareFrame() async {
+    final version = _mediaVersion;
+    Uint8List? bytes;
+    var mime = 'image/jpeg';
+    try {
+      if (_isVideo && _file != null) {
+        for (final ms in [1000, 0]) {
+          bytes = await VideoThumbnail.thumbnailData(
+            video: _file!.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 512,
+            quality: 70,
+            timeMs: ms,
+          );
+          if (bytes != null && bytes.isNotEmpty) break;
+        }
+      } else if (_photos.isNotEmpty) {
+        // Shrink the first photo to 512px wide (originals can be 10MB+).
+        final codec = await ui.instantiateImageCodec(
+            await _photos.first.readAsBytes(),
+            targetWidth: 512);
+        final frame = await codec.getNextFrame();
+        final data =
+        await frame.image.toByteData(format: ui.ImageByteFormat.png);
+        bytes = data?.buffer.asUint8List();
+        mime = 'image/png';
+      }
+    } catch (e) {
+      print('AddClipScreen: frame for caption failed: $e');
+    }
+    if (version == _mediaVersion && bytes != null && bytes.isNotEmpty) {
+      _frame = bytes;
+      _frameMime = mime;
+    }
+  }
+
+  Future<void> _suggestCaptions() async {
+    if (_suggesting || !_hasMedia) return;
+    final version = _mediaVersion;
+    setState(() => _suggesting = true);
+    try {
+      if (_frame == null) await _prepareFrame();
+      final frame = _frame;
+      if (frame == null || version != _mediaVersion) {
+        throw Exception('no frame');
+      }
+      final result = await FirebaseFunctions.instance
+          .httpsCallable('suggestClipCaption')
+          .call({
+        'image': base64Encode(frame),
+        'mimeType': _frameMime,
+        'kind': _isVideo ? 'video' : 'photo',
+        'draft': _captionController.text.trim(),
+      });
+      final raw = (result.data as Map?)?['captions'];
+      final captions = raw is List
+          ? raw.whereType<String>().where((c) => c.trim().isNotEmpty).toList()
+          : <String>[];
+      if (!mounted || version != _mediaVersion) return;
+      setState(() {
+        _suggestions = captions;
+        _suggesting = false;
+      });
+      if (captions.isEmpty) _captionError();
+    } catch (e) {
+      print('AddClipScreen: caption suggestions failed: $e');
+      if (!mounted) return;
+      setState(() => _suggesting = false);
+      _captionError();
+    }
+  }
+
+  void _captionError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Couldn't come up with captions. Try again."),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _useSuggestion(String caption) {
+    final text = caption.length > 150 ? caption.substring(0, 150) : caption;
+    setState(() {
+      _captionController.text = text;
+      _captionController.selection =
+          TextSelection.collapsed(offset: text.length);
+      _suggestions = [];
+    });
+  }
+
   @override
   void dispose() {
     _videoController?.dispose();
@@ -64,6 +177,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
     _videoController = null;
 
     setState(() {
+      _mediaChanged();
       _file = file;
       _photos.clear();
       _isVideo = isVideo;
@@ -87,6 +201,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
         _videoController = controller;
         _isInitializing = false;
       });
+      _prepareFrame();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -125,7 +240,9 @@ class _AddClipScreenState extends State<AddClipScreen> {
       _photos.addAll(files.take(room));
       // Jump to the first photo that was just added.
       _previewIndex = start < _photos.length ? start : 0;
+      if (start == 0) _mediaChanged();
     });
+    if (_frame == null) _prepareFrame();
   }
 
   /// Edit (crop, text, draw, music) the photo being previewed; the edited
@@ -140,6 +257,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
       setState(() {
         _photos[i] = r.file;
         _music = r.music ?? _music;
+        if (i == 0) _mediaChanged();
       });
     }
   }
@@ -160,6 +278,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
 
   void _removePhotoAt(int i) {
     setState(() {
+      if (i == 0) _mediaChanged();
       _photos.removeAt(i);
       if (_photos.isEmpty) {
         _previewIndex = 0;
@@ -178,6 +297,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
       final current = _photos[_previewIndex];
       final moved = _photos.removeAt(oldIndex);
       _photos.insert(newIndex, moved);
+      if (oldIndex == 0 || newIndex == 0) _mediaChanged();
       _previewIndex = _photos.indexOf(current);
     });
   }
@@ -205,6 +325,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
     await _videoController?.dispose();
     if (!mounted) return;
     setState(() {
+      _mediaChanged();
       _videoController = null;
       _file = null;
       _photos.clear();
@@ -257,6 +378,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
         );
         await _videoController?.dispose();
         setState(() {
+          _mediaChanged();
           _videoController = null;
           _file = null;
           _photos.clear();
@@ -765,12 +887,95 @@ class _AddClipScreenState extends State<AddClipScreen> {
     );
   }
 
+  /// A quiet "Suggest a caption" link above the caption box. Tapped, it
+  /// shows a few AI-written ideas as chips; tapping one fills the box.
+  Widget _buildCaptionIdeas() {
+    final Widget child;
+    if (_suggesting) {
+      child = Row(
+        key: const ValueKey('thinking'),
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyan),
+          ),
+          const SizedBox(width: 8),
+          Text('Writing captions...',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+        ],
+      );
+    } else if (_suggestions.isNotEmpty) {
+      child = SizedBox(
+        key: const ValueKey('ideas'),
+        height: 34,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: [
+            for (final c in _suggestions)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ActionChip(
+                  label: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 240),
+                    child: Text(c, overflow: TextOverflow.ellipsis),
+                  ),
+                  labelStyle:
+                  const TextStyle(fontSize: 13, color: Colors.black87),
+                  backgroundColor: Colors.cyan.withOpacity(0.08),
+                  side: BorderSide.none,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                  onPressed: _isPosting ? null : () => _useSuggestion(c),
+                ),
+              ),
+            IconButton(
+              tooltip: 'More ideas',
+              padding: EdgeInsets.zero,
+              icon: Icon(Icons.refresh, size: 18, color: Colors.grey[600]),
+              onPressed: _isPosting ? null : _suggestCaptions,
+            ),
+          ],
+        ),
+      );
+    } else {
+      child = Align(
+        key: const ValueKey('button'),
+        alignment: Alignment.centerLeft,
+        child: GestureDetector(
+          onTap: _isPosting ? null : _suggestCaptions,
+          behavior: HitTestBehavior.opaque,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.auto_awesome, size: 15, color: Colors.cyan),
+              SizedBox(width: 6),
+              Text('Suggest a caption',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.cyan)),
+            ],
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, left: 2),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        child: child,
+      ),
+    );
+  }
+
   Widget _buildCaptionAndPost() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          _buildCaptionIdeas(),
           TextField(
             controller: _captionController,
             maxLength: 150,

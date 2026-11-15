@@ -38,35 +38,97 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   // pauses instead of playing behind it.
   bool _covered = false;
 
-  // Feed order, decided once per session by FeedService.rankClipIds so clips
-  // never reshuffle under the user mid-scroll. Clips that arrive later are
-  // appended; deleted ones drop out.
-  List<String>? _order;
-  bool _ranking = false;
+  // The feed for the chosen lens (For You, Friends, a Daily, a group chat):
+  // loaded once, then extended as the user nears the end, so clips never
+  // reshuffle mid-scroll. Clips already seen are left out by the feed.
+  List<ClipData> _feed = [];
+  Map<String, ClipProof> _proof = {}; // clipId -> "liked by" label
+  String? _moreId; // first "More like this" clip in a group view
+  bool _loadingFeed = true;
+  bool _loadingMore = false;
+  bool _noMore = false;
+  int _feedGen = 0; // bumps on every lens switch, so late results are dropped
 
-  Future<void> _rankOnce(List<ClipData> clips) async {
-    if (_ranking || _order != null || clips.isEmpty) return;
-    _ranking = true;
-    List<String> order;
+  List<ClipLens> _lenses = const [ClipLens.forYou];
+  ClipLens _lens = ClipLens.forYou;
+  bool _showLenses = false;
+
+  Future<void> _loadLenses() async {
     try {
-      order = await FeedService.rankClipIds(clips);
+      final lenses = await FeedService.getClipLenses();
+      if (mounted) setState(() => _lenses = lenses);
     } catch (e) {
-      print('Clips: ranking failed, using newest-first: $e');
-      order = clips.map((c) => c.id).toList();
+      print('Clips: lenses failed: $e');
     }
-    if (mounted) setState(() => _order = order);
   }
 
-  List<ClipData> _applyOrder(List<ClipData> clips) {
-    final order = _order!;
-    final byId = {for (final c in clips) c.id: c};
-    final ordered = <ClipData>[
-      for (final id in order)
-        if (byId.containsKey(id)) byId[id]!,
-    ];
-    final known = order.toSet();
-    ordered.addAll(clips.where((c) => !known.contains(c.id)));
-    return ordered;
+  Future<void> _loadFeed() async {
+    final gen = _feedGen;
+    try {
+      final page = await FeedService.getClipFeedPage(lens: _lens);
+      if (!mounted || gen != _feedGen) return;
+      setState(() {
+        _feed = page.clips;
+        _proof = Map.of(page.proof);
+        _moreId = page.firstMoreId;
+        _noMore = page.clips.isEmpty;
+        _loadingFeed = false;
+      });
+    } catch (e) {
+      print('Clips: feed load failed: $e');
+      if (mounted && gen == _feedGen) setState(() => _loadingFeed = false);
+    }
+  }
+
+  /// Fetches the next batch, skipping everything already in the feed.
+  Future<void> _loadMore() async {
+    if (_loadingMore || _noMore || widget.pinnedClips != null) return;
+    _loadingMore = true;
+    final gen = _feedGen;
+    try {
+      final page = await FeedService.getClipFeedPage(
+          lens: _lens, exclude: _feed.map((c) => c.id).toSet());
+      if (!mounted || gen != _feedGen) return;
+      setState(() {
+        if (page.clips.isEmpty) {
+          _noMore = true;
+        } else {
+          _feed.addAll(page.clips);
+          _proof.addAll(page.proof);
+          _moreId ??= page.firstMoreId;
+        }
+      });
+    } catch (e) {
+      print('Clips: load more failed: $e');
+    } finally {
+      if (gen == _feedGen) _loadingMore = false;
+    }
+  }
+
+  void _selectLens(ClipLens lens) {
+    if (lens == _lens) {
+      setState(() => _showLenses = false);
+      return;
+    }
+    // A fresh controller so the new feed starts at its first clip.
+    final old = _pageController;
+    _pageController = PageController();
+    WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    PreloadedMediaPool.instance.clearWindow();
+    setState(() {
+      _feedGen++;
+      _lens = lens;
+      _showLenses = false;
+      _feed = [];
+      _proof = {};
+      _moreId = null;
+      _noMore = false;
+      _loadingMore = false;
+      _loadingFeed = true;
+      _currentPage = 0;
+      _preloadedCount = -1;
+    });
+    _loadFeed();
   }
 
   @override
@@ -74,6 +136,10 @@ class _ClipsWidgetState extends State<ClipsWidget> {
     super.initState();
     _currentPage = widget.pinnedClips != null ? widget.startIndex : 0;
     _pageController = PageController(initialPage: _currentPage);
+    if (widget.pinnedClips == null) {
+      _loadFeed();
+      _loadLenses();
+    }
   }
 
   @override
@@ -130,9 +196,10 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                 ),
               ),
             )
-          else
-          // Add a clip: opens the Add Clip screen, and closing it comes
-          // straight back here.
+          else ...[
+            _buildLensSwitcher(context),
+            // Add a clip: opens the Add Clip screen, and closing it comes
+            // straight back here.
             Positioned(
               top: MediaQuery.of(context).padding.top + 8,
               right: 12,
@@ -150,7 +217,115 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                 ),
               ),
             ),
+          ],
         ],
+      ),
+    );
+  }
+
+  /// "For You ▾" at the top. Tapped, a row of chips drops down: For You,
+  /// Friends, then the user's top Dailies and group chats.
+  Widget _buildLensSwitcher(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top;
+    return Positioned(
+      top: top + 8,
+      left: 60,
+      right: 60,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _showLenses = !_showLenses),
+            child: Container(
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.35),
+                borderRadius: BorderRadius.circular(19),
+                border: Border.all(color: Colors.white54, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      _lens.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  AnimatedRotation(
+                    turns: _showLenses ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.keyboard_arrow_down_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: !_showLenses
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 6,
+                runSpacing: 6,
+                children: [for (final l in _lenses) _lensChip(l)],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _lensChip(ClipLens l) {
+    final selected = l == _lens;
+    final icon = switch (l.kind) {
+      'friends' => Icons.people_alt_outlined,
+      'daily' => Icons.wb_sunny_outlined,
+      'chat' => Icons.forum_outlined,
+      _ => Icons.auto_awesome_outlined,
+    };
+    return GestureDetector(
+      onTap: () => _selectLens(l),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        constraints: const BoxConstraints(maxWidth: 170),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.black.withOpacity(0.45),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                size: 14, color: selected ? Colors.black87 : Colors.white),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                l.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? Colors.black87 : Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -170,50 +345,38 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   }
 
   Widget _buildFeed() {
-    return StreamBuilder<List<ClipData>>(
-      stream: ClipService.getOtherUsersClips(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.cyan),
-          );
-        }
+    if (_loadingFeed) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.cyan),
+      );
+    }
 
-        var clips = snapshot.data ?? [];
+    if (_feed.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.videocam_off_outlined,
+                size: 80, color: Colors.grey[600]),
+            const SizedBox(height: 16),
+            Text('No clips yet',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[400])),
+            const SizedBox(height: 8),
+            Text(
+                _lens.isForYou
+                    ? 'Clips from other users will show up here'
+                    : 'Clips liked or posted in ${_lens.label} will show up here',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+          ],
+        ),
+      );
+    }
 
-        if (clips.isNotEmpty && _order == null) {
-          _rankOnce(clips);
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.cyan),
-          );
-        }
-        if (_order != null) clips = _applyOrder(clips);
-
-        if (clips.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.videocam_off_outlined,
-                    size: 80, color: Colors.grey[600]),
-                const SizedBox(height: 16),
-                Text('No clips yet',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[400])),
-                const SizedBox(height: 8),
-                Text('Clips from other users will show up here',
-                    style: TextStyle(
-                        fontSize: 14, color: Colors.grey[600])),
-              ],
-            ),
-          );
-        }
-
-        return _buildPager(clips);
-      },
-    );
+    return _buildPager(_feed);
   }
 
   Widget _buildPager(List<ClipData> clips) {
@@ -229,14 +392,23 @@ class _ClipsWidgetState extends State<ClipsWidget> {
       controller: _pageController,
       scrollDirection: Axis.vertical,
       onPageChanged: (index) {
-        setState(() => _currentPage = index);
+        setState(() {
+          _currentPage = index;
+          _showLenses = false;
+        });
         _preload(clips, index);
+        // Close to the end: fetch the next batch in the background.
+        if (index >= clips.length - 5) _loadMore();
       },
       itemCount: clips.length,
       itemBuilder: (context, index) {
+        final clip = clips[index];
         return _ClipPage(
-          clip: clips[index],
+          key: ValueKey('clip-${_lens.key}-${clip.id}'),
+          clip: clip,
           isActive: index == _currentPage && widget.isTabActive && !_covered,
+          proof: _proof[clip.id],
+          moreLikeThis: clip.id == _moreId,
         );
       },
     );
@@ -247,7 +419,19 @@ class _ClipPage extends StatefulWidget {
   final ClipData clip;
   final bool isActive;
 
-  const _ClipPage({required this.clip, required this.isActive});
+  /// "Sam and 2 others liked this", when people the viewer knows liked it.
+  final ClipProof? proof;
+
+  /// First clip after a group's own clips ran out.
+  final bool moreLikeThis;
+
+  const _ClipPage({
+    Key? key,
+    required this.clip,
+    required this.isActive,
+    this.proof,
+    this.moreLikeThis = false,
+  }) : super(key: key);
 
   @override
   State<_ClipPage> createState() => _ClipPageState();
@@ -262,9 +446,11 @@ class _ClipPageState extends State<_ClipPage>
 
   LikeTrigger? _likeTrigger;
 
-  // When this clip became the one on screen; used to tell a skip from a
-  // watch when it stops being active.
+  // When this clip became the one on screen, and how long the user had it
+  // paused since then; together they say how much of it was watched.
   DateTime? _activeSince;
+  DateTime? _pauseStart;
+  Duration _pausedFor = Duration.zero;
 
   // Comment sheet
   bool _showComments = false;
@@ -322,6 +508,8 @@ class _ClipPageState extends State<_ClipPage>
     if (oldWidget.isActive != widget.isActive) {
       if (widget.isActive) {
         _activeSince = DateTime.now();
+        _pausedFor = Duration.zero;
+        _pauseStart = null;
       } else {
         _reportWatch();
       }
@@ -370,34 +558,42 @@ class _ClipPageState extends State<_ClipPage>
     }
   }
 
-  /// Quick swipe-away = skipped; watching most of it = watched. Anything in
-  /// between says nothing either way.
+  /// The clip left the screen: report how much of it was watched (time on
+  /// screen, minus time paused, compared to its length; above 1.0 means it
+  /// looped and they kept watching). The feed uses it for this clip's
+  /// quality, to mark it as seen, and to learn what the user likes.
   void _reportWatch() {
     final since = _activeSince;
     if (since == null) return;
     _activeSince = null;
 
-    final secs = DateTime.now().difference(since).inMilliseconds / 1000.0;
-    final c = _controller;
-    final total = (c != null && c.value.isInitialized)
-        ? c.value.duration.inMilliseconds / 1000.0
-        : null;
+    var paused = _pausedFor;
+    if (_pauseStart != null) paused += DateTime.now().difference(_pauseStart!);
+    _pauseStart = null;
+    _pausedFor = Duration.zero;
 
-    ClipEvent? event;
-    if (secs < 2) {
-      event = ClipEvent.skipped;
-    } else if (widget.clip.isPhoto) {
-      if (secs >= 4) event = ClipEvent.watched;
-    } else if (total != null && total > 0 && secs >= total * 0.8) {
-      event = ClipEvent.watched;
+    final onScreen = DateTime.now().difference(since) - paused;
+    final secs = onScreen.inMilliseconds / 1000.0;
+    if (secs <= 0) return;
+
+    double watched;
+    if (widget.clip.isPhoto) {
+      watched = secs / FeedService.photoViewSeconds(widget.clip);
+    } else {
+      final c = _controller;
+      final total = (c != null && c.value.isInitialized)
+          ? c.value.duration.inMilliseconds / 1000.0
+          : 0.0;
+      // Never loaded: only a quick swipe-away says anything.
+      if (total <= 0) {
+        if (secs >= 2) return;
+        watched = 0;
+      } else {
+        watched = secs / total;
+      }
     }
-    if (event != null) {
-      FeedService.recordClipEvent(
-          creatorUid: widget.clip.creatorUid,
-          event: event,
-          clipId: widget.clip.id,
-          terms: widget.clip.terms);
-    }
+    FeedService.recordClipView(
+        clip: widget.clip, watched: watched, seconds: secs);
   }
 
   @override
@@ -440,9 +636,14 @@ class _ClipPageState extends State<_ClipPage>
         if (_controller!.value.isPlaying) {
           _controller!.pause();
           _userPaused = true;
+          _pauseStart = DateTime.now();
         } else {
           _controller!.play();
           _userPaused = false;
+          if (_pauseStart != null) {
+            _pausedFor += DateTime.now().difference(_pauseStart!);
+            _pauseStart = null;
+          }
         }
       });
     }
@@ -530,6 +731,7 @@ class _ClipPageState extends State<_ClipPage>
               },
               child: ClipCommentSheet(
                 clipId: widget.clip.id,
+                creatorUid: widget.clip.creatorUid,
                 onClose: _closeComments,
               ),
             ),
@@ -575,6 +777,48 @@ class _ClipPageState extends State<_ClipPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (widget.moreLikeThis) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text('More like this',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (widget.proof != null) ...[
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.favorite,
+                          color: Colors.redAccent, size: 14),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          widget.proof!.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            shadows: [
+                              Shadow(color: Colors.black54, blurRadius: 4)
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => UserProfileScreen.open(

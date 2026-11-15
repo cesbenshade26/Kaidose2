@@ -13,6 +13,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
 import 'DailyShare.dart';
 import 'UserProfileScreen.dart';
+import 'MessageStorage.dart';
 
 /// One photo or video attached to a message. A message can carry several
 /// of these — picking multiple items from the gallery grid at once
@@ -22,13 +23,22 @@ class DailyMediaItem {
   final String path; // local file path, or a Storage download URL once uploaded
   final bool isVideo;
 
-  const DailyMediaItem({required this.path, required this.isVideo});
+  /// Videos only: a still frame, uploaded when the video is posted. It's
+  /// what a Daily's cover shows when this video wins.
+  final String? thumb;
 
-  Map<String, dynamic> toJson() => {'path': path, 'is_video': isVideo};
+  const DailyMediaItem({required this.path, required this.isVideo, this.thumb});
+
+  Map<String, dynamic> toJson() => {
+    'path': path,
+    'is_video': isVideo,
+    if (thumb != null) 'thumb': thumb,
+  };
 
   factory DailyMediaItem.fromJson(Map<String, dynamic> json) => DailyMediaItem(
     path: json['path'] as String,
     isVideo: json['is_video'] as bool? ?? false,
+    thumb: json['thumb'] as String?,
   );
 }
 
@@ -145,11 +155,45 @@ class DailyMessage {
       dailyId: json['daily_id'] ?? 'unknown_daily',
       isSaved: json['is_saved'] ?? false,
       isFromPrompt: json['is_from_prompt'] ?? false,
-      reactions: (json['reactions'] as List?)
-          ?.map((r) => ChatReaction.fromJson(r))
-          .toList() ?? [],
+      reactions: _readReactions(json),
       username: json['username'],
     );
+  }
+
+  /// Reactions live in two places:
+  ///  - `reactions`: the old list, from before reactions were saved one
+  ///    person at a time
+  ///  - `reactionsBy.{uid}`: one entry per person, written on its own so two
+  ///    people reacting at once can't erase each other. `removed: true`
+  ///    means that person took their reaction back.
+  static List<ChatReaction> _readReactions(Map<String, dynamic> json) {
+    final byUser = <String, ChatReaction>{};
+    for (final r in (json['reactions'] as List?) ?? const []) {
+      try {
+        final reaction = ChatReaction.fromJson(r);
+        byUser[reaction.userId] = reaction;
+      } catch (_) {}
+    }
+    final map = json['reactionsBy'];
+    if (map is Map) {
+      map.forEach((uid, value) {
+        if (value is! Map) return;
+        if (value['removed'] == true) {
+          byUser.remove('$uid');
+          return;
+        }
+        final ts = value['timestamp'];
+        byUser['$uid'] = ChatReaction(
+          emoji: (value['emoji'] as String?) ?? '',
+          userId: '$uid',
+          username: (value['username'] as String?) ?? '',
+          timestamp: ts is String
+              ? (DateTime.tryParse(ts) ?? DateTime.now())
+              : DateTime.now(),
+        );
+      });
+    }
+    return byUser.values.where((r) => r.emoji.isNotEmpty).toList();
   }
 
   bool get hasContent => (text != null && text!.trim().isNotEmpty) || media.isNotEmpty;
@@ -563,6 +607,18 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
       ));
     });
 
+    // Saves only this person's reaction, so it can't erase anyone else's.
+    final me = FirebaseAuth.instance.currentUser;
+    if (me != null) {
+      MessageStorage.setReaction(
+        dailyId: widget.message.dailyId,
+        messageId: widget.message.messageId,
+        userId: me.uid,
+        username: me.displayName ?? widget.message.username ?? '',
+        emoji: emoji,
+      );
+    }
+
     // The feed learns from what you react to.
     FeedService.recordEventForDailyId(
         widget.message.dailyId, FeedEvent.react);
@@ -587,6 +643,11 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                   (r) => r.userId == currentUserId
           );
         });
+        MessageStorage.removeReaction(
+          dailyId: widget.message.dailyId,
+          messageId: widget.message.messageId,
+          userId: currentUserId,
+        );
 
         if (widget.onReactionAdded != null) {
           widget.onReactionAdded!(emoji);
@@ -609,6 +670,8 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   void _toggleSave() async {
     setState(() => widget.message.isSaved = !widget.message.isSaved);
+    MessageStorage.setSaved(
+        widget.message.dailyId, widget.message.messageId, widget.message.isSaved);
     if (widget.message.isSaved) {
       await ArchiveStorage.loadFromStorage();
       if (context.mounted) {

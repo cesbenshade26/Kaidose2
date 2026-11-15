@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'FeedService.dart';
 
 class ClipCommentSheet extends StatefulWidget {
   final String clipId;
   final VoidCallback onClose;
 
+  /// The clip's creator: commenting teaches the feed you like them.
+  final String? creatorUid;
+
   const ClipCommentSheet({
     Key? key,
     required this.clipId,
     required this.onClose,
+    this.creatorUid,
   }) : super(key: key);
 
   @override
@@ -56,6 +61,10 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
 
       _commentController.clear();
       _focusNode.unfocus();
+      FeedService.recordClipEvent(
+          creatorUid: widget.creatorUid ?? '',
+          event: ClipEvent.comment,
+          clipId: widget.clipId);
     } catch (e) {
       print('ClipCommentSheet: post error: $e');
     } finally {

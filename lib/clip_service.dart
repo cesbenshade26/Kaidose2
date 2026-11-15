@@ -38,6 +38,17 @@ class ClipData {
   /// empty for a brand-new clip). Used by the feed, not shown to users.
   final List<String> terms;
 
+  /// Engagement counters, kept by the app (likes, shares) and Cloud
+  /// Functions (views, watch time, comments). Read-only here: they're never
+  /// written by toFirestoreJson, so saving a clip can't reset them.
+  final int likeCount;
+  final int commentCount;
+  final int shareCount;
+  final int viewCount;
+  final int completeCount; // people who watched 90%+
+  final int rewatchCount;
+  final double watchSum; // sum of how much of it each viewer watched (0..1)
+
   bool get isPhoto => mediaType == 'photo';
 
   /// The photos to show, whichever way this clip was saved.
@@ -63,6 +74,13 @@ class ClipData {
     this.photoUrls = const [],
     this.music,
     this.terms = const [],
+    this.likeCount = 0,
+    this.commentCount = 0,
+    this.shareCount = 0,
+    this.viewCount = 0,
+    this.completeCount = 0,
+    this.rewatchCount = 0,
+    this.watchSum = 0,
   });
 
   factory ClipData.fromFirestore(Map<String, dynamic> data, String id) {
@@ -84,8 +102,17 @@ class ClipData {
       terms: data['terms'] is List
           ? List<String>.from((data['terms'] as List).whereType<String>())
           : const [],
+      likeCount: _int(data['likeCount']),
+      commentCount: _int(data['commentCount']),
+      shareCount: _int(data['shareCount']),
+      viewCount: _int(data['viewCount']),
+      completeCount: _int(data['completeCount']),
+      rewatchCount: _int(data['rewatchCount']),
+      watchSum: (data['watchSum'] as num?)?.toDouble() ?? 0,
     );
   }
+
+  static int _int(dynamic v) => v is num ? (v < 0 ? 0 : v.toInt()) : 0;
 
   Map<String, dynamic> toFirestoreJson() {
     return {

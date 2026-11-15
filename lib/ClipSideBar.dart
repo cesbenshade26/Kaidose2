@@ -8,7 +8,6 @@ import 'SavedItemStorage.dart';
 import 'SendDailyMessage.dart';
 import 'SelectArchiveFolder.dart';
 import 'user_service.dart';
-import 'ClipFeed.dart';
 import 'FeedService.dart';
 
 typedef LikeTrigger = void Function();
@@ -43,6 +42,7 @@ class _ClipSideBarState extends State<ClipSideBar>
 
   bool _liked = false;
   int _likeCount = 0;
+  int _commentCount = 0;
   bool _loadingLike = false;
   bool _isSaving = false;
   bool _isSaved = false;
@@ -87,6 +87,7 @@ class _ClipSideBarState extends State<ClipSideBar>
       final clipDoc =
       await _firestore.collection('clips').doc(widget.clipId).get();
       final likeCount = clipDoc.data()?['likeCount'] ?? 0;
+      final commentCount = clipDoc.data()?['commentCount'] ?? 0;
       final likeDoc = await _firestore
           .collection('clips')
           .doc(widget.clipId)
@@ -96,6 +97,7 @@ class _ClipSideBarState extends State<ClipSideBar>
       if (mounted) {
         setState(() {
           _likeCount = likeCount;
+          _commentCount = commentCount is num ? commentCount.toInt() : 0;
           _liked = likeDoc.exists;
         });
       }
@@ -153,6 +155,12 @@ class _ClipSideBarState extends State<ClipSideBar>
   }
 
   void _handleShareTap() {
+    // Shares count toward the clip's quality in the feed.
+    _firestore
+        .collection('clips')
+        .doc(widget.clipId)
+        .update({'shareCount': FieldValue.increment(1)})
+        .catchError((e) => print('ClipSideBar: share count error: $e'));
     if (widget.creatorUid != null) {
       FeedService.recordClipEvent(
           creatorUid: widget.creatorUid!,
@@ -271,106 +279,86 @@ class _ClipSideBarState extends State<ClipSideBar>
 
   @override
   Widget build(BuildContext context) {
+    // Even spacing, a 44px tap area for every button, and a count only
+    // under the buttons that have one (no empty label gaps).
+    const gap = SizedBox(height: 14);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Like button + spark burst
+        // Like + spark burst
         _SideButton(
           label: _formatCount(_likeCount),
-          child: GestureDetector(
-            onTap: triggerLike,
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Spark burst
-                  if (_burstController != null)
-                    AnimatedBuilder(
-                      animation:
-                      _burstController ?? const AlwaysStoppedAnimation(0),
-                      builder: (context, child) {
-                        return Opacity(
-                          opacity: _burstOpacity?.value ?? 0,
-                          child: CustomPaint(
-                            size: const Size(44, 44),
-                            painter: _SparkPainter(
-                                progress: _burstScale?.value ?? 0),
-                          ),
-                        );
-                      },
-                    ),
-                  // Heart icon
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
-                    child: Icon(
-                      _liked ? Icons.favorite : Icons.favorite_border,
-                      key: ValueKey(_liked),
-                      color: _liked ? Colors.red : Colors.white,
-                      size: 30,
+          onTap: triggerLike,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (_burstController != null)
+                AnimatedBuilder(
+                  animation: _burstController!,
+                  builder: (context, child) => Opacity(
+                    opacity: _burstOpacity?.value ?? 0,
+                    child: CustomPaint(
+                      size: const Size(44, 44),
+                      painter: _SparkPainter(progress: _burstScale?.value ?? 0),
                     ),
                   ),
-                ],
+                ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Icon(
+                  _liked ? Icons.favorite : Icons.favorite_border,
+                  key: ValueKey(_liked),
+                  color: _liked ? Colors.red : Colors.white,
+                  size: 30,
+                  shadows: _iconShadow,
+                ),
               ),
-            ),
+            ],
           ),
         ),
-        const SizedBox(height: 20),
+        gap,
 
         // Comment
         _SideButton(
-          label: '0',
-          child: GestureDetector(
-            onTap: widget.onCommentTap,
-            child: const Icon(Icons.chat_bubble_outline,
-                color: Colors.white, size: 28),
-          ),
+          label: _formatCount(_commentCount),
+          onTap: widget.onCommentTap,
+          child: const Icon(Icons.chat_bubble_outline,
+              color: Colors.white, size: 27, shadows: _iconShadow),
         ),
-        const SizedBox(height: 20),
+        gap,
 
         // Share
         _SideButton(
-          label: '',
-          child: GestureDetector(
-            onTap: _handleShareTap,
-            child: const Icon(Icons.reply, color: Colors.white, size: 30),
-          ),
+          onTap: _handleShareTap,
+          child: const Icon(Icons.reply,
+              color: Colors.white, size: 30, shadows: _iconShadow),
         ),
-        const SizedBox(height: 20),
+        gap,
 
         // Save
         _SideButton(
-          label: '',
-          child: GestureDetector(
-            onTap: _handleSaveTap,
-            child: _isSaving
-                ? const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-            )
-                : Icon(
-              _isSaved ? Icons.bookmark : Icons.bookmark_border,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // Feed preferences
-        _SideButton(
-          label: '',
-          child: GestureDetector(
-            onTap: () => showClipFeedPreferencesSheet(context),
-            child: const Icon(Icons.tune, color: Colors.white, size: 26),
+          onTap: _handleSaveTap,
+          child: _isSaving
+              ? const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+                color: Colors.white, strokeWidth: 2.5),
+          )
+              : Icon(
+            _isSaved ? Icons.bookmark : Icons.bookmark_border,
+            color: Colors.white,
+            size: 28,
+            shadows: _iconShadow,
           ),
         ),
       ],
     );
   }
 }
+
+// Soft shadow so white icons stay visible on bright clips.
+const List<Shadow> _iconShadow = [Shadow(color: Colors.black38, blurRadius: 6)];
 
 // ─── Spark painter ────────────────────────────────────────────────────────────
 
@@ -415,36 +403,39 @@ class _SparkPainter extends CustomPainter {
       oldDelegate.progress != progress;
 }
 
-// ─── Side button with fixed label slot ───────────────────────────────────────
+// ─── Side button ──────────────────────────────────────────────────────────────
 
+/// One side bar button: a 44x44 tap area with the icon centered, and its
+/// count right under it when there is one.
 class _SideButton extends StatelessWidget {
   final Widget child;
   final String label;
+  final VoidCallback? onTap;
 
-  const _SideButton({required this.child, required this.label});
+  const _SideButton({required this.child, this.label = '', this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        child,
-        const SizedBox(height: 4),
-        SizedBox(
-          height: 16,
-          child: label.isNotEmpty
-              ? Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(width: 44, height: 44, child: Center(child: child)),
+          if (label.isNotEmpty)
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.1,
+                shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+              ),
             ),
-          )
-              : null,
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

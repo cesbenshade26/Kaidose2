@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:image_picker/image_picker.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 import 'daily_invitation_service.dart';
@@ -8,6 +7,7 @@ import 'user_service.dart';
 import 'ManageDaily.dart';
 import 'friend_request_service.dart';
 import 'FeedService.dart';
+import 'UnifiedMediaPicker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 /// Shared handling for the New Daily flow (3 screens). Every screen in the
@@ -46,7 +46,6 @@ class NewDailyScreen extends StatefulWidget {
 class _NewDailyScreenState extends State<NewDailyScreen> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _promptController = TextEditingController();
   String _selectedPrivacy = 'Public';
   final List<TextEditingController> _tierControllers = [
     TextEditingController(),
@@ -59,7 +58,6 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
-    _promptController.dispose();
     for (var controller in _tierControllers) {
       controller.dispose();
     }
@@ -89,7 +87,8 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
           privacy: _selectedPrivacy,
           keywords: keywords,
           tiers: tiers,
-          dailyEntryPrompt: _promptController.text.trim(),
+          // Entry prompts are set later from Manage Daily.
+          dailyEntryPrompt: '',
         ),
       ),
     );
@@ -130,43 +129,6 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                     maxLength: 50,
                     style: const TextStyle(fontSize: 16, color: Colors.black87),
                     decoration: _inputDeco('Enter daily title...'),
-                    buildCounter: (context,
-                        {required currentLength,
-                          required isFocused,
-                          maxLength}) =>
-                        Text('$currentLength/$maxLength',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600])),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Prompt
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _sectionLabel('Daily Entry Prompt:'),
-                      Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border:
-                          Border.all(color: Colors.grey[400]!, width: 2),
-                        ),
-                        child: Center(
-                          child: Icon(Icons.info_outline,
-                              size: 16, color: Colors.grey[600]),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _promptController,
-                    maxLength: 100,
-                    style: const TextStyle(fontSize: 16, color: Colors.black87),
-                    decoration:
-                    _inputDeco('Enter a prompt for daily entries...'),
                     buildCounter: (context,
                         {required currentLength,
                           required isFocused,
@@ -554,9 +516,13 @@ class NewDailyFinalScreen extends StatefulWidget {
 class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
   IconData _selectedIcon = Icons.star;
   File? _customIcon;
-  Color _selectedColor = Colors.cyan;
+  // One icon color for every Daily now (no color choice).
+  static const Color _selectedColor = Colors.cyan;
   bool _publishing = false;
-  final ImagePicker _picker = ImagePicker();
+
+  // The photo picker opens inline at the bottom of this screen, in place
+  // of the Publish button.
+  bool _showPicker = false;
 
   final List<IconData> _presetIcons = [
     Icons.star, Icons.favorite, Icons.camera_alt, Icons.music_note,
@@ -566,16 +532,16 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
     Icons.pets, Icons.games,
   ];
 
-  final List<Color> _colorOptions = [
-    Colors.cyan, Colors.blue, Colors.purple, Colors.pink,
-    Colors.red, Colors.orange, Colors.amber, Colors.green,
-    Colors.teal, Colors.indigo,
-  ];
+  void _pickCustomIcon() {
+    FocusScope.of(context).unfocus();
+    setState(() => _showPicker = true);
+  }
 
-  Future<void> _pickCustomIcon() async {
-    final XFile? image =
-    await _picker.pickImage(source: ImageSource.gallery);
-    if (image != null) setState(() => _customIcon = File(image.path));
+  void _onIconPicked(List<PickedMedia> items) {
+    setState(() {
+      if (items.isNotEmpty) _customIcon = items.first.file;
+      _showPicker = false;
+    });
   }
 
   Future<void> _publishDaily() async {
@@ -739,42 +705,6 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
                     },
                   ),
                   const SizedBox(height: 24),
-                  const Text('Icon Color',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87)),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: _colorOptions.map((color) {
-                      final isSelected = _selectedColor == color;
-                      return GestureDetector(
-                        onTap: () =>
-                            setState(() => _selectedColor = color),
-                        child: Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: isSelected
-                                  ? Colors.black
-                                  : Colors.grey[300]!,
-                              width: isSelected ? 3 : 1,
-                            ),
-                          ),
-                          child: isSelected
-                              ? const Icon(Icons.check,
-                              color: Colors.white, size: 24)
-                              : null,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 24),
                   const Text('Or Upload Custom Icon',
                       style: TextStyle(
                           fontSize: 18,
@@ -829,9 +759,24 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
               ),
             ),
           ),
-          _bottomButton(
-            _publishing ? 'Publishing...' : 'Publish Daily',
-            _publishing ? null : _publishDaily,
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            child: _showPicker
+                ? UnifiedMediaPickerPanel(
+              height: MediaQuery.of(context).size.height * 0.45,
+              title: 'Choose an Icon Photo',
+              initialFilter: MediaFilter.photos,
+              singleSelect: true,
+              showDraw: false,
+              onDrawTap: () {},
+              onClose: () => setState(() => _showPicker = false),
+              onMediaSelected: _onIconPicked,
+            )
+                : _bottomButton(
+              _publishing ? 'Publishing...' : 'Publish Daily',
+              _publishing ? null : _publishDaily,
+            ),
           ),
         ],
       ),

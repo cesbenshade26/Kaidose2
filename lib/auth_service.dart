@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'Legal.dart';
 
 class AuthService {
   FirebaseAuth get _auth => FirebaseAuth.instance;
@@ -177,6 +178,9 @@ class AuthService {
         'birthMonth': birthMonth,
         'birthDay': birthDay,
         'createdAt': FieldValue.serverTimestamp(),
+        // Proof of agreeing to the Terms + Privacy Policy at sign-up.
+        'termsVersion': Legal.termsVersion,
+        'termsAcceptedAt': FieldValue.serverTimestamp(),
       });
 
       return {'success': true, 'user': user};
@@ -246,6 +250,9 @@ class AuthService {
           'birthMonth': birthMonth,
           'birthDay': birthDay,
           'createdAt': FieldValue.serverTimestamp(),
+          // Proof of agreeing to the Terms + Privacy Policy at sign-up.
+          'termsVersion': Legal.termsVersion,
+          'termsAcceptedAt': FieldValue.serverTimestamp(),
         });
       }
       return {'success': true, 'user': user};

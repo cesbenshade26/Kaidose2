@@ -325,10 +325,6 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     }
   }
 
-  Future<void> _saveMessages() async {
-    await MessageStorage.saveMessages(widget.daily.id, _messages);
-  }
-
   void addPromptMessage(String messageText) {
     if (messageText.trim().isEmpty) return;
 
@@ -347,7 +343,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       _messages.add(promptMessage);
     });
 
-    _saveMessages();
+    MessageStorage.addMessage(widget.daily.id, promptMessage);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
@@ -378,7 +374,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       _messages.add(promptMessage);
     });
 
-    _saveMessages();
+    MessageStorage.addMessage(widget.daily.id, promptMessage);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
@@ -664,7 +660,9 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         messageId: oldMessage.messageId,
         dailyId: oldMessage.dailyId,
         isSaved: oldMessage.isSaved,
+        isFromPrompt: oldMessage.isFromPrompt,
         reactions: oldMessage.reactions,
+        username: oldMessage.username,
       );
 
       setState(() {
@@ -675,7 +673,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         _pendingMedia = [];
       });
 
-      _saveMessages();
+      MessageStorage.updateMessageContent(widget.daily.id, updatedMessage);
 
       print('Message updated: ${updatedMessage.toJson()}');
 
@@ -733,7 +731,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       _respondingToPrompt = false;
     });
 
-    _saveMessages();
+    MessageStorage.addMessage(widget.daily.id, message);
     FeedService.recordEvent(widget.daily, FeedEvent.post);
 
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -1124,7 +1122,8 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                   messages: _getFilteredMessages(),
                   scrollController: _scrollController,
                   onEdit: _startEditingMessage,
-                  onMessageUpdate: _saveMessages,
+                  // Reactions and saves write themselves (one field each).
+                  onMessageUpdate: null,
                   dailyTitle: widget.daily.title,
                   isPrivateDaily: widget.daily.privacy != 'Public',
                   topPadding: MediaQuery.of(context).padding.top + kToolbarHeight + 12,

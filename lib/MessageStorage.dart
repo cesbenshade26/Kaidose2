@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 import 'SendDailyMessage.dart';
 
 /// Firestore + Storage-backed message persistence for Dailies. Public API
@@ -62,39 +64,189 @@ class MessageStorage {
     }
   }
 
-  /// Save messages for a specific daily. Uploads any not-yet-uploaded
-  /// image/video first, then upserts every message's document.
+  /// Grabs a still frame from a local video (1s in, else the first frame).
+  static Future<Uint8List?> _videoFrame(String localPath) async {
+    for (final ms in [1000, 0]) {
+      try {
+        final bytes = await VideoThumbnail.thumbnailData(
+          video: localPath,
+          imageFormat: ImageFormat.JPEG,
+          maxWidth: 1080,
+          quality: 80,
+          timeMs: ms,
+        ).timeout(const Duration(seconds: 20));
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+      } catch (e) {
+        print('MessageStorage: frame at ${ms}ms failed: $e');
+      }
+    }
+    return null;
+  }
+
+  /// Uploads a video's still frame; the URL is what a Daily cover shows if
+  /// this video wins. Null if no frame could be made.
+  static Future<String?> _uploadThumb({
+    required String dailyId,
+    required String messageId,
+    required String localVideoPath,
+    required int index,
+  }) async {
+    if (_isNetworkPath(localVideoPath)) return null;
+    final bytes = await _videoFrame(localVideoPath);
+    if (bytes == null) return null;
+    try {
+      final ref = _storage
+          .ref()
+          .child('daily_messages/$dailyId/$messageId/thumb_$index.jpg');
+      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      return await ref.getDownloadURL();
+    } catch (e) {
+      print('MessageStorage: thumb upload error: $e');
+      return null;
+    }
+  }
+
+  /// Uploads a message's local photos/videos (plus a still frame for each
+  /// video) and returns the media list with URLs in place of local paths.
+  static Future<List<DailyMediaItem>> _uploadMedia(
+      String dailyId, DailyMessage msg) async {
+    final uploaded = <DailyMediaItem>[];
+    for (int i = 0; i < msg.media.length; i++) {
+      final item = msg.media[i];
+      String? thumb = item.thumb;
+      if (item.isVideo && thumb == null) {
+        thumb = await _uploadThumb(
+          dailyId: dailyId,
+          messageId: msg.messageId,
+          localVideoPath: item.path,
+          index: i,
+        );
+      }
+      final path = await _ensureUploaded(
+        dailyId: dailyId,
+        messageId: msg.messageId,
+        localPath: item.path,
+        storageFileName: item.isVideo ? 'media_$i.mp4' : 'media_$i.jpg',
+        contentType: item.isVideo ? 'video/mp4' : 'image/jpeg',
+      );
+      uploaded.add(DailyMediaItem(path: path, isVideo: item.isVideo, thumb: thumb));
+    }
+    return uploaded;
+  }
+
+  /// The fields a message's owner can change, with media already uploaded.
+  /// Reactions and the saved flag are never in here: those are written one
+  /// field at a time (see [setReaction], [setSaved]) so nobody's change
+  /// overwrites anyone else's.
+  static Map<String, dynamic> _contentFields(
+      DailyMessage msg, List<DailyMediaItem> media) {
+    final data = msg.toJson();
+    data.remove('reactions');
+    data.remove('is_saved');
+    data['media'] = media.map((m) => m.toJson()).toList();
+    // Legacy single-path fields, for any older code reading them directly.
+    data['image_path'] = _firstPath(media, false);
+    data['video_path'] = _firstPath(media, true);
+    return data;
+  }
+
+  /// Posts one new message: uploads its media, then writes its doc.
+  static Future<void> addMessage(String dailyId, DailyMessage msg) async {
+    _prefetched.remove(dailyId);
+    try {
+      final media = await _uploadMedia(dailyId, msg);
+      final data = _contentFields(msg, media);
+      data['reactions'] = [];
+      data['is_saved'] = false;
+      await _messagesRef(dailyId).doc(msg.messageId).set(data);
+      _notifyListeners();
+    } catch (e) {
+      print('MessageStorage.addMessage error: $e');
+    }
+  }
+
+  /// Saves an edit to one message's text/media. Leaves reactions alone.
+  static Future<void> updateMessageContent(
+      String dailyId, DailyMessage msg) async {
+    _prefetched.remove(dailyId);
+    try {
+      final media = await _uploadMedia(dailyId, msg);
+      await _messagesRef(dailyId)
+          .doc(msg.messageId)
+          .set(_contentFields(msg, media), SetOptions(merge: true));
+      _notifyListeners();
+    } catch (e) {
+      print('MessageStorage.updateMessageContent error: $e');
+    }
+  }
+
+  /// Sets the signed-in person's reaction on a message. Only their own
+  /// entry is written, so two people reacting at once both stick.
+  static Future<void> setReaction({
+    required String dailyId,
+    required String messageId,
+    required String userId,
+    required String username,
+    required String emoji,
+  }) async {
+    _prefetched.remove(dailyId);
+    try {
+      await _messagesRef(dailyId).doc(messageId).update({
+        'reactionsBy.$userId': {
+          'emoji': emoji,
+          'username': username,
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+      });
+    } catch (e) {
+      print('MessageStorage.setReaction error: $e');
+    }
+  }
+
+  /// Takes the signed-in person's reaction back. Written as a "removed"
+  /// marker (not a delete) so it also hides a reaction stored in the old
+  /// `reactions` list.
+  static Future<void> removeReaction({
+    required String dailyId,
+    required String messageId,
+    required String userId,
+  }) async {
+    _prefetched.remove(dailyId);
+    try {
+      await _messagesRef(dailyId).doc(messageId).update({
+        'reactionsBy.$userId': {'removed': true},
+      });
+    } catch (e) {
+      print('MessageStorage.removeReaction error: $e');
+    }
+  }
+
+  /// Saves just the bookmark flag.
+  static Future<void> setSaved(
+      String dailyId, String messageId, bool saved) async {
+    _prefetched.remove(dailyId);
+    try {
+      await _messagesRef(dailyId).doc(messageId).update({'is_saved': saved});
+    } catch (e) {
+      print('MessageStorage.setSaved error: $e');
+    }
+  }
+
+  /// Older bulk save, kept for any screen that still calls it. Now merges
+  /// each message's content instead of replacing the doc, so it can no
+  /// longer wipe out other people's reactions.
   static Future<void> saveMessages(String dailyId, List<DailyMessage> messages) async {
     _prefetched.remove(dailyId);
     try {
       final batch = _firestore.batch();
-
       for (final msg in messages) {
-        final uploadedMedia = <DailyMediaItem>[];
-
-        for (int i = 0; i < msg.media.length; i++) {
-          final item = msg.media[i];
-          final uploadedPath = await _ensureUploaded(
-            dailyId: dailyId,
-            messageId: msg.messageId,
-            localPath: item.path,
-            storageFileName: item.isVideo ? 'media_$i.mp4' : 'media_$i.jpg',
-            contentType: item.isVideo ? 'video/mp4' : 'image/jpeg',
-          );
-          uploadedMedia.add(DailyMediaItem(path: uploadedPath, isVideo: item.isVideo));
-        }
-
-        final data = msg.toJson();
-        data['media'] = uploadedMedia.map((m) => m.toJson()).toList();
-        // Keep the legacy single-path fields in sync with the (now
-        // uploaded) first image/video, for any older code reading them
-        // directly.
-        data['image_path'] = _firstPath(uploadedMedia, false);
-        data['video_path'] = _firstPath(uploadedMedia, true);
-
-        batch.set(_messagesRef(dailyId).doc(msg.messageId), data);
+        final media = await _uploadMedia(dailyId, msg);
+        batch.set(
+          _messagesRef(dailyId).doc(msg.messageId),
+          _contentFields(msg, media),
+          SetOptions(merge: true),
+        );
       }
-
       await batch.commit();
       print('Saved ${messages.length} messages for daily: $dailyId');
       _notifyListeners();

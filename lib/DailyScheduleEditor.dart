@@ -95,6 +95,10 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
   final Map<String, _DayEntry> _entries = {};
   final Set<String> _loadedKeys = {};
 
+  // "Show for": how many days, starting with the selected one, a saved
+  // cover applies to (1, 3 or 7). Resets to 1 when another day is picked.
+  int _showForDays = 1;
+
   bool _loadingWeek = true;
   bool _saving = false;
   bool _extractingFrame = false;
@@ -197,6 +201,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     _pickedVideoFrame = null;
     _savedCoverUrl = entry.coverUrl;
     _savedCoverIsVideo = entry.coverIsVideo;
+    _showForDays = 1;
   }
 
   bool get _hasUnsavedChanges {
@@ -344,11 +349,43 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     });
   }
 
-  Future<void> _deleteStorageFile(String url) async {
-    try {
-      await FirebaseStorage.instance.refFromURL(url).delete();
-    } catch (e) {
-      print('DailyScheduleEditor: could not delete old cover file: $e');
+  /// Copies the selected day's cover (hook + photo) onto the [count - 1]
+  /// days after it, stopping at the last editable day. Each of those days
+  /// keeps its own prompt; only the cover fields are replaced. A day left
+  /// with nothing at all has its doc removed.
+  Future<void> _copyCoverToFollowingDays(
+      DateTime from, int count, _DayEntry cover) async {
+    for (int i = 1; i < count; i++) {
+      final day = _addDays(from, i);
+      if (day.isAfter(_lastEditable)) break;
+      final key = _dateKey(day);
+      final ref = DailyCoverService.scheduleRef(widget.daily.id, key);
+
+      final snap = await ref.get();
+      final prompt = ((snap.data()?['prompt'] as String?) ?? '').trim();
+      final entry = _DayEntry(
+        prompt: prompt,
+        hook: cover.hook,
+        coverUrl: cover.coverUrl,
+        coverIsVideo: cover.coverIsVideo,
+      );
+
+      if (entry.isEmpty) {
+        if (snap.exists) await ref.delete();
+      } else {
+        await ref.set({
+          'coverHook':
+          cover.hook.isNotEmpty ? cover.hook : FieldValue.delete(),
+          'coverMediaUrl': cover.coverUrl ?? FieldValue.delete(),
+          'coverIsVideo': (cover.coverUrl != null && cover.coverIsVideo)
+              ? true
+              : FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedBy': FirebaseAuth.instance.currentUser?.uid,
+        }, SetOptions(merge: true));
+      }
+      _entries[key] = entry;
+      _loadedKeys.add(key);
     }
   }
 
@@ -362,7 +399,6 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     setState(() => _saving = true);
 
     try {
-      final previous = _entries[key] ?? const _DayEntry();
       final prompt = _promptController.text.trim();
       final hook = _hookController.text.trim();
       String? coverUrl = _savedCoverUrl;
@@ -411,13 +447,16 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
         });
       }
 
-      // Clean up the old image once it's been replaced or removed.
-      if (previous.coverUrl != null && previous.coverUrl != coverUrl) {
-        _deleteStorageFile(previous.coverUrl!);
-      }
+      // Old cover images are no longer deleted here: with "Show for", one
+      // image can be shared by several days.
 
       _entries[key] = entry;
       _loadedKeys.add(key);
+
+      final spanDays = _showForDays;
+      if (spanDays > 1) {
+        await _copyCoverToFollowingDays(day, spanDays, entry);
+      }
 
       if (mounted) {
         setState(() {
@@ -426,9 +465,16 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
           _savedCoverUrl = coverUrl;
           _savedCoverIsVideo = entry.coverIsVideo;
         });
+        final last = _addDays(day, spanDays - 1).isAfter(_lastEditable)
+            ? _lastEditable
+            : _addDays(day, spanDays - 1);
+        final label = _sameDay(last, day)
+            ? '${_monthAbbr[day.month - 1]} ${day.day}'
+            : '${_monthAbbr[day.month - 1]} ${day.day} – '
+            '${_monthAbbr[last.month - 1]} ${last.day}';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Saved ${_monthAbbr[day.month - 1]} ${day.day}'),
+            content: Text('Saved $label'),
             backgroundColor: widget.accentColor,
             duration: const Duration(seconds: 2),
           ),
@@ -670,12 +716,48 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
         _fieldLabel('Cover Photo or Video'),
         const SizedBox(height: 4),
         Text(
-          'Shown only on this day. Optional. A video shows one still frame '
-              'with a play icon.',
+          'Optional. A video shows one still frame with a play icon.',
           style: TextStyle(fontSize: 12, color: Colors.grey[500]),
         ),
         const SizedBox(height: 10),
         _buildCoverPicker(),
+        const SizedBox(height: 16),
+        _buildShowFor(),
+      ],
+    );
+  }
+
+  /// "Show for" dropdown: this day only, 3 days or 1 week. Applies to the
+  /// cover (hook + photo); each day keeps its own prompt.
+  Widget _buildShowFor() {
+    return Row(
+      children: [
+        _fieldLabel('Show for'),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              value: _showForDays,
+              borderRadius: BorderRadius.circular(12),
+              style: const TextStyle(fontSize: 15, color: Colors.black87),
+              icon: Icon(Icons.keyboard_arrow_down_rounded,
+                  color: widget.accentColor),
+              items: const [
+                DropdownMenuItem(value: 1, child: Text('This day only')),
+                DropdownMenuItem(value: 3, child: Text('3 days')),
+                DropdownMenuItem(value: 7, child: Text('1 week')),
+              ],
+              onChanged: (widget.isOwner && !_saving)
+                  ? (v) => setState(() => _showForDays = v ?? 1)
+                  : null,
+            ),
+          ),
+        ),
       ],
     );
   }
