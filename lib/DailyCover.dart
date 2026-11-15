@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -10,6 +11,7 @@ import 'UponOpeningDaily.dart';
 import 'InsideDaily.dart';
 import 'FeedService.dart';
 import 'DailyMembershipService.dart';
+import 'DailyUnread.dart';
 
 /// The cover card for a single Daily, as shown in the Dailies list.
 ///
@@ -28,6 +30,10 @@ import 'DailyMembershipService.dart';
 /// viewer is not in: the pin/manage/delete menu becomes an "Add" button
 /// (join as a member), tapping opens the Daily as a guest, and the cover is
 /// only read — never generated — so scrolling the feed can't trigger AI.
+///
+/// My Dailies only: an unread pill ("3 new") sits in the header row, in the
+/// same spot on both layouts, counting messages from other people the
+/// viewer hasn't loaded yet (see DailyUnreadService).
 class DailyCover extends StatefulWidget {
   final DailyData daily;
   final bool hasBeenViewed;
@@ -59,13 +65,21 @@ class _DailyCoverState extends State<DailyCover> {
   // Tallest the cover image gets; a naturally shorter image stays shorter.
   static const double _maxImageHeight = 240;
 
+  // The one accent used for "something new for you".
+  static const Color _accent = Color(0xFF0097A7); // cyan[700]
+
   String? _activeKey;
   Stream<DailyCoverData?>? _coverStream;
+
+  // My Dailies only: live count of unread messages from other people.
+  StreamSubscription<int>? _unreadSub;
+  int _unread = 0;
 
   @override
   void initState() {
     super.initState();
     _syncCover();
+    _syncUnread();
   }
 
   @override
@@ -77,6 +91,29 @@ class _DailyCoverState extends State<DailyCover> {
       _activeKey = null;
       _syncCover();
     }
+    if (oldWidget.daily.id != widget.daily.id ||
+        oldWidget.forYou != widget.forYou) {
+      _syncUnread();
+    }
+  }
+
+  @override
+  void dispose() {
+    _unreadSub?.cancel();
+    super.dispose();
+  }
+
+  /// (Re)subscribes to this Daily's unread count. For You cards don't get
+  /// one: the viewer isn't a member, so there's nothing "unread" for them.
+  void _syncUnread() {
+    _unreadSub?.cancel();
+    _unreadSub = null;
+    _unread = 0;
+    if (widget.forYou) return;
+    _unreadSub =
+        DailyUnreadService.watchUnread(widget.daily.id).listen((count) {
+          if (mounted && count != _unread) setState(() => _unread = count);
+        });
   }
 
   /// (Re)subscribes to the cover doc and asks for it to be generated
@@ -443,6 +480,59 @@ class _DailyCoverState extends State<DailyCover> {
     );
   }
 
+  /// My Dailies only: solid accent pill with the unread count, e.g.
+  /// "3 new". Sits in the header row on both layouts, so it lands in the
+  /// same place whether or not today's cover has an image. Pops in when
+  /// something arrives and shrinks away once the Daily is opened.
+  Widget _unreadPill() {
+    final show = !widget.forYou && _unread > 0;
+    final label = _unread > 99 ? '99+ new' : '$_unread new';
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutBack,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => ScaleTransition(
+        scale: animation,
+        child: FadeTransition(opacity: animation, child: child),
+      ),
+      child: !show
+          ? const SizedBox.shrink(key: ValueKey('no_unread'))
+          : Container(
+        key: const ValueKey('unread'),
+        margin: const EdgeInsets.only(left: 8),
+        padding: const EdgeInsets.fromLTRB(7, 4, 9, 4),
+        decoration: BoxDecoration(
+          color: _accent,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: _accent.withOpacity(0.25),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.chat_bubble_rounded,
+                size: 11, color: Colors.white),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _iconSquare({required double size, required double iconSize}) {
     final daily = widget.daily;
     final tile = Container(
@@ -622,9 +712,10 @@ class _DailyCoverState extends State<DailyCover> {
     );
   }
 
-  /// The original card, untouched — used whenever there's no cover.
+  /// The original card — used whenever there's no cover.
   Widget _buildClassicCard(BuildContext context, Color dailyColor) {
     final daily = widget.daily;
+    final pinned = daily.isPinned && !widget.forYou;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -651,7 +742,11 @@ class _DailyCoverState extends State<DailyCover> {
                         ),
                       ),
                     ),
-                    if (daily.isPinned && !widget.forYou) _pinBadge(),
+                    _unreadPill(),
+                    if (pinned) ...[
+                      const SizedBox(width: 6),
+                      _pinBadge(),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -737,7 +832,9 @@ class _DailyCoverState extends State<DailyCover> {
                     ),
                   ),
                 ),
+                _unreadPill(),
                 if (daily.isPinned && !widget.forYou) ...[
+                  const SizedBox(width: 6),
                   _pinBadge(),
                   const SizedBox(width: 4),
                 ],

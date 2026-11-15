@@ -7,6 +7,7 @@ import 'BioManager.dart';
 import 'BackgroundPicManager.dart';
 import 'SavedScreen.dart';
 import 'ClipsActivity.dart' show MyClipsCache;
+import 'NotificationService.dart';
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -134,6 +135,11 @@ class ProfileSettingsSection extends StatelessWidget {
             );
 
             if (shouldLogout == true && context.mounted) {
+              // Stop push notifications for this account on this phone.
+              // Must run while still signed in: it removes this phone's
+              // token from the account.
+              await NotificationService.instance.stop();
+
               // Clear profile pic state before signing out so it
               // doesn't bleed into the next account's session
               ProfilePicManager.clearForLogout();
@@ -142,6 +148,7 @@ class ProfileSettingsSection extends StatelessWidget {
               MyClipsCache.instance.clear();
               await AuthService().logout();
 
+              if (!context.mounted) return;
               Navigator.pushNamedAndRemoveUntil(
                 context,
                 '/opening',

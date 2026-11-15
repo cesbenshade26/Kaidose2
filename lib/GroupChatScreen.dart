@@ -37,6 +37,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void initState() {
     super.initState();
     _loadCurrentUser();
+    _service.clearUnread(widget.groupId);
   }
 
   Future<void> _loadCurrentUser() async {

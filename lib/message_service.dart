@@ -319,11 +319,23 @@ class MessageService {
         preview = metadata['type'] == 'clip' ? 'Video' : 'Photo';
       }
 
+      // What kind of thing this is, so the recipient's chat list can say
+      // "New clip" / "New Daily" etc. before they open it.
+      final kind = metadata?['source'] != null
+          ? 'daily'
+          : (metadata?['type'] == 'clip'
+          ? 'clip'
+          : (metadata?['type'] == 'image' ? 'photo' : 'message'));
+
       await _firestore.collection('chats').doc(conversationId).set({
         'participants': [currentUid, recipientUserId],
         'lastMessage': preview,
+        'lastMessageKind': kind,
         'lastMessageTime': FieldValue.serverTimestamp(),
         'lastMessageSender': currentUid,
+        'unread': {
+          recipientUserId: {kind: FieldValue.increment(1)},
+        },
       }, SetOptions(merge: true));
 
       return true;
@@ -380,6 +392,13 @@ class MessageService {
       final me = currentUserId;
       if (me == null) return;
       final conversationId = getChatConversationId(me, recipientUserId);
+
+      // Opening the chat clears the "new" badges on my side of the list.
+      try {
+        await _firestore.collection('chats').doc(conversationId).set({
+          'unread': {me: FieldValue.delete()},
+        }, SetOptions(merge: true));
+      } catch (_) {}
 
       final unread = await _firestore
           .collection('chats')

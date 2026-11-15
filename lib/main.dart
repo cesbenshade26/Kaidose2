@@ -6,6 +6,7 @@ import 'UserAccount.dart';
 import 'EmailVerificationScreen.dart';
 import 'ForgotPasswordScreen.dart';
 import 'NotificationScreen.dart';
+import 'NotificationService.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,8 @@ class KaidoseApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      // Lets a tapped push notification open the right screen.
+      navigatorKey: NotificationService.navigatorKey,
       home: startScreen,
       routes: {
         '/opening': (context) => const OpeningScreen(),

@@ -22,6 +22,8 @@ class GroupChat {
   final bool wallpaperTopDark;
   final List<String> pinnedBy;
   final List<String> mutedBy;
+  final String? lastKind; // message | photo | clip | daily
+  final Map<String, Map<String, int>> unread; // uid -> kind -> count
 
   GroupChat({
     required this.id,
@@ -37,6 +39,8 @@ class GroupChat {
     this.wallpaperTopDark = false,
     this.pinnedBy = const [],
     this.mutedBy = const [],
+    this.lastKind,
+    this.unread = const {},
   });
 
   factory GroupChat.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -55,8 +59,30 @@ class GroupChat {
       wallpaperTopDark: d['wallpaperTopDark'] == true,
       pinnedBy: List<String>.from(d['pinnedBy'] ?? const []),
       mutedBy: List<String>.from(d['mutedBy'] ?? const []),
+      lastKind: d['lastKind'] as String?,
+      unread: _parseUnread(d['unread']),
     );
   }
+
+  static Map<String, Map<String, int>> _parseUnread(dynamic raw) {
+    final out = <String, Map<String, int>>{};
+    if (raw is Map) {
+      raw.forEach((uid, kinds) {
+        if (kinds is Map) {
+          final m = <String, int>{};
+          kinds.forEach((k, v) {
+            if (v is num && v > 0) m['$k'] = v.toInt();
+          });
+          if (m.isNotEmpty) out['$uid'] = m;
+        }
+      });
+    }
+    return out;
+  }
+
+  /// Per-kind unread counts for [uid] (empty when they're caught up).
+  Map<String, int> unreadFor(String? uid) =>
+      uid == null ? const {} : (unread[uid] ?? const {});
 
   /// "Aaron, David, Charlie" (everyone except [myUid]).
   String namesExcluding(String? myUid) {
@@ -216,6 +242,8 @@ class GroupChatService {
       'lastMessageText': text,
       'lastSenderUsername': senderUsername,
       'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastKind': 'message',
+      ...await _unreadBumps(groupId, uid, 'message'),
     });
   }
 
@@ -247,7 +275,34 @@ class GroupChatService {
           : (videoUrl != null ? 'Video' : (imageUrl != null ? 'Photo' : '')),
       'lastSenderUsername': senderUsername,
       'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastKind': 'daily',
+      ...await _unreadBumps(groupId, uid, 'daily'),
     });
+  }
+
+  /// `unread.<member>.<kind>: +1` for everyone except the sender.
+  Future<Map<String, Object>> _unreadBumps(
+      String groupId, String senderUid, String kind) async {
+    try {
+      final snap = await _groups.doc(groupId).get();
+      final members =
+      List<String>.from((snap.data() ?? {})['memberIds'] ?? const []);
+      return {
+        for (final m in members)
+          if (m != senderUid) 'unread.$m.$kind': FieldValue.increment(1),
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Opening a group clears my "new" badges on the list.
+  Future<void> clearUnread(String groupId) async {
+    final uid = currentUserId;
+    if (uid == null) return;
+    try {
+      await _groups.doc(groupId).update({'unread.$uid': FieldValue.delete()});
+    } catch (_) {}
   }
 
   Future<void> _systemMessage(String groupId, String text) async {
@@ -291,6 +346,8 @@ class GroupChatService {
       text.isNotEmpty ? text : (up.isVideo ? 'Video' : 'Photo'),
       'lastSenderUsername': senderUsername,
       'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastKind': up.isVideo ? 'clip' : 'photo',
+      ...await _unreadBumps(groupId, uid, up.isVideo ? 'clip' : 'photo'),
     });
   }
 

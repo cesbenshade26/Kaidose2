@@ -9,9 +9,14 @@ import 'Chat.dart';
 import 'HomeSwipe.dart';
 import 'YourDailyBubbles.dart';
 import 'ClipsActivity.dart' show MyClipsCache;
+import 'NotificationService.dart';
 
 class HomeScreen extends StatefulWidget {
+  /// Kept for existing callers. Opening Home without a specific tab always
+  /// plays the entrance now, so this no longer changes anything.
   final bool fadeInFromAnimation;
+
+  /// Open on a specific tab (no entrance animation). Null = Dailies.
   final int? initialTabIndex;
 
   const HomeScreen({
@@ -28,72 +33,78 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late int _selectedIndex;
   int _previousIndex = 0;
 
-  late AnimationController _contentFadeController;
-  late Animation<double> _contentFadeAnimation;
-  late AnimationController _navBarSlideController;
-  late Animation<Offset> _navBarSlideAnimation;
-  late AnimationController _staggerController;
-  late List<Animation<double>> _staggeredAnimations;
-
+  // Dailies is the tab the app opens on.
+  static const int _dailiesTabIndex = 0;
   // Clips tab index — update this if you ever reorder tabs
   static const int _clipsTabIndex = 2;
   // Profile tab index — used when Daily Bubble creation force-switches tabs
   static const int _profileTabIndex = 4;
 
+  // One controller drives the whole entrance, so every piece shares the
+  // same timeline instead of separate animations chained with delays.
+  late final AnimationController _entry;
+  late final Animation<double> _contentFade;
+  late final Animation<Offset> _contentSlide;
+  late final Animation<Offset> _navBarSlide;
+  late final List<Animation<double>> _iconFades;
+
+  bool _afterEntryDone = false;
+
   @override
   void initState() {
     super.initState();
 
-    if (widget.initialTabIndex != null) {
-      _selectedIndex = widget.initialTabIndex!;
-    } else {
-      _selectedIndex = widget.fadeInFromAnimation ? 0 : 4;
-    }
-
+    _selectedIndex = widget.initialTabIndex ?? _dailiesTabIndex;
     _previousIndex = _selectedIndex;
 
-    // Start loading your clips (and their thumbnails) right away, so the
-    // Clips tab on your profile is ready before you ever open it.
-    MyClipsCache.instance.start();
-    MyClipsCache.instance.addListener(_warmClipThumbnails);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _warmClipThumbnails());
-
-    _contentFadeController = AnimationController(
-        duration: const Duration(milliseconds: 1200), vsync: this);
-    _contentFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-          parent: _contentFadeController, curve: Curves.easeInOut),
+    _entry = AnimationController(
+      duration: const Duration(milliseconds: 700),
+      vsync: this,
     );
 
-    _navBarSlideController = AnimationController(
-        duration: const Duration(milliseconds: 800), vsync: this);
-    _navBarSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
-          CurvedAnimation(
-              parent: _navBarSlideController, curve: Curves.easeOut),
-        );
+    // Content: fades in while drifting up a few pixels.
+    _contentFade = CurvedAnimation(
+      parent: _entry,
+      curve: const Interval(0.0, 0.75, curve: Curves.easeOut),
+    );
+    _contentSlide = Tween<Offset>(
+      begin: const Offset(0, 0.015),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _entry,
+      curve: const Interval(0.0, 0.85, curve: Curves.easeOutCubic),
+    ));
 
-    _staggerController = AnimationController(
-        duration: const Duration(milliseconds: 1000), vsync: this);
-    _staggeredAnimations = List.generate(5, (index) {
-      return Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-          parent: _staggerController,
-          curve: Interval(
-            index * 0.1,
-            (index * 0.1 + 0.4).clamp(0.0, 1.0),
-            curve: Curves.easeOut,
-          ),
-        ),
+    // Nav bar: slides up just behind the content.
+    _navBarSlide = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _entry,
+      curve: const Interval(0.15, 1.0, curve: Curves.easeOutCubic),
+    ));
+
+    // Nav icons: fade in left to right as the bar arrives.
+    _iconFades = List.generate(5, (i) {
+      final start = 0.35 + i * 0.07;
+      return CurvedAnimation(
+        parent: _entry,
+        curve: Interval(start, (start + 0.35).clamp(0.0, 1.0),
+            curve: Curves.easeOut),
       );
     });
 
-    if (widget.fadeInFromAnimation) {
-      _startEntryAnimations();
+    if (widget.initialTabIndex == null) {
+      // Fresh open: play the entrance on the first frame, then start the
+      // heavier background work once it's finished so nothing competes
+      // with it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _entry.forward().whenComplete(_afterEntry);
+      });
     } else {
-      _contentFadeController.value = 1.0;
-      _navBarSlideController.value = 1.0;
-      _staggerController.value = 1.0;
+      _entry.value = 1.0;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _afterEntry());
     }
 
     // Lets YourDaily.dart force-switch to the Profile tab when the user
@@ -106,17 +117,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
+  /// Background work that used to run during the entrance (and made it
+  /// stutter): loading your clips + thumbnails, and registering for push
+  /// notifications (which can show the permission prompt).
+  void _afterEntry() {
+    if (!mounted || _afterEntryDone) return;
+    _afterEntryDone = true;
+
+    // Start loading your clips (and their thumbnails), so the Clips tab
+    // on your profile is ready before you ever open it.
+    MyClipsCache.instance.start();
+    MyClipsCache.instance.addListener(_warmClipThumbnails);
+    _warmClipThumbnails();
+
+    // Signed in: register this phone for push notifications (asks for
+    // permission the first time) and handle a notification that was
+    // tapped to open the app.
+    NotificationService.instance.start();
+  }
+
   void _warmClipThumbnails() {
     if (!mounted) return;
     MyClipsCache.instance.precacheThumbnails(context);
-  }
-
-  void _startEntryAnimations() async {
-    _contentFadeController.forward();
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (mounted) _navBarSlideController.forward();
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (mounted) _staggerController.forward();
   }
 
   void _onItemTapped(int index) {
@@ -132,9 +154,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     YourDailyBubbleManager.unregisterNavigateToProfile();
     MyClipsCache.instance.removeListener(_warmClipThumbnails);
-    _contentFadeController.dispose();
-    _navBarSlideController.dispose();
-    _staggerController.dispose();
+    _entry.dispose();
     super.dispose();
   }
 
@@ -161,17 +181,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: Colors.white,
       body: FadeTransition(
-        opacity: _contentFadeAnimation,
-        child: HomeSwipeDetector(
-          currentIndex: _selectedIndex,
-          totalPages: 5,
-          edgeThreshold: 80.0,
-          pages: pages,
-          onPageChanged: (newIndex) => _onItemTapped(newIndex),
+        opacity: _contentFade,
+        child: SlideTransition(
+          position: _contentSlide,
+          child: HomeSwipeDetector(
+            currentIndex: _selectedIndex,
+            totalPages: 5,
+            edgeThreshold: 80.0,
+            pages: pages,
+            onPageChanged: (newIndex) => _onItemTapped(newIndex),
+          ),
         ),
       ),
       bottomNavigationBar: SlideTransition(
-        position: _navBarSlideAnimation,
+        position: _navBarSlide,
         child: Container(
           height: 80,
           decoration: BoxDecoration(
@@ -187,15 +210,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           child: Row(
             children: [
-              _buildNavItem(0, Icons.wb_sunny, 'Sun',
-                  _staggeredAnimations[0]),
-              _buildNavItem(1, Icons.chat_bubble_outline, 'Chat',
-                  _staggeredAnimations[1]),
-              _buildNavItem(2, Icons.videocam_outlined, 'Camera',
-                  _staggeredAnimations[2]),
-              _buildNavItem(3, Icons.search, 'Search', _staggeredAnimations[3]),
-              _buildNavItem(4, Icons.person_outline, 'Profile',
-                  _staggeredAnimations[4]),
+              _buildNavItem(0, Icons.wb_sunny, 'Sun', _iconFades[0]),
+              _buildNavItem(1, Icons.chat_bubble_outline, 'Chat', _iconFades[1]),
+              _buildNavItem(2, Icons.videocam_outlined, 'Camera', _iconFades[2]),
+              _buildNavItem(3, Icons.search, 'Search', _iconFades[3]),
+              _buildNavItem(4, Icons.person_outline, 'Profile', _iconFades[4]),
             ],
           ),
         ),
@@ -209,31 +228,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Expanded(
       child: FadeTransition(
         opacity: animation,
-        child: ScaleTransition(
-          scale: animation,
-          child: GestureDetector(
-            onTap: () => _onItemTapped(index),
-            child: SizedBox(
-              height: 80,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: isSelected ? 50 : 0,
-                    height: isSelected ? 50 : 0,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? Colors.black
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(25),
-                    ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _onItemTapped(index),
+          child: SizedBox(
+            height: 80,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  width: isSelected ? 50 : 0,
+                  height: isSelected ? 50 : 0,
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.black : Colors.transparent,
+                    borderRadius: BorderRadius.circular(25),
                   ),
-                  Icon(icon,
-                      size: 26,
-                      color: isSelected ? Colors.white : Colors.black),
-                ],
-              ),
+                ),
+                Icon(icon,
+                    size: 26,
+                    color: isSelected ? Colors.white : Colors.black),
+              ],
             ),
           ),
         ),

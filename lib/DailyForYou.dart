@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'DailyData.dart';
@@ -27,28 +28,29 @@ class DailyForYouController extends ChangeNotifier {
   // choice itself is saved by FeedService and also filters future loads).
   final Set<String> hiddenHere = {};
 
-  VoidCallback? _dailyListListener;
+  // IDs of every Daily currently in My Dailies (created or joined), kept
+  // live from the same stream the My Dailies tab reads. Joining from
+  // anywhere (search, inside a Daily as a guest, another device) drops it
+  // from For You right away.
+  Set<String> _mineIds = {};
+  StreamSubscription<List<DailyData>>? _mineSub;
   bool _disposed = false;
 
   DailyForYouController() {
     loadFeed();
-    // My Dailies can finish loading after the feed does (it loads in
-    // parallel), so re-filter whenever it changes.
-    _dailyListListener = () {
+    _mineSub = DailyList.getDailiesStream().listen((dailies) {
       if (_disposed) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_disposed) notifyListeners();
-      });
-    };
-    DailyList.addListener(_dailyListListener!);
+      _mineIds = dailies.map((d) => d.id).toSet();
+      notifyListeners();
+    }, onError: (e) {
+      print('DailyForYouController: My Dailies stream error: $e');
+    });
   }
 
   @override
   void dispose() {
     _disposed = true;
-    if (_dailyListListener != null) {
-      DailyList.removeListener(_dailyListListener!);
-    }
+    _mineSub?.cancel();
     super.dispose();
   }
 
@@ -82,15 +84,18 @@ class DailyForYouController extends ChangeNotifier {
   /// Public Dailies the viewer neither created nor joined, in feed order.
   /// Private Dailies never show here — they're only reachable through
   /// search's Request to Join.
+  ///
+  /// The one exception: a Daily added from its For You card this session
+  /// stays (showing "Added") until the next refresh, so it doesn't vanish
+  /// from under the user's thumb.
   List<DailyData> get eligible {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    final mine = DailyList.dailies.map((d) => d.id).toSet();
     return _feed
         .where((d) =>
     !hiddenHere.contains(d.id) &&
         d.privacy == 'Public' &&
         d.creatorUid != uid &&
-        (!mine.contains(d.id) || addedHere.contains(d.id)))
+        (!_mineIds.contains(d.id) || addedHere.contains(d.id)))
         .toList();
   }
 

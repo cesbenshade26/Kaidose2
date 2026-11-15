@@ -412,3 +412,277 @@ exports.onBubbleItemLightsDay = onDocumentCreated(
     }
   }
 );
+
+// ===========================================================================
+// Push notifications
+//
+// Every function below reacts to a Firestore write the app ALREADY makes, so
+// no app code "sends" anything. Phones register their FCM token at
+// users/{uid}/fcm_tokens/{token} (see NotificationService.dart).
+//
+// Stacking: every push carries a group key. Pushes with the same key REPLACE
+// each other on the lock screen (Android `tag`, iOS `apns-collapse-id`), and
+// each new one still buzzes. So 4 messages from Sam show as ONE notification
+// reading "4 new messages", not four.
+// ===========================================================================
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+
+// iOS caps apns-collapse-id at 64 bytes, so long keys get hashed down.
+const collapseId = (raw) => sha(raw).slice(0, 32);
+
+// push = { title, body, group, data: {string: string} }
+async function sendToUser(uid, push) {
+  if (!uid || typeof uid !== "string") return;
+  const tokensSnap = await db.collection(`users/${uid}/fcm_tokens`).get();
+  if (tokensSnap.empty) return;
+
+  const key = collapseId(push.group);
+  const res = await admin.messaging().sendEachForMulticast({
+    tokens: tokensSnap.docs.map((d) => d.id),
+    notification: { title: push.title, body: push.body },
+    data: push.data,
+    android: {
+      priority: "high",
+      notification: { tag: key, sound: "default" },
+    },
+    apns: {
+      headers: { "apns-collapse-id": key },
+      payload: { aps: { "thread-id": key, sound: "default" } },
+    },
+  });
+
+  // App uninstalled / signed out on that phone: forget the token.
+  const dead = [];
+  res.responses.forEach((r, i) => {
+    const code = r.error && r.error.code;
+    if (
+      code === "messaging/registration-token-not-registered" ||
+      code === "messaging/invalid-registration-token" ||
+      code === "messaging/invalid-argument"
+    ) {
+      dead.push(tokensSnap.docs[i].ref.delete());
+    }
+  });
+  await Promise.all(dead);
+}
+
+async function usernameOf(uid) {
+  try {
+    const name = (await db.doc(`users/${uid}`).get()).get("username");
+    return typeof name === "string" && name ? name : "Someone";
+  } catch (_) {
+    return "Someone";
+  }
+}
+
+function clipText(text, max = 120) {
+  const t = (text || "").trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+// ─── 1:1 chats (same wording as the in-app pill, ChatBadge.fromCounts) ─────
+
+const KIND_ORDER = ["message", "photo", "clip", "daily"];
+const KIND_ONE = { message: "New message", photo: "New photo", clip: "New clip", daily: "New Daily" };
+const KIND_SINGULAR = { message: "message", photo: "photo", clip: "clip", daily: "Daily" };
+const KIND_PLURAL = { message: "messages", photo: "photos", clip: "clips", daily: "Dailies" };
+const n9 = (n) => (n > 9 ? "9+" : `${n}`);
+
+function countsOf(raw) {
+  const out = {};
+  if (raw && typeof raw === "object") {
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === "number" && v > 0) out[k] = v;
+    }
+  }
+  return out;
+}
+
+const totalOf = (counts) => Object.values(counts).reduce((a, b) => a + b, 0);
+
+function chatLabel(counts) {
+  const kinds = KIND_ORDER.filter((k) => (counts[k] || 0) > 0);
+  if (kinds.length === 0) return "New message";
+  if (kinds.length === 1) {
+    const k = kinds[0];
+    const n = counts[k];
+    return n === 1 ? KIND_ONE[k] : `${n9(n)} new ${KIND_PLURAL[k]}`;
+  }
+  let label = kinds
+    .slice(0, 2)
+    .map((k) => `${n9(counts[k])} ${counts[k] === 1 ? KIND_SINGULAR[k] : KIND_PLURAL[k]}`)
+    .join(" · ");
+  if (kinds.length > 2) label += ` +${kinds.length - 2}`;
+  return label;
+}
+
+// The very first unread message: show what it actually says.
+function singlePreview(chat) {
+  const kind = chat.lastMessageKind;
+  if (kind === "photo") return "Sent a photo";
+  if (kind === "clip") return "Sent a clip";
+  if (kind === "daily") return "Shared something from a Daily";
+  const text = clipText(chat.lastMessage);
+  return text || "New message";
+}
+
+// MessageService.sendChatMessage bumps chats/{cid}.unread.{recipient}.{kind}.
+// Whenever a recipient's total goes UP, (re)post their notification for this
+// chat with the new total. Opening the chat deletes the counts, so the next
+// message starts again at 1.
+exports.notifyDirectChat = onDocumentWritten("chats/{cid}", async (event) => {
+  const before = event.data.before.exists ? event.data.before.data() : {};
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  if (!after) return;
+
+  const sender = after.lastMessageSender;
+  if (typeof sender !== "string") return;
+
+  const participants = Array.isArray(after.participants) ? after.participants : [];
+  const mutedBy = Array.isArray(after.mutedBy) ? after.mutedBy : [];
+
+  for (const uid of participants) {
+    if (uid === sender || mutedBy.includes(uid)) continue;
+
+    const prev = totalOf(countsOf(before.unread && before.unread[uid]));
+    const counts = countsOf(after.unread && after.unread[uid]);
+    const now = totalOf(counts);
+    if (now <= prev) continue;
+
+    const senderName = await usernameOf(sender);
+    await sendToUser(uid, {
+      title: senderName,
+      body: now === 1 ? singlePreview(after) : chatLabel(counts),
+      group: `chat_${event.params.cid}`,
+      data: { type: "chat", friendUid: sender, friendUsername: senderName },
+    });
+  }
+});
+
+// Someone reacted to one of your 1:1 messages.
+exports.notifyDirectChatReaction = onDocumentCreated(
+  "chats/{cid}/messages/{mid}/reactions/{reactorUid}",
+  async (event) => {
+    const reaction = event.data.data();
+    if (!reaction) return;
+    const { cid, mid, reactorUid } = event.params;
+
+    const msg = (await db.doc(`chats/${cid}/messages/${mid}`).get()).data();
+    const author = msg && msg.senderId;
+    if (typeof author !== "string" || author === reactorUid) return;
+
+    const chat = (await db.doc(`chats/${cid}`).get()).data() || {};
+    if (Array.isArray(chat.mutedBy) && chat.mutedBy.includes(author)) return;
+
+    const name = reaction.username || (await usernameOf(reactorUid));
+    const snippet = msg.text && msg.text.trim() ? `: "${clipText(msg.text, 60)}"` : "";
+
+    await sendToUser(author, {
+      title: name,
+      body: `Reacted ${reaction.emoji || ""} to your message${snippet}`,
+      group: `chatreact_${cid}`,
+      data: { type: "chat", friendUid: reactorUid, friendUsername: name },
+    });
+  }
+);
+
+// ─── Friend requests (friend_request_service.dart) ──────────────────────────
+
+exports.notifyFriendRequest = onDocumentCreated("friend_requests/{id}", async (event) => {
+  const r = event.data.data();
+  if (!r || r.status !== "pending") return;
+  await sendToUser(r.toUserId, {
+    title: "New friend request",
+    body: `${r.fromUsername || "Someone"} wants to be friends`,
+    group: `friendreq_${r.fromUserId}`,
+    data: { type: "friend_request", userId: r.fromUserId || "" },
+  });
+});
+
+exports.notifyFriendAccepted = onDocumentUpdated("friend_requests/{id}", async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  if (!before || !after) return;
+  if (before.status === "accepted" || after.status !== "accepted") return;
+  await sendToUser(after.fromUserId, {
+    title: after.toUsername || "Someone",
+    body: "Accepted your friend request",
+    group: `friendacc_${after.toUserId}`,
+    // Tapping it opens the chat with your new friend.
+    data: {
+      type: "chat",
+      friendUid: after.toUserId || "",
+      friendUsername: after.toUsername || "",
+    },
+  });
+});
+
+// ─── Daily invitations (daily_invitation_service.dart, DailyMembershipService) ─
+
+exports.notifyDailyInvitation = onDocumentCreated("daily_invitations/{id}", async (event) => {
+  const inv = event.data.data();
+  if (!inv) return;
+  const title = inv.dailyTitle || "a Daily";
+
+  if (inv.status === "pending") {
+    // Someone invited you.
+    await sendToUser(inv.toUserId, {
+      title,
+      body: `${inv.fromUsername || "Someone"} invited you to join`,
+      group: `dailyinvite_${inv.dailyId}`,
+      data: { type: "daily_invite", dailyId: inv.dailyId || "" },
+    });
+  } else if (inv.status === "accepted" && inv.fromUserId !== inv.toUserId) {
+    // Created already-accepted = someone added a Public Daily themselves
+    // (DailyMembershipService). Tell the owner; a burst of joins on the same
+    // Daily replaces itself instead of stacking up.
+    await sendToUser(inv.fromUserId, {
+      title,
+      body: `${inv.toUsername || "Someone"} joined your Daily`,
+      group: `dailyjoined_${inv.dailyId}`,
+      data: { type: "daily_joined", dailyId: inv.dailyId || "" },
+    });
+  }
+});
+
+exports.notifyDailyInvitationAccepted = onDocumentUpdated(
+  "daily_invitations/{id}",
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    if (!before || !after) return;
+    if (before.status !== "pending" || after.status !== "accepted") return;
+    await sendToUser(after.fromUserId, {
+      title: after.dailyTitle || "Your Daily",
+      body: `${after.toUsername || "Someone"} accepted your invite`,
+      group: `dailyjoined_${after.dailyId}`,
+      data: { type: "daily_joined", dailyId: after.dailyId || "" },
+    });
+  }
+);
+
+// ─── Join requests for private Dailies (daily_join_request_service.dart) ────
+
+exports.notifyJoinRequest = onDocumentCreated("daily_join_requests/{id}", async (event) => {
+  const r = event.data.data();
+  if (!r || r.status !== "pending") return;
+  await sendToUser(r.toUserId, {
+    title: r.dailyTitle || "Your Daily",
+    body: `${r.fromUsername || "Someone"} asked to join`,
+    group: `joinreq_${r.dailyId}`,
+    data: { type: "join_request", dailyId: r.dailyId || "" },
+  });
+});
+
+exports.notifyJoinAccepted = onDocumentUpdated("daily_join_requests/{id}", async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  if (!before || !after) return;
+  if (before.status !== "pending" || after.status !== "accepted") return;
+  await sendToUser(after.fromUserId, {
+    title: after.dailyTitle || "A Daily",
+    body: "You're in! Your request to join was accepted",
+    group: `joinacc_${after.dailyId}`,
+    data: { type: "join_accepted", dailyId: after.dailyId || "" },
+  });
+});

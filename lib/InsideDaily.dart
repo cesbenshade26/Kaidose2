@@ -14,6 +14,7 @@ import 'UnifiedMediaPicker.dart';
 import 'DailyMembershipService.dart';
 import 'DailyCoverData.dart';
 import 'FeedService.dart';
+import 'DailyUnread.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
@@ -306,9 +307,14 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
 
   Future<void> _loadMessages() async {
     final messages = await MessageStorage.loadMessages(widget.daily.id);
+    if (!mounted) return;
     setState(() {
       _messages = messages;
     });
+
+    // Everything just loaded counts as read: clears this Daily's
+    // "N new" pill in My Dailies.
+    DailyUnreadService.markRead(widget.daily.id, messages);
 
     if (messages.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 100), () {

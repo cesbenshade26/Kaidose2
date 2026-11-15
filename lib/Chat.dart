@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'friend_request_service.dart';
 import 'user_service.dart';
@@ -11,6 +12,7 @@ import 'GroupChatService.dart';
 import 'GroupChatScreen.dart';
 import 'ManageGroupChat.dart';
 import 'UserProfileScreen.dart';
+import 'ChatUnread.dart';
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -28,6 +30,14 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
   final FriendRequestService _friendRequestService = FriendRequestService();
   final GroupChatService _groupService = GroupChatService();
 
+  // Chat activity (what's new in each 1:1 chat) and the friends/groups I've
+  // already opened, so brand-new ones can say "New friend" / "New group".
+  Map<String, ChatActivity> _activity = {};
+  StreamSubscription<Map<String, ChatActivity>>? _activitySub;
+  Set<String>? _known;
+  bool _knownLoaded = false;
+  bool _seedQueued = false;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -35,10 +45,42 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
   void initState() {
     super.initState();
     _searchController.addListener(_filterFriends);
+    _activitySub = ChatUnreadService.instance.directActivity().listen((m) {
+      if (mounted) setState(() => _activity = m);
+    }, onError: (_) {});
+    ChatUnreadService.instance.loadKnown().then((k) {
+      if (!mounted) return;
+      setState(() {
+        _known = k;
+        _knownLoaded = true;
+      });
+    });
+  }
+
+  /// First run on this device: everyone already here counts as met, so only
+  /// people who show up later get a "New friend" / "New group" tag.
+  void _seedKnown(Iterable<String> ids) {
+    if (!_knownLoaded || _known != null || _seedQueued) return;
+    _seedQueued = true;
+    final seeded = ids.toSet();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _known = seeded);
+      ChatUnreadService.instance.saveKnown(seeded);
+    });
+  }
+
+  bool _isNew(String id) => _known != null && !_known!.contains(id);
+
+  void _markMet(String id) {
+    if (_known == null || _known!.contains(id)) return;
+    setState(() => _known = {..._known!, id});
+    ChatUnreadService.instance.saveKnown(_known!);
   }
 
   @override
   void dispose() {
+    _activitySub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -117,14 +159,60 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
     }
   }
 
-  /// A chat row followed by a thin line running the full width of the screen.
+  /// A chat row with a hairline under it, starting where the text starts.
   Widget _withDivider(Widget tile) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         tile,
-        Divider(height: 1, thickness: 0.5, color: Colors.grey[300]),
+        const Divider(
+          height: 1,
+          thickness: 0.6,
+          indent: 80,
+          color: ChatColors.line,
+        ),
       ],
+    );
+  }
+
+  /// One entry in a row's "..." menu.
+  PopupMenuItem<String> _menuItem(String value, IconData icon, String label,
+      {bool destructive = false}) {
+    final color = destructive ? Colors.red : ChatColors.ink;
+    return PopupMenuItem<String>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(fontSize: 16, color: color)),
+        ],
+      ),
+    );
+  }
+
+  /// The quiet "..." button at the end of each row.
+  Widget _menuButton({
+    required PopupMenuItemBuilder<String> itemBuilder,
+    required PopupMenuItemSelected<String> onSelected,
+  }) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: ChatColors.sub, size: 22),
+      splashRadius: 20,
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: onSelected,
+      itemBuilder: itemBuilder,
+    );
+  }
+
+  Widget _previewText(String text) {
+    return Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 13.5, color: ChatColors.sub),
     );
   }
 
@@ -163,69 +251,38 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
     final myId = _friendRequestService.currentUserId;
     final title = group.displayName(myId);
     final isPinned = group.isPinnedFor(myId);
-    String subtitle = 'Group chat';
+    String preview = 'Group chat';
     if (group.lastMessageText != null && group.lastMessageText!.isNotEmpty) {
       final sender = group.lastSenderUsername;
-      subtitle = sender == null
+      preview = sender == null
           ? group.lastMessageText!
           : '$sender: ${group.lastMessageText!}';
     }
+    final muted = group.isMutedFor(myId);
+    final badge = ChatBadge.fromCounts(group.unreadFor(myId));
+    final isNewGroup =
+        badge == null && group.createdBy != myId && _isNew(group.id);
+    final unread = badge != null || isNewGroup;
+
+    final Widget subtitle = badge != null
+        ? ChatStatusLine(icon: badge.icon, label: badge.label, muted: muted)
+        : isNewGroup
+        ? ChatStatusLine(
+        icon: Icons.group_add_outlined,
+        label: 'New group',
+        muted: muted)
+        : _previewText(preview);
 
     return _withDivider(
-      ListTile(
-        contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        tileColor: isPinned ? Colors.cyan.withOpacity(0.06) : Colors.white,
-        leading: Stack(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.group, color: Colors.cyan[700], size: 26),
-            ),
-            if (isPinned)
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(
-                    color: Colors.cyan,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.push_pin,
-                      size: 12, color: Colors.white),
-                ),
-              ),
-          ],
-        ),
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-        ),
-        subtitle: Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-        ),
-        trailing: PopupMenuButton<String>(
-          icon: Icon(Icons.more_vert, color: Colors.grey[600], size: 24),
-          color: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+      ChatRow(
+        avatar: ChatAvatar(name: title, group: true),
+        title: title,
+        subtitle: subtitle,
+        time: chatAgo(group.lastMessageAt),
+        unread: unread,
+        muted: muted,
+        pinned: isPinned,
+        menu: _menuButton(
           onSelected: (value) {
             if (value == 'pin') {
               _groupService.togglePin(group.id, !isPinned);
@@ -246,50 +303,123 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
               _deleteGroup(group);
             }
           },
-          itemBuilder: (BuildContext context) => [
-            PopupMenuItem<String>(
-              value: 'pin',
-              child: Row(
-                children: [
-                  Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                      size: 20, color: Colors.black87),
-                  const SizedBox(width: 12),
-                  Text(isPinned ? 'Unpin' : 'Pin',
-                      style: const TextStyle(
-                          fontSize: 16, color: Colors.black87)),
-                ],
-              ),
-            ),
-            const PopupMenuItem<String>(
-              value: 'manage',
-              child: Row(
-                children: [
-                  Icon(Icons.settings_outlined,
-                      size: 20, color: Colors.black87),
-                  SizedBox(width: 12),
-                  Text('Manage Chat',
-                      style: TextStyle(fontSize: 16, color: Colors.black87)),
-                ],
-              ),
-            ),
-            const PopupMenuItem<String>(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                  SizedBox(width: 12),
-                  Text('Delete',
-                      style: TextStyle(fontSize: 16, color: Colors.red)),
-                ],
-              ),
-            ),
+          itemBuilder: (context) => [
+            _menuItem('pin',
+                isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                isPinned ? 'Unpin' : 'Pin'),
+            _menuItem('manage', Icons.settings_outlined, 'Manage Chat'),
+            _menuItem('delete', Icons.delete_outline, 'Delete',
+                destructive: true),
           ],
         ),
         onTap: () {
+          _markMet(group.id);
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => GroupChatScreen(groupId: group.id),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 1:1 friend chat row.
+  Widget _buildFriendTile(FriendRequest friendRequest) {
+    final myUid = _friendRequestService.currentUserId;
+    final isCurrentUserSender = friendRequest.fromUserId == myUid;
+    final friendName = isCurrentUserSender
+        ? friendRequest.toUsername
+        : friendRequest.fromUsername;
+    final friendUserId = isCurrentUserSender
+        ? friendRequest.toUserId
+        : friendRequest.fromUserId;
+    final isPinned = _pinnedFriends.contains(friendUserId);
+    final act = _activity[friendUserId];
+    final muted = act?.muted ?? false;
+    final badge = ChatBadge.fromCounts(act?.counts ?? const {});
+    final isNewFriend = badge == null && _isNew(friendUserId);
+    final unread = badge != null || isNewFriend;
+
+    String preview = 'Friends on Kaidose';
+    if (act?.lastPreview != null && act!.lastPreview!.isNotEmpty) {
+      preview = act.lastSender == myUid
+          ? 'You: ${act.lastPreview!}'
+          : act.lastPreview!;
+    }
+
+    final Widget subtitle = badge != null
+        ? ChatStatusLine(icon: badge.icon, label: badge.label, muted: muted)
+        : isNewFriend
+        ? ChatStatusLine(
+        icon: Icons.waving_hand_outlined,
+        label: 'New friend · say hi',
+        muted: muted)
+        : _previewText(preview);
+
+    return _withDivider(
+      ChatRow(
+        avatar: ChatAvatar(name: friendName),
+        onAvatarTap: () => UserProfileScreen.open(context, friendUserId,
+            username: friendName),
+        title: friendName,
+        subtitle: subtitle,
+        time: chatAgo(act?.lastTime),
+        unread: unread,
+        muted: muted,
+        pinned: isPinned,
+        menu: _menuButton(
+          onSelected: (value) {
+            if (value == 'pin') {
+              _togglePin(friendUserId);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    isPinned ? '$friendName unpinned!' : '$friendName pinned!',
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            } else if (value == 'add_to_daily') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AddToDailyScreen(
+                    friendName: friendName,
+                    friendUserId: friendUserId,
+                  ),
+                ),
+              );
+            } else if (value == 'manage') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ManageChatScreen(
+                    friendUserId: friendUserId,
+                    friendUsername: friendName,
+                  ),
+                ),
+              );
+            }
+          },
+          itemBuilder: (context) => [
+            _menuItem('pin',
+                isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                isPinned ? 'Unpin' : 'Pin'),
+            _menuItem('manage', Icons.settings_outlined, 'Manage Chat'),
+            _menuItem('add_to_daily', Icons.add_circle_outline, 'Add to Daily'),
+          ],
+        ),
+        onTap: () {
+          _markMet(friendUserId);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ChatScreen(
+                friendUserId: friendUserId,
+                friendUsername: friendName,
+              ),
             ),
           );
         },
@@ -378,7 +508,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
-            child: CircularProgressIndicator(color: Colors.cyan),
+            child: CircularProgressIndicator(color: ChatColors.accent),
           );
         }
 
@@ -429,222 +559,20 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
           );
         }
 
+        _seedKnown([
+          ...groups.map((g) => g.id),
+          ..._acceptedFriends.map((f) =>
+          f.fromUserId == _friendRequestService.currentUserId
+              ? f.toUserId
+              : f.fromUserId),
+        ]);
+
         return ListView.builder(
           padding: EdgeInsets.zero,
           itemCount: groups.length + _filteredFriends.length,
           itemBuilder: (context, index) {
             if (index < groups.length) return _buildGroupTile(groups[index]);
-            final friendRequest = _filteredFriends[index - groups.length];
-            final isCurrentUserSender = friendRequest.fromUserId == _friendRequestService.currentUserId;
-            final friendName = isCurrentUserSender
-                ? friendRequest.toUsername
-                : friendRequest.fromUsername;
-            final friendUserId = isCurrentUserSender
-                ? friendRequest.toUserId
-                : friendRequest.fromUserId;
-            final isPinned = _pinnedFriends.contains(friendUserId);
-
-            return _withDivider(
-              ListTile(
-                contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                tileColor:
-                isPinned ? Colors.cyan.withOpacity(0.06) : Colors.white,
-                leading: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => UserProfileScreen.open(context, friendUserId,
-                      username: friendName),
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: Colors.cyan.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: ClipOval(
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Positioned(
-                                top: 12,
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.cyan[700],
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                bottom: -6,
-                                child: Container(
-                                  width: 44,
-                                  height: 26,
-                                  decoration: BoxDecoration(
-                                    color: Colors.cyan[700],
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(22),
-                                      topRight: Radius.circular(22),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (isPinned)
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: const BoxDecoration(
-                              color: Colors.cyan,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.push_pin,
-                              size: 12,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                title: Text(
-                  friendName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                subtitle: Text(
-                  'Friends on Kaidose',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                trailing: PopupMenuButton<String>(
-                  icon: Icon(
-                    Icons.more_vert,
-                    color: Colors.grey[600],
-                    size: 24,
-                  ),
-                  color: Colors.white,
-                  surfaceTintColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  onSelected: (value) {
-                    if (value == 'pin') {
-                      _togglePin(friendUserId);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            isPinned
-                                ? '$friendName unpinned!'
-                                : '$friendName pinned!',
-                          ),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    } else if (value == 'add_to_daily') {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => AddToDailyScreen(
-                            friendName: friendName,
-                            friendUserId: friendUserId, // ADDED: Pass friendUserId
-                          ),
-                        ),
-                      );
-                    } else if (value == 'manage') {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ManageChatScreen(
-                            friendUserId: friendUserId,
-                            friendUsername: friendName,
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                  itemBuilder: (BuildContext context) => [
-                    PopupMenuItem<String>(
-                      value: 'pin',
-                      child: Row(
-                        children: [
-                          Icon(
-                            isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                            size: 20,
-                            color: Colors.black87,
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            isPinned ? 'Unpin' : 'Pin',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'manage',
-                      child: Row(
-                        children: [
-                          Icon(Icons.settings_outlined, size: 20, color: Colors.black87),
-                          SizedBox(width: 12),
-                          Text(
-                            'Manage Chat',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'add_to_daily',
-                      child: Row(
-                        children: [
-                          Icon(Icons.add_circle_outline, size: 20, color: Colors.black87),
-                          SizedBox(width: 12),
-                          Text(
-                            'Add to Daily',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ChatScreen(
-                        friendUserId: friendUserId,
-                        friendUsername: friendName,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            );
+            return _buildFriendTile(_filteredFriends[index - groups.length]);
           },
         );
       },
