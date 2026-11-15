@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'auth_service.dart';
 import 'EmailVerificationScreen.dart';
+import 'PhoneVerificationScreen.dart';
 import 'KaidoseBrand.dart';
+import 'CountryPicker.dart';
+import 'LocationService.dart';
 
 class CreateAccount extends StatefulWidget {
   const CreateAccount({super.key});
@@ -21,7 +24,8 @@ class _CreateAccountState extends State<CreateAccount> {
   final _authService = AuthService();
 
   final _usernameController = TextEditingController();
-  final _emailController = TextEditingController();
+  // Email OR phone number, decided by what's typed.
+  final _contactController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
 
@@ -32,19 +36,60 @@ class _CreateAccountState extends State<CreateAccount> {
 
   bool _isLoading = false;
 
+  // Phone sign-up: no password, a country code button instead.
+  bool _isPhone = false;
+  Country _country = Country.byIso(LocationService.instance.deviceRegion) ??
+      Country.unitedStates;
+  bool _countryPickedByUser = false;
+  bool _locationAsked = false;
+
   final List<String> _years =
   List.generate(100, (i) => (DateTime.now().year - i).toString());
   final List<String> _days =
   List.generate(31, (i) => '${i + 1}'.padLeft(2, '0'));
 
   @override
+  void initState() {
+    super.initState();
+    _contactController.addListener(_onContactChanged);
+  }
+
+  @override
   void dispose() {
+    _contactController.removeListener(_onContactChanged);
     _usernameController.dispose();
-    _emailController.dispose();
+    _contactController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
   }
+
+  /// Switches the form between email (password fields) and phone (country
+  /// code button, no password) as they type.
+  void _onContactChanged() {
+    final text = _contactController.text;
+    final isPhone = AuthService.looksLikePhoneInput(text);
+    if (isPhone != _isPhone) setState(() => _isPhone = isPhone);
+
+    // Once it's clearly a phone number, ask for location (once) to fill in
+    // the country code. Waits for a few digits so someone typing an email
+    // that starts with a number isn't asked.
+    final digits = text.replaceAll(RegExp(r'[^0-9]'), '').length;
+    if (isPhone && digits >= 3 && !_locationAsked) {
+      _locationAsked = true;
+      _detectCountry();
+    }
+  }
+
+  Future<void> _detectCountry() async {
+    final iso = await LocationService.instance.countryCode(ask: true);
+    final c = Country.byIso(iso);
+    if (!mounted || c == null || _countryPickedByUser) return;
+    setState(() => _country = c);
+  }
+
+  bool get _showCountryButton =>
+      _isPhone && !_contactController.text.trim().startsWith('+');
 
   /// null = fine, otherwise what to tell the person.
   String? _checkBirthDate() {
@@ -59,6 +104,19 @@ class _CreateAccountState extends State<CreateAccount> {
     if (now.month < m || (now.month == m && now.day < d)) age--;
     if (age < _minAge) return 'You must be at least $_minAge to use Kaidose';
     return null;
+  }
+
+  String? _contactValidator(String? v) {
+    final s = (v ?? '').trim();
+    if (s.isEmpty) return 'Enter your email or phone number';
+    if (AuthService.looksLikePhoneInput(s)) {
+      return AuthService.normalizePhone(s, dialCode: _country.dial) != null
+          ? null
+          : 'That phone number doesn\'t look right';
+    }
+    return AuthService.looksLikeEmail(s)
+        ? null
+        : 'Enter a valid email or phone number';
   }
 
   Future<void> _handleSignup() async {
@@ -78,8 +136,48 @@ class _CreateAccountState extends State<CreateAccount> {
       return;
     }
 
+    final contact = _contactController.text.trim();
+    if (_isPhone) {
+      final phone =
+      AuthService.normalizePhone(contact, dialCode: _country.dial)!;
+      await _signUpWithPhone(phone, username);
+    } else {
+      await _signUpWithEmail(contact, username);
+    }
+  }
+
+  /// Phone: nothing is created yet. The code screen texts them, checks the
+  /// code, and only then makes the account.
+  Future<void> _signUpWithPhone(String phone, String username) async {
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    final outcome = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PhoneVerificationScreen(
+          phone: phone,
+          signUp: PendingPhoneSignUp(
+            username: username,
+            birthYear: _year!,
+            birthMonth: _month!,
+            birthDay: _day!,
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+
+    if (outcome == 'username-taken') {
+      _showError('That username was just taken — try another');
+    } else if (outcome == 'phone-taken') {
+      _showError('That phone number already has an account. Log in instead');
+    }
+  }
+
+  Future<void> _signUpWithEmail(String email, String username) async {
     final result = await _authService.signUp(
-      email: _emailController.text.trim(),
+      email: email,
       password: _passwordController.text,
       username: username,
       birthYear: _year!,
@@ -151,43 +249,69 @@ class _CreateAccountState extends State<CreateAccount> {
                     if (!RegExp(r'^[A-Za-z0-9_.]+$').hasMatch(s)) {
                       return 'Letters, numbers, _ and . only';
                     }
+                    // Keeps a username from ever looking like a phone number
+                    // on the login screen.
+                    if (!RegExp(r'[A-Za-z]').hasMatch(s)) {
+                      return 'Include at least one letter';
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 14),
                 AuthField(
-                  controller: _emailController,
-                  label: 'Email',
+                  controller: _contactController,
+                  label: 'Email or phone number',
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
-                  autofillHints: const [AutofillHints.email],
-                  validator: (v) {
-                    final s = (v ?? '').trim();
-                    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(s)
-                        ? null
-                        : 'Enter a valid email';
-                  },
-                ),
-                const SizedBox(height: 14),
-                AuthField(
-                  controller: _passwordController,
-                  label: 'Password',
-                  obscure: true,
-                  textInputAction: TextInputAction.next,
-                  autofillHints: const [AutofillHints.newPassword],
-                  validator: (v) => (v == null || v.length < 6)
-                      ? 'At least 6 characters'
+                  autofillHints: const [
+                    AutofillHints.email,
+                    AutofillHints.telephoneNumber,
+                  ],
+                  validator: _contactValidator,
+                  prefix: _showCountryButton
+                      ? CountryCodeButton(
+                    country: _country,
+                    onChanged: (c) => setState(() {
+                      _country = c;
+                      _countryPickedByUser = true;
+                    }),
+                  )
                       : null,
                 ),
-                const SizedBox(height: 14),
-                AuthField(
-                  controller: _confirmController,
-                  label: 'Confirm password',
-                  obscure: true,
-                  textInputAction: TextInputAction.done,
-                  validator: (v) => v != _passwordController.text
-                      ? 'Passwords don\'t match'
-                      : null,
+
+                // Email accounts get a password; phone accounts log in with
+                // a texted code, so these fields fold away.
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: _isPhone
+                      ? const SizedBox(width: double.infinity)
+                      : Column(
+                    children: [
+                      const SizedBox(height: 14),
+                      AuthField(
+                        controller: _passwordController,
+                        label: 'Password',
+                        obscure: true,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.newPassword],
+                        validator: (v) => (v == null || v.length < 6)
+                            ? 'At least 6 characters'
+                            : null,
+                      ),
+                      const SizedBox(height: 14),
+                      AuthField(
+                        controller: _confirmController,
+                        label: 'Confirm password',
+                        obscure: true,
+                        textInputAction: TextInputAction.done,
+                        validator: (v) => v != _passwordController.text
+                            ? 'Passwords don\'t match'
+                            : null,
+                      ),
+                    ],
+                  ),
                 ),
 
                 const SizedBox(height: 28),
@@ -242,14 +366,16 @@ class _CreateAccountState extends State<CreateAccount> {
 
                 const SizedBox(height: 32),
                 AuthButton(
-                  label: 'Create account',
+                  label: _isPhone ? 'Text me a code' : 'Create account',
                   loading: _isLoading,
                   onPressed: _handleSignup,
                 ),
                 const SizedBox(height: 14),
                 Center(
                   child: Text(
-                    'We\'ll email you a link to confirm your address.',
+                    _isPhone
+                        ? 'We\'ll text you a code to confirm your number.'
+                        : 'We\'ll email you a link to confirm your address.',
                     style: TextStyle(fontSize: 12.5, color: Colors.grey[500]),
                   ),
                 ),

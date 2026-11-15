@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Shared look for the logged-out screens (opening/login, create account,
-/// verify email, forgot password, onboarding) and the Kaidose wordmark.
+/// verify email, verify phone, forgot password, onboarding) and the Kaidose
+/// wordmark.
 ///
 /// To change the brand font, edit [KaidoseBrand.wordmark] / [KaidoseBrand.display]
 /// below — nothing else needs touching.
@@ -66,6 +67,29 @@ String authErrorMessage(String? code) {
       return 'No connection. Check your internet and try again';
     case 'user-disabled':
       return 'This account has been disabled';
+
+  // Phone verification
+    case 'invalid-phone-number':
+      return 'That phone number doesn\'t look right (include area code)';
+    case 'invalid-verification-code':
+      return 'That code isn\'t right. Check the text and try again';
+    case 'session-expired':
+    case 'code-expired':
+      return 'That code expired. Tap Resend code for a new one';
+    case 'quota-exceeded':
+      return 'Too many codes sent. Please try again later';
+    case 'phone-taken':
+    case 'credential-already-in-use':
+      return 'That phone number already has an account';
+    case 'no-account':
+      return 'No account uses that number. Tap Create account to make one';
+    case 'phone-account':
+      return 'That account logs in with its phone number. Enter the number instead';
+    case 'missing-client-identifier':
+    case 'app-not-authorized':
+    case 'captcha-check-failed':
+      return 'Couldn\'t verify this device. Please try again';
+
     case null:
     case '':
       return 'Something went wrong. Please try again';
@@ -159,6 +183,9 @@ class AuthField extends StatefulWidget {
   final int? maxLength;
   final FocusNode? focusNode;
 
+  /// Shown inside the field on the left, e.g. the country code button.
+  final Widget? prefix;
+
   const AuthField({
     Key? key,
     required this.controller,
@@ -173,6 +200,7 @@ class AuthField extends StatefulWidget {
     this.autocorrect = false,
     this.maxLength,
     this.focusNode,
+    this.prefix,
   }) : super(key: key);
 
   @override
@@ -222,6 +250,9 @@ class _AuthFieldState extends State<AuthField> {
         focusedBorder: _border(KaidoseBrand.cyan, 1.5),
         errorBorder: _border(Colors.red.shade300),
         focusedErrorBorder: _border(Colors.red.shade400, 1.5),
+        prefixIcon: widget.prefix,
+        prefixIconConstraints:
+        const BoxConstraints(minWidth: 0, minHeight: 0),
         suffixIcon: widget.obscure
             ? IconButton(
           icon: Icon(
