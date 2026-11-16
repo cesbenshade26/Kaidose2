@@ -12,8 +12,11 @@ import 'NetworkVideoPlayer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
 import 'DailyShare.dart';
+import 'Share.dart';
+import 'AddToMyDaily.dart';
 import 'UserProfileScreen.dart';
 import 'MessageStorage.dart';
+import 'GroupAvatar.dart';
 
 /// One photo or video attached to a message. A message can carry several
 /// of these — picking multiple items from the gallery grid at once
@@ -688,7 +691,8 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   void _handleReply() => setState(() => _showComments = !_showComments);
 
-  /// Opens the "send to chat" sheet for this message.
+  /// Opens the Share sheet for this message (same one Clips uses): send it
+  /// to a friend or group chat, add it to your own Daily, or share it out.
   void _shareToChat() {
     final m = widget.message;
     // Only media that's already uploaded (a URL) can be sent to a chat.
@@ -706,14 +710,25 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
       ));
       return;
     }
-    ShareToChatSheet.show(
+    final title = widget.dailyTitle ?? '';
+    showShareSheet(
       context,
-      SharedDailyContent(
+      daily: SharedDailyContent(
         dailyId: m.dailyId,
-        dailyTitle: widget.dailyTitle ?? '',
+        dailyTitle: title,
         isPrivate: widget.isPrivateDaily,
         text: text,
         media: media,
+      ),
+      onAddToMyDaily: () => AddToMyDaily.fromDailyMessage(
+        context,
+        text: text,
+        media: [for (final item in m.media) MyDailyMedia(item.path, item.isVideo)],
+        authorUid: m.userId,
+        authorName: m.username ?? '',
+        dailyId: m.dailyId,
+        dailyTitle: title,
+        isPrivate: widget.isPrivateDaily,
       ),
     );
   }
@@ -727,6 +742,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     required Color color,
     required VoidCallback onTap,
     int count = 0,
+    bool mirror = false,
   }) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -736,7 +752,10 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: color),
+            mirror
+                ? Transform.flip(
+                flipX: true, child: Icon(icon, size: 20, color: color))
+                : Icon(icon, size: 18, color: color),
             if (count > 0) ...[
               const SizedBox(width: 3),
               Text(
@@ -773,8 +792,10 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
           onTap: _toggleSave,
         ),
         if (widget.dailyTitle != null)
+        // Same share arrow as Clips.
           _actionIcon(
-            icon: Icons.send_outlined,
+            icon: Icons.reply_rounded,
+            mirror: true,
             color: Colors.grey[600]!,
             onTap: _shareToChat,
           ),
@@ -789,20 +810,39 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
         uid != 'current_user' &&
         uid != FirebaseAuth.instance.currentUser?.uid;
     return Padding(
-      padding: const EdgeInsets.only(left: 6, bottom: 1),
+      padding: const EdgeInsets.only(left: 2, bottom: 4),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: canOpen
             ? () => UserProfileScreen.open(context, uid,
             username: widget.message.username)
             : null,
-        child: Text(
-          widget.message.username ?? (widget.isCurrentUser ? 'You' : 'Unknown'),
-          style: TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Their face, on the first message of each run only (that's
+            // the only time this name line shows).
+            MemberAvatar(
+              userId: uid == 'current_user'
+                  ? (FirebaseAuth.instance.currentUser?.uid ?? uid)
+                  : uid,
+              size: 20,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                widget.message.username ??
+                    (widget.isCurrentUser ? 'You' : 'Unknown'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

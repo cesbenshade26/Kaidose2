@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
@@ -201,7 +202,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
       messenger.showSnackBar(
         SnackBar(
           content: Text('Could not send: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: context.colors.danger,
         ),
       );
     } finally {
@@ -254,24 +255,24 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
         children: [
           if (widget.onBack != null)
             IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.black87),
+              icon: Icon(Icons.arrow_back, color: context.colors.text),
               onPressed: widget.onBack,
             )
           else
             const SizedBox(width: 16),
-          const Expanded(
+          Expanded(
             child: Text(
               'Daily Message',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
-                color: Colors.black87,
+                color: context.colors.text,
               ),
             ),
           ),
           if (widget.onClose != null)
             IconButton(
-              icon: const Icon(Icons.close, color: Colors.black87),
+              icon: Icon(Icons.close, color: context.colors.text),
               onPressed: widget.onClose,
             ),
         ],
@@ -288,7 +289,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.grey[100],
+                color: context.colors.surfaceMuted,
                 borderRadius: BorderRadius.circular(22),
               ),
               child: TextField(
@@ -297,10 +298,10 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
                 minLines: 1,
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
-                style: const TextStyle(fontSize: 16, color: Colors.black87),
+                style: TextStyle(fontSize: 16, color: context.colors.text),
                 decoration: InputDecoration(
                   hintText: 'Write a message...',
-                  hintStyle: TextStyle(color: Colors.grey[500], fontSize: 16),
+                  hintStyle: TextStyle(color: context.colors.textFaint, fontSize: 16),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
                       horizontal: 18, vertical: 12),
@@ -319,14 +320,14 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
               height: 46,
               decoration: BoxDecoration(
                 color: _showPicker
-                    ? Colors.cyan.withOpacity(0.15)
-                    : Colors.grey[100],
+                    ? context.colors.accent.withOpacity(0.15)
+                    : context.colors.surfaceMuted,
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.perm_media,
                 size: 22,
-                color: _showPicker ? Colors.cyan : Colors.grey[700],
+                color: _showPicker ? context.colors.accent : context.colors.textMuted,
               ),
             ),
           ),
@@ -368,9 +369,9 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) =>
                           Container(
-                            color: Colors.grey[200],
+                            color: context.colors.line,
                             child: Icon(Icons.broken_image,
-                                color: Colors.grey[400]),
+                                color: context.colors.textFaint),
                           ),
                     ),
                   ),
@@ -416,7 +417,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: Colors.grey[600],
+                color: context.colors.textMuted,
                 letterSpacing: 0.3,
               ),
             ),
@@ -433,7 +434,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
                 }
               }),
               style: TextButton.styleFrom(
-                foregroundColor: Colors.cyan,
+                foregroundColor: context.colors.accent,
                 minimumSize: const Size(0, 32),
                 padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
@@ -449,9 +450,9 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
     final dailies = _dailies;
 
     if (dailies.isEmpty && _loadingDailies) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
-        child: Center(child: CircularProgressIndicator(color: Colors.cyan)),
+        child: Center(child: CircularProgressIndicator(color: context.colors.accent)),
       );
     }
 
@@ -461,7 +462,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
         child: Text(
           'You are not in any Dailies yet. Create or join one to post to it.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+          style: TextStyle(fontSize: 14, color: context.colors.textMuted),
         ),
       );
     }
@@ -508,16 +509,16 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
                     daily.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: context.colors.text,
                     ),
                   ),
                 ),
                 Checkbox(
                   value: selected,
-                  activeColor: Colors.cyan,
+                  activeColor: context.colors.accent,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(5)),
                   onChanged: (_) => setState(() {
@@ -547,9 +548,9 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
         child: ElevatedButton(
           onPressed: _canSend ? _send : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.cyan,
+            backgroundColor: context.colors.accent,
             foregroundColor: Colors.white,
-            disabledBackgroundColor: Colors.cyan.withOpacity(0.35),
+            disabledBackgroundColor: context.colors.accent.withOpacity(0.35),
             disabledForegroundColor: Colors.white,
             elevation: 0,
             shape: RoundedRectangleBorder(

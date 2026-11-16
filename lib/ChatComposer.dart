@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:image_picker/image_picker.dart';
 import 'DrawPad.dart';
 import 'UnifiedMediaPicker.dart';
@@ -177,7 +178,7 @@ class _ChatComposerState extends State<ChatComposer>
                   height: 90,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey[300]!, width: 2),
+                    border: Border.all(color: context.colors.border, width: 2),
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -195,9 +196,9 @@ class _ChatComposerState extends State<ChatComposer>
                       height: 90,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => Container(
-                        color: Colors.grey[200],
+                        color: context.colors.line,
                         child: Icon(Icons.broken_image,
-                            color: Colors.grey[400]),
+                            color: context.colors.textFaint),
                       ),
                     ),
                   ),
@@ -233,7 +234,7 @@ class _ChatComposerState extends State<ChatComposer>
       width: 48,
       height: 48,
       decoration:
-      const BoxDecoration(color: Colors.cyan, shape: BoxShape.circle),
+      BoxDecoration(color: context.colors.accent, shape: BoxShape.circle),
       child: Icon(icon, color: Colors.white, size: 22),
     );
   }
@@ -243,9 +244,9 @@ class _ChatComposerState extends State<ChatComposer>
       children: [
         Container(
           decoration:
-          BoxDecoration(color: Colors.grey[200], shape: BoxShape.circle),
+          BoxDecoration(color: context.colors.line, shape: BoxShape.circle),
           child: IconButton(
-            icon: Icon(Icons.perm_media, color: Colors.grey[700], size: 22),
+            icon: Icon(Icons.perm_media, color: context.colors.textMuted, size: 22),
             onPressed: _togglePicker,
           ),
         ),
@@ -253,7 +254,7 @@ class _ChatComposerState extends State<ChatComposer>
         Expanded(
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: context.colors.surfaceMuted,
               borderRadius: BorderRadius.circular(24),
             ),
             child: TextField(
@@ -261,12 +262,12 @@ class _ChatComposerState extends State<ChatComposer>
               focusNode: widget.focusNode,
               decoration: InputDecoration(
                 hintText: 'Message...',
-                hintStyle: TextStyle(color: Colors.grey[500], fontSize: 16),
+                hintStyle: TextStyle(color: context.colors.textFaint, fontSize: 16),
                 border: InputBorder.none,
                 contentPadding:
                 const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
-              style: const TextStyle(fontSize: 16, color: Colors.black87),
+              style: TextStyle(fontSize: 16, color: context.colors.text),
               minLines: 1,
               maxLines: 5,
               textCapitalization: TextCapitalization.sentences,
@@ -335,7 +336,7 @@ class _ChatComposerState extends State<ChatComposer>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: context.colors.surface,
                 boxShadow: [
                   BoxShadow(
                     color: Colors.grey.withOpacity(0.2),
@@ -357,16 +358,16 @@ class _ChatComposerState extends State<ChatComposer>
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Row(
                           children: [
-                            const SizedBox(
+                            SizedBox(
                               width: 14,
                               height: 14,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.cyan),
+                                  strokeWidth: 2, color: context.colors.accent),
                             ),
                             const SizedBox(width: 10),
                             Text('Sending...',
                                 style: TextStyle(
-                                    fontSize: 13, color: Colors.grey[600])),
+                                    fontSize: 13, color: context.colors.textMuted)),
                           ],
                         ),
                       ),

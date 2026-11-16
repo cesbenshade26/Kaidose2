@@ -102,7 +102,10 @@ class _StoryPhotoFrameState extends State<StoryPhotoFrame> {
                 cacheWidth: 200,
                 errorBuilder: (_, __, ___) => Container(color: Colors.black)),
           ),
-          Container(color: Colors.black.withOpacity(0.35)),
+          // A story-shaped picture already has its darkened backdrop baked in,
+          // so it isn't darkened twice (that's what made the bands above and
+          // below it on tall phones look like separate strips).
+          if (!composite) Container(color: Colors.black.withOpacity(0.35)),
           // Until the photo's shape is known (or if it can't be read), still
           // show the photo itself so this is never an empty black screen.
           if (a == null)
@@ -122,7 +125,36 @@ class _StoryPhotoFrameState extends State<StoryPhotoFrame> {
                 ),
               ),
             ),
-          if (a != null)
+          // Story-shaped picture on a taller screen: its top and bottom edges
+          // fade into the backdrop, so the blur reads as one piece top to
+          // bottom with no visible seams.
+          if (composite && ph < h - 1)
+            Center(
+              child: SizedBox(
+                width: pw,
+                height: ph,
+                child: ShaderMask(
+                  blendMode: BlendMode.dstIn,
+                  shaderCallback: (rect) => const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black,
+                      Colors.black,
+                      Colors.transparent,
+                    ],
+                    stops: [0.0, 0.08, 0.92, 1.0],
+                  ).createShader(rect),
+                  child: Image.file(
+                    widget.file,
+                    fit: BoxFit.fill,
+                    gaplessPlayback: true,
+                  ),
+                ),
+              ),
+            ),
+          if (a != null && !(composite && ph < h - 1))
             Center(
               child: SizedBox(
                 width: pw,

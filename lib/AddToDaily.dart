@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'DailyList.dart';
 import 'DailyData.dart';
 import 'dart:io';
@@ -86,7 +87,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['error'] ?? 'Failed to send invitation'),
-            backgroundColor: Colors.red,
+            backgroundColor: context.colors.danger,
             duration: const Duration(seconds: 2),
           ),
         );
@@ -97,21 +98,21 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: context.colors.background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: Icon(Icons.arrow_back, color: context.colors.text, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Add to Daily',
               style: TextStyle(
-                color: Colors.black,
+                color: context.colors.text,
                 fontSize: 17,
                 fontWeight: FontWeight.bold,
               ),
@@ -119,7 +120,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
             Text(
               widget.friendName,
               style: TextStyle(
-                color: Colors.grey[600],
+                color: context.colors.textMuted,
                 fontSize: 12,
               ),
             ),
@@ -137,10 +138,10 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
                   ),
                 );
               },
-              child: const Text(
+              child: Text(
                 "Create New",
                 style: TextStyle(
-                  color: Colors.cyan,
+                  color: context.colors.accent,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -159,7 +160,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
                 hintText: 'Search dailies...',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: context.colors.surfaceMuted,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -172,8 +173,8 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
               stream: DailyList.getDailiesStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Colors.cyan),
+                  return Center(
+                    child: CircularProgressIndicator(color: context.colors.accent),
                   );
                 }
 
@@ -206,11 +207,11 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search_off, size: 80, color: Colors.grey[300]),
+          Icon(Icons.search_off, size: 80, color: context.colors.border),
           const SizedBox(height: 16),
           Text(
             "No Dailies found",
-            style: TextStyle(color: Colors.grey[600], fontSize: 18),
+            style: TextStyle(color: context.colors.textMuted, fontSize: 18),
           ),
         ],
       ),
@@ -223,9 +224,9 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.colors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: context.colors.line),
       ),
       child: Row(
         children: [
@@ -260,7 +261,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
                 ),
                 Text(
                   daily.description,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 12, color: context.colors.textMuted),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -270,7 +271,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
           ElevatedButton(
             onPressed: isPending ? null : () => _inviteFriendToDaily(daily),
             style: ElevatedButton.styleFrom(
-              backgroundColor: isPending ? Colors.grey[300] : Colors.cyan,
+              backgroundColor: isPending ? context.colors.border : context.colors.accent,
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -279,7 +280,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
             child: Text(
               isPending ? "Pending" : "Invite",
               style: TextStyle(
-                color: isPending ? Colors.black54 : Colors.white,
+                color: isPending ? context.colors.textMuted : Colors.white,
               ),
             ),
           ),

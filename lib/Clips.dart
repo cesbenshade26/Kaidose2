@@ -10,6 +10,7 @@ import 'FeedService.dart';
 import 'UserProfileScreen.dart';
 import 'MediaPreloader.dart';
 import 'ClipMusic.dart';
+import 'GroupAvatar.dart';
 
 class ClipsWidget extends StatefulWidget {
   final bool isTabActive;
@@ -179,21 +180,12 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                   : _buildFeed()),
           if (widget.pinnedClips != null)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 12,
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.35),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white54, width: 1),
-                  ),
-                  child: const Icon(Icons.arrow_back,
-                      color: Colors.white, size: 22),
-                ),
+              top: MediaQuery.of(context).padding.top + 4,
+              left: 4,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                    color: Colors.white, size: 22, shadows: _softShadow),
+                onPressed: () => Navigator.pop(context),
               ),
             )
           else ...[
@@ -201,20 +193,13 @@ class _ClipsWidgetState extends State<ClipsWidget> {
             // Add a clip: opens the Add Clip screen, and closing it comes
             // straight back here.
             Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 12,
-              child: GestureDetector(
-                onTap: _openAddClip,
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.35),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white54, width: 1),
-                  ),
-                  child: const Icon(Icons.add, color: Colors.white, size: 24),
-                ),
+              top: MediaQuery.of(context).padding.top + 4,
+              right: 6,
+              child: IconButton(
+                tooltip: 'New clip',
+                icon: const Icon(Icons.add_rounded,
+                    color: Colors.white, size: 30, shadows: _softShadow),
+                onPressed: _openAddClip,
               ),
             ),
           ],
@@ -223,27 +208,24 @@ class _ClipsWidgetState extends State<ClipsWidget> {
     );
   }
 
-  /// "For You ▾" at the top. Tapped, a row of chips drops down: For You,
-  /// Friends, then the user's top Dailies and group chats.
+  /// "For You ⌄" at the top: plain white text, like the rest of the
+  /// overlay. Tapped, a row of soft text tabs drops in under it (For You,
+  /// Friends, your top Dailies and group chats); the current one is bold
+  /// with a small bar under it.
   Widget _buildLensSwitcher(BuildContext context) {
     final top = MediaQuery.of(context).padding.top;
     return Positioned(
-      top: top + 8,
-      left: 60,
-      right: 60,
+      top: top + 4,
+      left: 56,
+      right: 56,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _showLenses = !_showLenses),
-            child: Container(
-              height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.35),
-                borderRadius: BorderRadius.circular(19),
-                border: Border.all(color: Colors.white54, width: 1),
-              ),
+            child: SizedBox(
+              height: 48,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -253,9 +235,11 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700),
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        shadows: _softShadow,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 2),
@@ -263,7 +247,7 @@ class _ClipsWidgetState extends State<ClipsWidget> {
                     turns: _showLenses ? 0.5 : 0,
                     duration: const Duration(milliseconds: 200),
                     child: const Icon(Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white, size: 20),
+                        color: Colors.white70, size: 22, shadows: _softShadow),
                   ),
                 ],
               ),
@@ -274,13 +258,12 @@ class _ClipsWidgetState extends State<ClipsWidget> {
             curve: Curves.easeOutCubic,
             child: !_showLenses
                 ? const SizedBox(width: double.infinity)
-                : Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 6,
-                runSpacing: 6,
-                children: [for (final l in _lenses) _lensChip(l)],
+                : SizedBox(
+              height: 34,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                shrinkWrap: true,
+                children: [for (final l in _lenses) _lensTab(l)],
               ),
             ),
           ),
@@ -289,45 +272,65 @@ class _ClipsWidgetState extends State<ClipsWidget> {
     );
   }
 
-  Widget _lensChip(ClipLens l) {
+  Widget _lensTab(ClipLens l) {
     final selected = l == _lens;
-    final icon = switch (l.kind) {
-      'friends' => Icons.people_alt_outlined,
-      'daily' => Icons.wb_sunny_outlined,
-      'chat' => Icons.forum_outlined,
-      _ => Icons.auto_awesome_outlined,
-    };
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => _selectLens(l),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-        constraints: const BoxConstraints(maxWidth: 170),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.black.withOpacity(0.45),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: 14, color: selected ? Colors.black87 : Colors.white),
-            const SizedBox(width: 5),
-            Flexible(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
               child: Text(
                 l.label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: selected ? Colors.black87 : Colors.white,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : Colors.white70,
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  shadows: _softShadow,
                 ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: selected ? 16 : 0,
+              height: 2,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(1),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Opens a creator's profile on top of the feed. The clip pauses where it
+  /// is (like when Add Clip is open) and picks up from the same spot on
+  /// return; the clips around it are made ready to play again too.
+  Future<void> _openProfile(ClipData clip, List<ClipData> clips) async {
+    setState(() => _covered = true);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UserProfileScreen(
+          userId: clip.creatorUid,
+          username: clip.creatorUsername,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _covered = false);
+    if (clips.isNotEmpty) {
+      _preload(clips, _currentPage.clamp(0, clips.length - 1));
+    }
   }
 
   Future<void> _openAddClip() async {
@@ -409,11 +412,21 @@ class _ClipsWidgetState extends State<ClipsWidget> {
           isActive: index == _currentPage && widget.isTabActive && !_covered,
           proof: _proof[clip.id],
           moreLikeThis: clip.id == _moreId,
+          onOpenProfile: () => _openProfile(clip, clips),
         );
       },
     );
   }
 }
+
+/// Soft shadow so white text and icons read on any clip without boxes.
+const List<Shadow> _softShadow = [Shadow(color: Colors.black45, blurRadius: 6)];
+
+/// Where the caption and side bar sit: just above the progress bar. Inside
+/// the Clips tab the bottom bar already takes the phone's bottom inset, so
+/// this is ~14px; full screen (from Search) it clears the home indicator.
+double _overlayBottom(BuildContext context) =>
+    MediaQuery.of(context).padding.bottom + 14;
 
 class _ClipPage extends StatefulWidget {
   final ClipData clip;
@@ -425,12 +438,17 @@ class _ClipPage extends StatefulWidget {
   /// First clip after a group's own clips ran out.
   final bool moreLikeThis;
 
+  /// Opens the creator's profile (the feed pauses this clip and resumes it
+  /// on return).
+  final Future<void> Function()? onOpenProfile;
+
   const _ClipPage({
     Key? key,
     required this.clip,
     required this.isActive,
     this.proof,
     this.moreLikeThis = false,
+    this.onOpenProfile,
   }) : super(key: key);
 
   @override
@@ -599,12 +617,18 @@ class _ClipPageState extends State<_ClipPage>
   @override
   void dispose() {
     _reportWatch();
-    try {
-      _controller?.pause();
-    } catch (_) {}
-    if (!widget.clip.isPhoto) {
-      PreloadedMediaPool.instance.release(widget.clip.id);
-    }
+    // Pause and hand the video back AFTER this frame finishes: pausing here
+    // makes the progress bar try to redraw while the screen is being torn
+    // down, which Flutter forbids.
+    final c = _controller;
+    final id = widget.clip.id;
+    final isPhoto = widget.clip.isPhoto;
+    Future.microtask(() {
+      try {
+        c?.pause();
+      } catch (_) {}
+      if (!isPhoto) PreloadedMediaPool.instance.release(id);
+    });
     _commentAnimController.dispose();
     _floatingHeartController.dispose();
     super.dispose();
@@ -660,11 +684,48 @@ class _ClipPageState extends State<_ClipPage>
     });
   }
 
+  /// The preloader can throw a player away while this page still holds it
+  /// (another screen needed the memory, e.g. while you post a video
+  /// somewhere else). Using a thrown-away player crashes or shows black.
+  bool _controllerAlive() {
+    final c = _controller;
+    if (c == null) return false;
+    try {
+      c.addListener(_noop);
+      c.removeListener(_noop);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static void _noop() {}
+
+  bool _recovering = false;
+
+  /// Drop the dead player and borrow a fresh one; playback picks up again
+  /// on its own once it's ready.
+  void _recoverController() {
+    if (_recovering) return;
+    _recovering = true;
+    _controller = null;
+    _isLoading = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _loadVideo();
+      _recovering = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
     final sheetHeight = screenHeight * _sheetFraction;
+
+    if (!widget.clip.isPhoto && _controller != null && !_controllerAlive()) {
+      _recoverController();
+    }
 
     return GestureDetector(
       onTapUp: (details) => _onSingleTap(details.globalPosition),
@@ -741,8 +802,8 @@ class _ClipPageState extends State<_ClipPage>
             animation: _commentAnimation,
             builder: (context, child) {
               return Positioned(
-                right: 12,
-                bottom: 80,
+                right: 6,
+                bottom: _overlayBottom(context) + 2,
                 child: AnimatedOpacity(
                   opacity: 1 - _commentAnimation.value,
                   duration: const Duration(milliseconds: 200),
@@ -765,12 +826,12 @@ class _ClipPageState extends State<_ClipPage>
           AnimatedBuilder(
             animation: _commentAnimation,
             builder: (context, child) {
-              final bottomOffset =
-                  60.0 + sheetHeight * _commentAnimation.value;
+              final bottomOffset = _overlayBottom(context) +
+                  sheetHeight * _commentAnimation.value;
               return Positioned(
                 bottom: bottomOffset,
-                left: 16,
-                right: 72,
+                left: 14,
+                right: 70,
                 child: child!,
               );
             },
@@ -821,33 +882,21 @@ class _ClipPageState extends State<_ClipPage>
                 ],
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => UserProfileScreen.open(
+                  onTap: () => widget.onOpenProfile != null
+                      ? widget.onOpenProfile!()
+                      : UserProfileScreen.open(
                       context, widget.clip.creatorUid,
                       username: widget.clip.creatorUsername),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        width: 36,
-                        height: 36,
                         decoration: BoxDecoration(
-                          color: Colors.cyan.withOpacity(0.3),
                           shape: BoxShape.circle,
-                          border: Border.all(
-                              color: Colors.white, width: 1.5),
+                          border: Border.all(color: Colors.white, width: 1.5),
                         ),
-                        child: Center(
-                          child: Text(
-                            widget.clip.creatorUsername.isNotEmpty
-                                ? widget.clip.creatorUsername[0]
-                                .toUpperCase()
-                                : '?',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16),
-                          ),
-                        ),
+                        child: MemberAvatar(
+                            userId: widget.clip.creatorUid, size: 36),
                       ),
                       const SizedBox(width: 8),
                       Text(

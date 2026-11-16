@@ -362,6 +362,22 @@ class ClipService {
         .toList());
   }
 
+  /// Stream of clips posted by [uid] (another person's profile), newest
+  /// first. Same query and index as [getMyClips].
+  static Stream<List<ClipData>> getUserClips(String uid) {
+    return _firestore
+        .collection('clips')
+        .where('creatorUid', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .handleError((e) {
+      print('getUserClips ERROR: $e');
+    })
+        .map((snap) => snap.docs
+        .map((doc) => ClipData.fromFirestore(doc.data(), doc.id))
+        .toList());
+  }
+
   /// Delete a clip from Storage and Firestore.
   static Future<void> deleteClip(ClipData clip) async {
     final uid = currentUid;

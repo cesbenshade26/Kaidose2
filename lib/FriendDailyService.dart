@@ -46,7 +46,8 @@ class FriendDailyService {
   // ─── Public story (Daily Post) ──────────────────────────────────────────────
 
   /// Upload to the current user's public daily story so ALL friends can see it.
-  static Future<void> uploadMyDailyPhoto(File photo, {MusicTrack? music}) async {
+  static Future<void> uploadMyDailyPhoto(File photo,
+      {MusicTrack? music, Map<String, dynamic>? source}) async {
     final uid = currentUid;
     if (uid == null) return;
 
@@ -72,6 +73,8 @@ class FriendDailyService {
         'base64Data': base64String,
         'date': _today,
         if (music != null) 'music': music.toMap(),
+        // Added from a Daily: {dailyId, dailyTitle, private}
+        if (source != null) 'source': source,
       });
 
       await _firestore
@@ -96,7 +99,8 @@ class FriendDailyService {
   /// photos, the video itself goes to Storage — only its URL is written
   /// to Firestore, since a compressed video would still blow past
   /// Firestore's 1MB document limit if stored inline like a photo is.
-  static Future<void> uploadMyDailyVideo(File video, {MusicTrack? music}) async {
+  static Future<void> uploadMyDailyVideo(File video,
+      {MusicTrack? music, Map<String, dynamic>? source}) async {
     final uid = currentUid;
     if (uid == null) return;
 
@@ -121,6 +125,8 @@ class FriendDailyService {
         'videoUrl': videoUrl,
         'date': _today,
         if (music != null) 'music': music.toMap(),
+        // Added from a Daily: {dailyId, dailyTitle, private}
+        if (source != null) 'source': source,
       });
 
       await _firestore
@@ -325,7 +331,8 @@ class FriendDailyService {
             items.add(StoryMediaItem(
                 file: file,
                 isVideo: true,
-                music: MusicTrack.fromMap(data['music'])));
+                music: MusicTrack.fromMap(data['music']),
+                source: _source(data)));
           } catch (e) {
             print('FriendDailyService: video download error: $e');
           }
@@ -337,7 +344,8 @@ class FriendDailyService {
           items.add(StoryMediaItem(
               file: file,
               isVideo: false,
-              music: MusicTrack.fromMap(data['music'])));
+              music: MusicTrack.fromMap(data['music']),
+              source: _source(data)));
         }
       }
 
@@ -380,6 +388,11 @@ class FriendDailyService {
       return [];
     }
   }
+
+  static Map<String, dynamic>? _source(Map<String, dynamic> data) =>
+      data['source'] is Map
+          ? Map<String, dynamic>.from(data['source'] as Map)
+          : null;
 
   // ─── Viewed tracking ────────────────────────────────────────────────────────
 

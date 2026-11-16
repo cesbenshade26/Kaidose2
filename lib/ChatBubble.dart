@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'NetworkVideoPlayer.dart';
 
 /// Where a message sits inside a run of messages from the same person.
@@ -93,7 +94,7 @@ class BubbleTimeLabel extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
           decoration: BoxDecoration(
-            color: onWallpaper ? Colors.white.withOpacity(0.85) : null,
+            color: onWallpaper ? context.colors.background.withOpacity(0.85) : null,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
@@ -101,7 +102,7 @@ class BubbleTimeLabel extends StatelessWidget {
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              color: Colors.grey[600],
+              color: context.colors.textMuted,
             ),
           ),
         ),
@@ -150,26 +151,26 @@ class ChatBubble extends StatelessWidget {
 
   /// A small grey tab that rises out of the top of the bubble (same look as
   /// the Daily prompt tab), saying which Daily this was sent from.
-  Widget _sourceTab() {
+  Widget _sourceTab(BuildContext context) {
     return GestureDetector(
       onTap: onSourceTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 7, 12, 6),
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: context.colors.surfaceMuted,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
               'SENT FROM',
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.6,
-                color: Colors.cyan,
+                color: context.colors.accent,
               ),
             ),
             const SizedBox(width: 8),
@@ -178,16 +179,16 @@ class ChatBubble extends StatelessWidget {
                 sourceLabel!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: context.colors.text,
                 ),
               ),
             ),
             if (onSourceTap != null) ...[
               const SizedBox(width: 6),
-              const Icon(Icons.north_east, size: 13, color: Colors.cyan),
+              Icon(Icons.north_east, size: 13, color: context.colors.accent),
             ],
           ],
         ),
@@ -198,8 +199,8 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxW = MediaQuery.of(context).size.width * 0.75;
-    final bg = isMe ? Colors.cyan : Colors.grey[200]!;
-    final fg = isMe ? Colors.white : Colors.black87;
+    final bg = isMe ? Colors.cyan : context.colors.line;
+    final fg = isMe ? Colors.white : context.colors.text;
 
     // Sender-side corners tighten inside a run; the last one is the tail.
     final top = run.first ? _round : _joined;
@@ -239,26 +240,26 @@ class ChatBubble extends StatelessWidget {
                   return Container(
                     width: maxW,
                     height: 200,
-                    color: Colors.grey[300],
-                    child: const Center(
+                    color: context.colors.border,
+                    child: Center(
                       child:
-                      CircularProgressIndicator(color: Colors.cyan),
+                      CircularProgressIndicator(color: context.colors.accent),
                     ),
                   );
                 },
                 errorBuilder: (_, __, ___) => Container(
                   width: maxW,
                   height: 140,
-                  color: Colors.grey[300],
+                  color: context.colors.border,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.broken_image_outlined,
-                          size: 36, color: Colors.grey[500]),
+                          size: 36, color: context.colors.textFaint),
                       const SizedBox(height: 6),
                       Text('Image no longer available',
                           style: TextStyle(
-                              color: Colors.grey[600], fontSize: 12)),
+                              color: context.colors.textMuted, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -338,7 +339,7 @@ class ChatBubble extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: Colors.grey[600],
+                  color: context.colors.textMuted,
                 ),
               ),
             ),
@@ -354,7 +355,7 @@ class ChatBubble extends StatelessWidget {
                     Align(
                       alignment:
                       isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: _sourceTab(),
+                      child: _sourceTab(context),
                     ),
                     bubbleBox,
                   ],

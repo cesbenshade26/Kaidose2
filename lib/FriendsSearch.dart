@@ -5,6 +5,7 @@ import 'user_service.dart';
 import 'friend_request_service.dart';
 import 'SearchService.dart';
 import 'UserProfileScreen.dart';
+import 'GroupAvatar.dart';
 
 /// People in Search.
 ///
@@ -276,46 +277,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
         child: Row(
           children: [
             // Profile picture
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: ClipOval(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned(
-                      top: 12,
-                      child: Container(
-                        width: 16,
-                        height: 16,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.cyan[700],
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: -6,
-                      child: Container(
-                        width: 44,
-                        height: 26,
-                        decoration: BoxDecoration(
-                          color: Colors.cyan[700],
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(22),
-                            topRight: Radius.circular(22),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            MemberAvatar(userId: user.uid, size: 50),
             const SizedBox(width: 12),
             // Username
             Expanded(

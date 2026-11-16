@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
+import 'GroupAvatar.dart';
 
 class ClipCommentSheet extends StatefulWidget {
   final String clipId;
@@ -369,23 +370,11 @@ class _CommentTileState extends State<_CommentTile> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Avatar
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.cyan.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                username.isNotEmpty ? username[0].toUpperCase() : '?',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.cyan[700],
-                ),
-              ),
-            ),
+          MemberAvatar(
+            userId: (widget.data['authorUid'] as String?) ?? '',
+            username: username,
+            size: 36,
+            openProfileOnTap: true,
           ),
           const SizedBox(width: 10),
 

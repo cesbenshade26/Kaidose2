@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'AddDailyMessage.dart';
 
 /// Everything the "+" on the Dailies header can start.
@@ -13,7 +14,7 @@ Future<AddOption?> showAddSheet(BuildContext context) {
   return showModalBottomSheet<AddOption>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
+    backgroundColor: context.colors.surface,
     barrierColor: Colors.black.withOpacity(0.55),
     useSafeArea: true,
     shape: const RoundedRectangleBorder(
@@ -77,7 +78,7 @@ class _AddSheetState extends State<_AddSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(top: 10, bottom: 6),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: context.colors.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -125,18 +126,18 @@ class _AddSheetState extends State<_AddSheet> {
           padding: const EdgeInsets.fromLTRB(20, 4, 8, 4),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Add',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                    color: context.colors.text,
                   ),
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close, color: Colors.black87),
+                icon: Icon(Icons.close, color: context.colors.text),
                 onPressed: () => Navigator.pop(context),
               ),
             ],
@@ -159,23 +160,23 @@ class _AddSheetState extends State<_AddSheet> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Colors.grey[100],
+                color: context.colors.surfaceMuted,
                 shape: BoxShape.circle,
               ),
-              child: Icon(item.icon, color: Colors.cyan, size: 22),
+              child: Icon(item.icon, color: context.colors.accent, size: 22),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
                 item.title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: context.colors.text,
                 ),
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[400]),
+            Icon(Icons.chevron_right, color: context.colors.textFaint),
           ],
         ),
       ),

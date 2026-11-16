@@ -147,6 +147,72 @@ class _Lookup {
   const _Lookup(this.future, this.at);
 }
 
+/// Sends a Daily message into a 1:1 chat or a group chat, tagged with the
+/// Daily it came from. Used by the Share sheet.
+class DailyShareSender {
+  DailyShareSender._();
+
+  static Future<bool> toFriend(
+      SharedDailyContent c, String uid, String myName) async {
+    final svc = MessageService();
+    if (c.media.isEmpty) {
+      return svc.sendChatMessage(
+        recipientUserId: uid,
+        text: c.text,
+        senderUsername: myName,
+        metadata: {'source': c.sourceTag},
+      );
+    }
+    var ok = true;
+    for (var i = 0; i < c.media.length; i++) {
+      final m = c.media[i];
+      final sent = await svc.sendChatMessage(
+        recipientUserId: uid,
+        text: i == 0 ? c.text : '',
+        senderUsername: myName,
+        metadata: {
+          'type': m.isVideo ? 'clip' : 'image',
+          m.isVideo ? 'videoUrl' : 'imageUrl': m.url,
+          'source': c.sourceTag,
+        },
+      );
+      ok = ok && sent;
+    }
+    return ok;
+  }
+
+  static Future<bool> toGroup(
+      SharedDailyContent c, String groupId, String myName) async {
+    final svc = GroupChatService();
+    try {
+      if (c.media.isEmpty) {
+        await svc.sendSharedFromDaily(
+          groupId: groupId,
+          senderUsername: myName,
+          text: c.text,
+          source: c.sourceTag,
+        );
+      } else {
+        for (var i = 0; i < c.media.length; i++) {
+          final m = c.media[i];
+          await svc.sendSharedFromDaily(
+            groupId: groupId,
+            senderUsername: myName,
+            text: i == 0 ? c.text : '',
+            imageUrl: m.isVideo ? null : m.url,
+            videoUrl: m.isVideo ? m.url : null,
+            source: c.sourceTag,
+          );
+        }
+      }
+      return true;
+    } catch (e) {
+      print('DailyShareSender: group send error: $e');
+      return false;
+    }
+  }
+}
+
 /// Bottom sheet for picking which chats to send a Daily message to.
 class ShareToChatSheet extends StatefulWidget {
   final SharedDailyContent content;
@@ -224,37 +290,10 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
   // ---------------------------------------------------------------- send
 
   Future<bool> _sendToFriend(String uid) async {
-    final c = widget.content;
-    final svc = MessageService();
-    var ok = true;
-
-    if (c.media.isEmpty) {
-      ok = await svc.sendChatMessage(
-        recipientUserId: uid,
-        text: c.text,
-        senderUsername: _myName,
-        metadata: {'source': c.sourceTag},
-      );
-    } else {
-      for (var i = 0; i < c.media.length; i++) {
-        final m = c.media[i];
-        final sent = await svc.sendChatMessage(
-          recipientUserId: uid,
-          text: i == 0 ? c.text : '',
-          senderUsername: _myName,
-          metadata: {
-            'type': m.isVideo ? 'clip' : 'image',
-            m.isVideo ? 'videoUrl' : 'imageUrl': m.url,
-            'source': c.sourceTag,
-          },
-        );
-        ok = ok && sent;
-      }
-    }
-
+    final ok = await DailyShareSender.toFriend(widget.content, uid, _myName);
     final note = _note.text.trim();
     if (note.isNotEmpty) {
-      await svc.sendChatMessage(
+      await MessageService().sendChatMessage(
         recipientUserId: uid,
         text: note,
         senderUsername: _myName,
@@ -264,42 +303,18 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
   }
 
   Future<bool> _sendToGroup(String groupId) async {
-    final c = widget.content;
-    final svc = GroupChatService();
-    try {
-      if (c.media.isEmpty) {
-        await svc.sendSharedFromDaily(
-          groupId: groupId,
-          senderUsername: _myName,
-          text: c.text,
-          source: c.sourceTag,
-        );
-      } else {
-        for (var i = 0; i < c.media.length; i++) {
-          final m = c.media[i];
-          await svc.sendSharedFromDaily(
-            groupId: groupId,
-            senderUsername: _myName,
-            text: i == 0 ? c.text : '',
-            imageUrl: m.isVideo ? null : m.url,
-            videoUrl: m.isVideo ? m.url : null,
-            source: c.sourceTag,
-          );
-        }
-      }
-      final note = _note.text.trim();
-      if (note.isNotEmpty) {
-        await svc.sendMessage(
+    final ok = await DailyShareSender.toGroup(widget.content, groupId, _myName);
+    final note = _note.text.trim();
+    if (ok && note.isNotEmpty) {
+      try {
+        await GroupChatService().sendMessage(
           groupId: groupId,
           text: note,
           senderUsername: _myName,
         );
-      }
-      return true;
-    } catch (e) {
-      print('ShareToChatSheet: group send error: $e');
-      return false;
+      } catch (_) {}
     }
+    return ok;
   }
 
   Future<void> _send() async {

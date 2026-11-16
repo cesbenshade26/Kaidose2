@@ -149,6 +149,50 @@ class DailyBubbleService {
     }
   }
 
+  /// Deletes one of the current user's bubbles for good: every photo/video
+  /// posted to it (and the video files in Storage), then the bubble itself.
+  /// Because it's gone from Firestore, it disappears for anyone viewing your
+  /// profile too. Returns false if the Firestore delete failed.
+  static Future<bool> deleteBubble({required String bubbleId}) async {
+    final uid = currentUid;
+    if (uid == null) return false;
+
+    try {
+      final bubbleRef = _bubblesRef(uid).doc(bubbleId);
+      final items = await bubbleRef.collection('photos').get();
+
+      // Video files live in Storage; clean them up (best effort, a missing
+      // file shouldn't stop the delete).
+      for (final doc in items.docs) {
+        final videoUrl = doc.data()['videoUrl'] as String?;
+        if (videoUrl == null) continue;
+        try {
+          await _storage.refFromURL(videoUrl).delete();
+        } catch (e) {
+          print('DailyBubbleService: video delete skipped: $e');
+        }
+      }
+
+      // Firestore batches cap at 500 writes, so delete posts in chunks,
+      // then the bubble doc last.
+      final refs = items.docs.map((d) => d.reference).toList();
+      for (int i = 0; i < refs.length; i += 400) {
+        final batch = _firestore.batch();
+        for (final r in refs.skip(i).take(400)) {
+          batch.delete(r);
+        }
+        await batch.commit();
+      }
+      await bubbleRef.delete();
+
+      print('DailyBubbleService: Deleted bubble $bubbleId for $uid');
+      return true;
+    } catch (e) {
+      print('DailyBubbleService: deleteBubble error: $e');
+      return false;
+    }
+  }
+
   /// Loads every bubble for a user (default: current user), oldest first,
   /// caching each cover to a local file.
   static Future<List<DailyBubbleRecord>> loadBubbles({String? uid}) async {

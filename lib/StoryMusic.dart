@@ -41,9 +41,10 @@ class StoryMusic {
     }
   }
 
-  static Future<Map<String, dynamic>> _load(SharedPreferences p) async {
+  static Future<Map<String, dynamic>> _load(SharedPreferences p,
+      [String key = _key]) async {
     try {
-      final raw = p.getString(_key);
+      final raw = p.getString(key);
       if (raw == null) return {};
       return Map<String, dynamic>.from(jsonDecode(raw) as Map);
     } catch (_) {
@@ -75,6 +76,44 @@ class StoryMusic {
       final p = await SharedPreferences.getInstance();
       final map = await _load(p);
       return MusicTrack.fromMap(map[fp]);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Same idea as [StoryMusic], for the Daily a post was added from
+/// ("Add to My Daily"), so YOUR copy shows the "From ___" tag too. Friends
+/// get it from the post itself (see FriendDailyService).
+class StorySource {
+  static const String _key = 'story_source_v1';
+  static const int _max = 200;
+
+  static Future<void> remember(File file, Map<String, dynamic> source) async {
+    try {
+      final fp = await StoryMusic._fingerprint(file);
+      if (fp == null) return;
+      final p = await SharedPreferences.getInstance();
+      final map = await StoryMusic._load(p, _key);
+      map.remove(fp);
+      map[fp] = source;
+      while (map.length > _max) {
+        map.remove(map.keys.first);
+      }
+      await p.setString(_key, jsonEncode(map));
+    } catch (e) {
+      print('StorySource: remember failed: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>?> lookup(File file) async {
+    try {
+      final fp = await StoryMusic._fingerprint(file);
+      if (fp == null) return null;
+      final p = await SharedPreferences.getInstance();
+      final map = await StoryMusic._load(p, _key);
+      final v = map[fp];
+      return v is Map ? Map<String, dynamic>.from(v) : null;
     } catch (_) {
       return null;
     }

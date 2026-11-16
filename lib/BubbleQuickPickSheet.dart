@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'YourDailyBubbles.dart';
 
 /// Shown when the "Your Daily" checkbox is checked in the Send to Daily
@@ -48,8 +49,8 @@ class _BubbleQuickPickSheetState extends State<_BubbleQuickPickSheet> {
     final bubbles = YourDailyBubbleManager.bubbles;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: context.colors.surface,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
@@ -67,7 +68,7 @@ class _BubbleQuickPickSheetState extends State<_BubbleQuickPickSheet> {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: context.colors.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -78,25 +79,25 @@ class _BubbleQuickPickSheetState extends State<_BubbleQuickPickSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Add to a Daily Bubble',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: Colors.black87,
+                        color: context.colors.text,
                       ),
                     ),
                   ),
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
-                    child: Icon(Icons.close, color: Colors.grey[600], size: 22),
+                    child: Icon(Icons.close, color: context.colors.textMuted, size: 22),
                   ),
                 ],
               ),
             ),
 
-            const Divider(height: 1, color: Color(0xFFEEEEEE)),
+            Divider(height: 1, color: context.colors.line),
 
             if (_isLoading)
               const Padding(
@@ -111,7 +112,7 @@ class _BubbleQuickPickSheetState extends State<_BubbleQuickPickSheet> {
                 child: Center(
                   child: Text(
                     'No Daily Bubbles yet',
-                    style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(color: context.colors.textMuted),
                   ),
                 ),
               )
@@ -148,10 +149,10 @@ class _BubbleQuickPickSheetState extends State<_BubbleQuickPickSheet> {
                       ),
                       title: Text(
                         bubble.name.isNotEmpty ? bubble.name : 'New',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87,
+                          color: context.colors.text,
                         ),
                       ),
                     );

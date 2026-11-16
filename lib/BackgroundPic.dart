@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/rendering.dart';
 import 'BackgroundPicManager.dart';
 import 'ProfilePicManager.dart';
@@ -23,6 +24,24 @@ class BackgroundSpec {
       stops: [0.0, 0.7, 1.0],
     ),
   );
+
+  /// The default banner for the current light/dark mode: in dark mode the
+  /// soft cyan fades into the dark page instead of white.
+  static BoxDecoration defaultDecorationFor(BuildContext context) {
+    if (!context.isDark) return defaultDecoration;
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFF00838F),
+          const Color(0xFF123438),
+          context.colors.background,
+        ],
+        stops: const [0.0, 0.7, 1.0],
+      ),
+    );
+  }
 
   /// Light dark scrim at the top so status bar / icons stay readable.
   static const BoxDecoration scrimDecoration = BoxDecoration(
@@ -123,18 +142,18 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
     const avatar = BackgroundSpec.avatarSize;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: context.colors.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: const Text('Position photo',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 18)),
+        iconTheme: IconThemeData(color: context.colors.text),
+        title: Text('Position photo',
+            style: TextStyle(color: context.colors.text, fontWeight: FontWeight.w600, fontSize: 18)),
         centerTitle: true,
       ),
       body: _imageSize == null
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          ? Center(child: CircularProgressIndicator(color: context.colors.accent))
           : Column(
         children: [
           const SizedBox(height: 24),
@@ -200,7 +219,7 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
                       height: avatar,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.grey[300],
+                        color: context.colors.border,
                       ),
                       child: ClipOval(
                         child: _profilePic != null && _profilePic!.existsSync()
@@ -215,10 +234,10 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
           ),
           const SizedBox(height: 28),
           Text('Drag to move, pinch to zoom',
-              style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+              style: TextStyle(color: context.colors.textMuted, fontSize: 14)),
           const SizedBox(height: 4),
           Text('This is how it will look on your profile',
-              style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+              style: TextStyle(color: context.colors.textFaint, fontSize: 12)),
           const Spacer(),
           SafeArea(
             top: false,
@@ -230,7 +249,7 @@ class _BackgroundPicEditorState extends State<BackgroundPicEditor> {
                 child: ElevatedButton(
                   onPressed: _saving ? null : () => _save(frame),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.cyan,
+                    backgroundColor: context.colors.accent,
                     foregroundColor: Colors.white,
                     surfaceTintColor: Colors.transparent,
                     elevation: 0,
@@ -347,9 +366,9 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
               key: ValueKey(
                   _selectedImage!.path + _selectedImage!.lastModifiedSync().toString()),
               errorBuilder: (_, __, ___) =>
-                  Container(decoration: BackgroundSpec.defaultDecoration),
+                  Container(decoration: BackgroundSpec.defaultDecorationFor(context)),
             )
-                : Container(decoration: BackgroundSpec.defaultDecoration),
+                : Container(decoration: BackgroundSpec.defaultDecorationFor(context)),
           ),
           Positioned(
             top: 0,
@@ -366,7 +385,7 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
               height: a,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.grey[300],
+                color: context.colors.border,
               ),
               child: ClipOval(
                 child: _profilePic != null && _profilePic!.existsSync()
@@ -385,7 +404,7 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
     final hasPic = _selectedImage != null;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.background,
       body: Column(
         children: [
           _preview(),
@@ -400,7 +419,7 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
                 if (hasPic)
                   TextButton(
                     onPressed: _removeBackground,
-                    style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+                    style: TextButton.styleFrom(foregroundColor: context.colors.textMuted),
                     child: const Text('Remove'),
                   ),
               ],
@@ -414,7 +433,7 @@ class _BackgroundPicScreenState extends State<BackgroundPicScreen> {
                 hasPic
                     ? 'Pick a new photo to replace your background.'
                     : 'Optional. Without one, your profile uses a calm default.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                style: TextStyle(color: context.colors.textMuted, fontSize: 13),
               ),
             ),
           ),

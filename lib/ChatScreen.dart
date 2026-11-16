@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/services.dart';
 import 'message_service.dart';
 import 'user_service.dart';
@@ -148,11 +149,15 @@ class _ChatScreenState extends State<ChatScreen> {
     final wallpaperUrl = settings?.wallpaperUrl;
     final hasWallpaper = wallpaperUrl != null;
     final light = hasWallpaper && (settings?.wallpaperTopDark ?? false);
-    final barColor = light ? Colors.white : Colors.black;
+    // No wallpaper: plain title bar in the app's own text color.
+    final barColor = light
+        ? Colors.white
+        : (hasWallpaper ? context.colors.text : context.colors.text);
+    final lightBar = light || (!hasWallpaper && context.isDark);
     final topPad = MediaQuery.of(context).padding.top + kToolbarHeight;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.background,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -160,7 +165,7 @@ class _ChatScreenState extends State<ChatScreen> {
         scrolledUnderElevation: 0,
         elevation: 0,
         systemOverlayStyle:
-        light ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        lightBar ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _openManage,
@@ -186,7 +191,11 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
+                  border: Border.all(
+                      color: hasWallpaper
+                          ? Colors.white
+                          : context.colors.background,
+                      width: 1.5),
                 ),
                 child: MemberAvatar(userId: widget.friendUserId, size: 30),
               ),
@@ -229,8 +238,8 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               Expanded(
                 child: _isLoading
-                    ? const Center(
-                    child: CircularProgressIndicator(color: Colors.cyan))
+                    ? Center(
+                    child: CircularProgressIndicator(color: context.colors.accent))
                     : StreamBuilder<List<Message>>(
                   stream:
                   _messageService.getChatMessages(widget.friendUserId),
@@ -301,9 +310,9 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: context.colors.surfaceMuted,
         borderRadius: BorderRadius.circular(12),
-        border: const Border(left: BorderSide(color: Colors.cyan, width: 4)),
+        border: Border(left: BorderSide(color: context.colors.accent, width: 4)),
       ),
       child: Row(
         children: [
@@ -354,8 +363,8 @@ class ChatMessageWidget extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: context.colors.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
@@ -367,7 +376,7 @@ class ChatMessageWidget extends StatelessWidget {
                 height: 4,
                 margin: const EdgeInsets.only(top: 12, bottom: 20),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: context.colors.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -384,7 +393,7 @@ class ChatMessageWidget extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               ListTile(
-                leading: const Icon(Icons.reply, color: Colors.black87),
+                leading: Icon(Icons.reply, color: context.colors.text),
                 title: const Text("Reply"),
                 onTap: () {
                   Navigator.pop(context);

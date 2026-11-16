@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'BioManager.dart';
 
 class BioScreen extends StatefulWidget {
@@ -46,18 +47,18 @@ class _BioScreenState extends State<BioScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: context.colors.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: const Text('Bio',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 18)),
+        iconTheme: IconThemeData(color: context.colors.text),
+        title: Text('Bio',
+            style: TextStyle(color: context.colors.text, fontWeight: FontWeight.w600, fontSize: 18)),
         centerTitle: true,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          ? Center(child: CircularProgressIndicator(color: context.colors.accent))
           : Padding(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
         child: Column(
@@ -71,12 +72,12 @@ class _BioScreenState extends State<BioScreen> {
               maxLength: BioManager.maxLength,
               textAlign: TextAlign.center,
               textCapitalization: TextCapitalization.sentences,
-              style: TextStyle(fontSize: 15, color: Colors.grey[800], height: 1.3),
+              style: TextStyle(fontSize: 15, color: context.colors.text, height: 1.3),
               decoration: InputDecoration(
                 hintText: 'Tell people a little about you',
-                hintStyle: TextStyle(color: Colors.grey[500]),
+                hintStyle: TextStyle(color: context.colors.textFaint),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: context.colors.surfaceMuted,
                 contentPadding: const EdgeInsets.all(16),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -84,7 +85,7 @@ class _BioScreenState extends State<BioScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: Colors.cyan, width: 1.5),
+                  borderSide: BorderSide(color: context.colors.accent, width: 1.5),
                 ),
               ),
             ),
@@ -99,7 +100,7 @@ class _BioScreenState extends State<BioScreen> {
                   child: ElevatedButton(
                     onPressed: _saving ? null : _save,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.cyan,
+                      backgroundColor: context.colors.accent,
                       foregroundColor: Colors.white,
                       surfaceTintColor: Colors.transparent,
                       elevation: 0,

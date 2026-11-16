@@ -14,6 +14,9 @@ import 'ProfilePicManager.dart';
 import 'StoryMediaItem.dart';
 import 'VideoClipPlayer.dart';
 import 'CircleRevealTransition.dart';
+import 'StoryRing.dart';
+import 'DailyShare.dart';
+import 'package:video_player/video_player.dart';
 
 class StoryBar extends StatefulWidget {
   final void Function(Offset tapPosition) onTapOwnStory;
@@ -267,31 +270,12 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
     }
   }
 
-  void _openStory(Offset tapPosition) async {
-    if (FirebaseAuth.instance.currentUser == null) return;
-    final items = await FriendDailyService.getFriendStoryPhotos(widget.friendUserId);
-    if (!mounted) return;
-    if (items.isEmpty) return;
-
-    await FriendDailyService.markStoryViewed(widget.friendUserId);
-
-    // If you've already watched some of today's posts and they've posted
-    // more since, open at the first new one (the old ones stay one tap back).
-    final seen = await StorySeen.get(widget.friendUserId);
-    final start = (seen > 0 && seen < items.length) ? seen : 0;
-    if (!mounted) return;
-
-    Navigator.push(
+  void _openStory(Offset tapPosition) {
+    FriendStory.open(
       context,
-      CircleRevealRoute(
-        center: tapPosition,
-        builder: (context) => FriendStoryViewer(
-          items: items,
-          username: widget.friendUsername,
-          userId: widget.friendUserId,
-          initialIndex: start,
-        ),
-      ),
+      userId: widget.friendUserId,
+      username: widget.friendUsername,
+      center: tapPosition,
     );
   }
 
@@ -382,9 +366,12 @@ class StoryMediaView extends StatelessWidget {
   }
 }
 
-// ─── Own story viewer (no progress bar) ──────────────────────────────────────
+// ─── Own story viewer ────────────────────────────────────────────────────────
 
-class OwnStoryViewer extends StatefulWidget {
+/// Your own story looks and plays exactly like a friend's (progress bars,
+/// auto-advance), titled "Your story". Each post counts as watched as it
+/// comes up, so the ring turns grey everywhere once you've seen them all.
+class OwnStoryViewer extends StatelessWidget {
   final List<StoryMediaItem> items;
 
   /// Which post to open on (the first one you haven't seen yet).
@@ -394,117 +381,48 @@ class OwnStoryViewer extends StatefulWidget {
       : super(key: key);
 
   @override
-  State<OwnStoryViewer> createState() => _OwnStoryViewerState();
+  Widget build(BuildContext context) {
+    return FriendStoryViewer(
+      items: items,
+      username: 'Your story',
+      initialIndex: initialIndex,
+      onShown: (i) => OwnStory.markViewed(items[i].file.path),
+    );
+  }
 }
 
-class _OwnStoryViewerState extends State<OwnStoryViewer> {
-  late int _currentIndex =
-  widget.initialIndex.clamp(0, widget.items.length - 1);
+/// Opens someone's story from anywhere (story bar, their profile): loads
+/// it, marks it watched, and starts at the first post you haven't seen.
+class FriendStory {
+  FriendStory._();
 
-  void _nextPhoto() {
-    if (_currentIndex < widget.items.length - 1) {
-      setState(() => _currentIndex++);
-    } else {
-      Navigator.pop(context);
-    }
-  }
+  static Future<void> open(
+      BuildContext context, {
+        required String userId,
+        required String username,
+        required Offset center,
+      }) async {
+    if (FirebaseAuth.instance.currentUser == null) return;
+    final items = await FriendDailyService.getFriendStoryPhotos(userId);
+    if (!context.mounted || items.isEmpty) return;
 
-  void _prevPhoto() {
-    if (_currentIndex > 0) {
-      setState(() => _currentIndex--);
-    }
-  }
+    await FriendDailyService.markStoryViewed(userId);
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTapUp: (details) {
-          final x = details.globalPosition.dx;
-          final width = MediaQuery.of(context).size.width;
-          if (x < width / 3) {
-            _prevPhoto();
-          } else {
-            _nextPhoto();
-          }
-        },
-        child: Stack(
-          children: [
-            // Blurred background + rounded photo/video
-            Positioned.fill(
-              child: StoryMediaView(media: widget.items[_currentIndex]),
-            ),
+    // If you've already watched some of today's posts and they've posted
+    // more since, open at the first new one (the old ones stay one tap back).
+    final seen = await StorySeen.get(userId);
+    final start = (seen > 0 && seen < items.length) ? seen : 0;
+    if (!context.mounted) return;
 
-            // The post's song, if it has one
-            // (Positioned so this zero-size widget doesn't shrink the Stack.)
-            Positioned(
-              left: 0,
-              top: 0,
-              child: StoryMusicLayer(
-                key: ValueKey(widget.items[_currentIndex].file.path),
-                item: widget.items[_currentIndex],
-              ),
-            ),
-
-            // Close button
-            Positioned(
-              top: 60,
-              right: 16,
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.4),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.close, color: Colors.white, size: 22),
-                ),
-              ),
-            ),
-
-            // Dot indicators (only if more than one item)
-            if (widget.items.length > 1)
-              Positioned(
-                bottom: 50,
-                left: 0,
-                right: 0,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(widget.items.length, (i) {
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      width: i == _currentIndex ? 10 : 6,
-                      height: i == _currentIndex ? 10 : 6,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i == _currentIndex
-                            ? Colors.white
-                            : Colors.white.withOpacity(0.4),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-
-            // Counter (only if more than one item)
-            if (widget.items.length > 1)
-              Positioned(
-                bottom: 24,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Text(
-                    '${_currentIndex + 1} of ${widget.items.length}',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-          ],
+    await Navigator.push(
+      context,
+      CircleRevealRoute(
+        center: center,
+        builder: (context) => FriendStoryViewer(
+          items: items,
+          username: username,
+          userId: userId,
+          initialIndex: start,
         ),
       ),
     );
@@ -521,12 +439,16 @@ class FriendStoryViewer extends StatefulWidget {
   /// Which post to open on (the first one you haven't seen yet).
   final int initialIndex;
 
+  /// Called with each post's index as it comes on screen.
+  final void Function(int index)? onShown;
+
   const FriendStoryViewer({
     Key? key,
     required this.items,
     required this.username,
     this.userId = '',
     this.initialIndex = 0,
+    this.onShown,
   }) : super(key: key);
 
   @override
@@ -547,13 +469,121 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
     _startProgress();
   }
 
-  void _startProgress() {
-    if (widget.userId.isNotEmpty) {
-      StorySeen.set(widget.userId, _currentIndex + 1);
+  // Videos play for their real length instead of the 5 seconds a photo
+  // gets (looked up once per video).
+  final Map<String, Duration> _videoLengths = {};
+
+  Future<Duration> _lengthOf(StoryMediaItem item) async {
+    if (!item.isVideo) return _photoDuration;
+    final known = _videoLengths[item.file.path];
+    if (known != null) return known;
+    final c = VideoPlayerController.file(item.file);
+    var length = _photoDuration;
+    try {
+      await c.initialize();
+      final d = c.value.duration;
+      if (d > Duration.zero) length = d;
+    } catch (_) {
+    } finally {
+      c.dispose();
     }
+    _videoLengths[item.file.path] = length;
+    return length;
+  }
+
+  // The Daily the post on screen was added from (public ones only).
+  Map<String, dynamic>? _source;
+
+  Future<void> _resolveSource(int index) async {
+    _source = null; // the next post's tag (if any) fades in once known
+    final item = widget.items[index];
+    final src = item.source ?? await StorySource.lookup(item.file);
+    if (!mounted || index != _currentIndex) return;
+    final title = (src?['dailyTitle'] as String?)?.trim() ?? '';
+    final show = src != null &&
+        src['private'] != true &&
+        title.isNotEmpty &&
+        (src['dailyId'] as String?)?.isNotEmpty == true;
+    setState(() => _source = show ? src : null);
+  }
+
+  /// Close the story and open the Daily the post came from.
+  void _openSourceDaily() {
+    final id = _source?['dailyId'] as String?;
+    if (id == null) return;
+    DailyShareLink.prepare(id);
+    final nav = Navigator.of(context);
+    nav.pop();
+    DailyShareLink.open(nav.context, id);
+  }
+
+  Widget _sourceTag(double bottomInset) {
+    final title = (_source?['dailyTitle'] as String?)?.trim() ?? '';
+    return Positioned(
+      left: 14,
+      bottom: bottomInset + 18,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: _source == null
+            ? const SizedBox.shrink()
+            : GestureDetector(
+          key: ValueKey(title),
+          behavior: HitTestBehavior.opaque,
+          onTap: _openSourceDaily,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.7),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.38),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.18), width: 0.8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wb_sunny_outlined,
+                      size: 13, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'From $title',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right_rounded,
+                      size: 15, color: Colors.white.withOpacity(0.8)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startProgress() async {
+    final index = _currentIndex;
+    _resolveSource(index);
+    if (widget.userId.isNotEmpty) {
+      StorySeen.set(widget.userId, index + 1);
+    }
+    widget.onShown?.call(index);
     _progressController.reset();
-    _progressController.forward().then((_) {
-      if (mounted) _nextPhoto();
+    final length = await _lengthOf(widget.items[index]);
+    if (!mounted || index != _currentIndex) return;
+    _progressController.duration = length;
+    _progressController.forward(from: 0).then((_) {
+      if (mounted && index == _currentIndex) _nextPhoto();
     });
   }
 
@@ -581,6 +611,8 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.of(context).padding.top;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -611,11 +643,14 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
               ),
             ),
 
-            // Progress bars
+            // "From ___" tag when the post came from a public Daily
+            _sourceTag(bottomInset),
+
+            // Progress bars, just under the status bar
             Positioned(
-              top: 60,
-              left: 12,
-              right: 12,
+              top: topInset + 8,
+              left: 10,
+              right: 10,
               child: Row(
                 children: List.generate(widget.items.length, (i) {
                   return Expanded(
@@ -630,16 +665,16 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
                             value: _progressController.value,
                             valueColor:
                             const AlwaysStoppedAnimation(Colors.white),
-                            backgroundColor: Colors.white.withOpacity(0.4),
-                            minHeight: 3,
+                            backgroundColor: Colors.white.withOpacity(0.35),
+                            minHeight: 2.5,
                           ),
                         )
                             : LinearProgressIndicator(
                           value: i < _currentIndex ? 1.0 : 0.0,
                           valueColor:
                           const AlwaysStoppedAnimation(Colors.white),
-                          backgroundColor: Colors.white.withOpacity(0.4),
-                          minHeight: 3,
+                          backgroundColor: Colors.white.withOpacity(0.35),
+                          minHeight: 2.5,
                         ),
                       ),
                     ),
@@ -648,51 +683,40 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
               ),
             ),
 
-            // Username
+            // Name on the left, plain X on the right, both under the bars
             Positioned(
-              top: 74,
-              left: 16,
-              child: Text(
-                widget.username,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
-                ),
-              ),
-            ),
-
-            // Close button
-            Positioned(
-              top: 60,
-              right: 16,
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.4),
-                    shape: BoxShape.circle,
+              top: topInset + 18,
+              left: 14,
+              right: 4,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+                      ),
+                    ),
                   ),
-                  child: const Icon(Icons.close, color: Colors.white, size: 22),
-                ),
-              ),
-            ),
-
-            // Counter
-            Positioned(
-              bottom: 24,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Text(
-                  '${_currentIndex + 1} of ${widget.items.length}',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 14,
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => Navigator.pop(context),
+                    child: const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                        size: 28,
+                        shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ],

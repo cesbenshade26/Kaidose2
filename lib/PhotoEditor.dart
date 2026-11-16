@@ -50,6 +50,9 @@ class PhotoEditor {
         bool withAudio = false,
         bool storyLayout = false,
         bool allowCrop = true,
+        String doneLabel = 'Done',
+        bool returnUnchanged = false,
+        bool composite = false,
       }) {
     return Navigator.of(context).push<EditResult>(
       PageRouteBuilder<EditResult>(
@@ -62,6 +65,9 @@ class PhotoEditor {
           withAudio: withAudio,
           storyLayout: storyLayout && !isVideo,
           allowCrop: allowCrop,
+          doneLabel: doneLabel,
+          returnUnchanged: returnUnchanged,
+          composite: composite,
         ),
         transitionsBuilder: (_, anim, __, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
@@ -365,12 +371,26 @@ class _PhotoEditorScreen extends StatefulWidget {
   final bool withAudio;
   final bool storyLayout; // Daily photos: edit on the whole story screen
   final bool allowCrop;
+
+  /// Label of the main button ("Done", or "Post" when posting straight away).
+  final String doneLabel;
+
+  /// When true, the main button hands back the file even if nothing was
+  /// edited (closing with X still returns null).
+  final bool returnUnchanged;
+
+  /// The file passed in is already a whole story-shaped picture.
+  final bool composite;
+
   const _PhotoEditorScreen({
     required this.file,
     required this.isVideo,
     required this.withAudio,
     required this.storyLayout,
     required this.allowCrop,
+    this.doneLabel = 'Done',
+    this.returnUnchanged = false,
+    this.composite = false,
   });
 
   @override
@@ -702,7 +722,9 @@ class _PhotoEditorScreenState extends State<_PhotoEditorScreen> {
   Future<void> _done() async {
     if (_saving) return;
     if (!_changed) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(widget.returnUnchanged
+          ? EditResult(widget.file, composite: widget.composite)
+          : null);
       return;
     }
     final music = widget.withAudio ? _music : null;
@@ -710,7 +732,8 @@ class _PhotoEditorScreenState extends State<_PhotoEditorScreen> {
 
     if (!widget.isVideo && !hasOverlay) {
       // Crop only: the cropped file is already the result.
-      Navigator.of(context).pop(EditResult(_current));
+      Navigator.of(context)
+          .pop(EditResult(_current, composite: widget.composite));
       return;
     }
 
@@ -723,7 +746,9 @@ class _PhotoEditorScreenState extends State<_PhotoEditorScreen> {
       widget.isVideo ? await _exportVideo() : await _exportPhoto();
       if (mounted) {
         Navigator.of(context).pop(EditResult(out,
-            music: music, composite: widget.storyLayout && !widget.isVideo));
+            music: music,
+            composite: (widget.storyLayout || widget.composite) &&
+                !widget.isVideo));
       }
     } catch (e) {
       print('PhotoEditor: export failed: $e');
@@ -920,7 +945,7 @@ class _PhotoEditorScreenState extends State<_PhotoEditorScreen> {
                 color: _accent,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Text(drawing ? 'Done drawing' : 'Done',
+              child: Text(drawing ? 'Done drawing' : widget.doneLabel,
                   style: const TextStyle(
                       color: Colors.white,
                       fontSize: 15,

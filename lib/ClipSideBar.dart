@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:math' as math;
 import 'Share.dart';
 import 'ArchiveStorage.dart';
 import 'SavedItemStorage.dart';
@@ -47,29 +46,47 @@ class _ClipSideBarState extends State<ClipSideBar>
   bool _isSaving = false;
   bool _isSaved = false;
 
-  // Nullable so dispose() is safe even if initState didn't finish
-  AnimationController? _burstController;
-  Animation<double>? _burstScale;
-  Animation<double>? _burstOpacity;
+  // The heart's "pop" when liked (squish, overshoot, settle) and a small
+  // dip when unliked. Nullable so dispose() is safe even if initState
+  // didn't finish.
+  AnimationController? _popController;
+  Animation<double>? _likeScale;
+  Animation<double>? _unlikeScale;
+  bool _poppingLike = true;
 
   @override
   void initState() {
     super.initState();
 
-    _burstController = AnimationController(
+    _popController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 450),
     );
-    _burstScale = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-          parent: _burstController!,
-          curve: Curves.easeOut),
-    );
-    _burstOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(
-          parent: _burstController!,
-          curve: const Interval(0.5, 1.0, curve: Curves.easeIn)),
-    );
+    _likeScale = TweenSequence<double>([
+      TweenSequenceItem(
+          tween: Tween(begin: 1.0, end: 0.72)
+              .chain(CurveTween(curve: Curves.easeIn)),
+          weight: 18),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.72, end: 1.28)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 32),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.28, end: 0.94)
+              .chain(CurveTween(curve: Curves.easeInOut)),
+          weight: 25),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.94, end: 1.0)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 25),
+    ]).animate(_popController!);
+    _unlikeScale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.82), weight: 40),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.82, end: 1.0)
+              .chain(CurveTween(curve: Curves.easeOut)),
+          weight: 60),
+    ]).animate(_popController!);
 
     _loadLikeState();
     widget.onLikeTriggerReady?.call(triggerLike);
@@ -77,7 +94,7 @@ class _ClipSideBarState extends State<ClipSideBar>
 
   @override
   void dispose() {
-    _burstController?.dispose();
+    _popController?.dispose();
     super.dispose();
   }
 
@@ -106,14 +123,22 @@ class _ClipSideBarState extends State<ClipSideBar>
     }
   }
 
+  /// Like / unlike. The heart changes (and pops) the instant it's tapped;
+  /// the save happens behind it and is undone on screen if it fails.
   Future<void> triggerLike() async {
     if (_uid == null || _loadingLike) return;
+    final wasLiked = _liked;
 
-    if (!_liked) {
-      _burstController?.forward(from: 0);
-    }
+    _poppingLike = !wasLiked;
+    _popController?.forward(from: 0);
+    setState(() {
+      _loadingLike = true;
+      _liked = !wasLiked;
+      _likeCount = wasLiked
+          ? (_likeCount - 1).clamp(0, 999999999)
+          : _likeCount + 1;
+    });
 
-    setState(() => _loadingLike = true);
     try {
       final likeRef = _firestore
           .collection('clips')
@@ -122,24 +147,12 @@ class _ClipSideBarState extends State<ClipSideBar>
           .doc(_uid);
       final clipRef = _firestore.collection('clips').doc(widget.clipId);
 
-      if (_liked) {
+      if (wasLiked) {
         await likeRef.delete();
         await clipRef.update({'likeCount': FieldValue.increment(-1)});
-        if (mounted) {
-          setState(() {
-            _liked = false;
-            _likeCount = (_likeCount - 1).clamp(0, 999999999);
-          });
-        }
       } else {
         await likeRef.set({'likedAt': FieldValue.serverTimestamp()});
         await clipRef.update({'likeCount': FieldValue.increment(1)});
-        if (mounted) {
-          setState(() {
-            _liked = true;
-            _likeCount += 1;
-          });
-        }
         if (widget.creatorUid != null) {
           FeedService.recordClipEvent(
               creatorUid: widget.creatorUid!,
@@ -149,6 +162,15 @@ class _ClipSideBarState extends State<ClipSideBar>
       }
     } catch (e) {
       print('ClipSideBar: like error: $e');
+      // Put it back the way it was.
+      if (mounted) {
+        setState(() {
+          _liked = wasLiked;
+          _likeCount = wasLiked
+              ? _likeCount + 1
+              : (_likeCount - 1).clamp(0, 999999999);
+        });
+      }
     } finally {
       if (mounted) setState(() => _loadingLike = false);
     }
@@ -279,41 +301,36 @@ class _ClipSideBarState extends State<ClipSideBar>
 
   @override
   Widget build(BuildContext context) {
-    // Even spacing, a 44px tap area for every button, and a count only
-    // under the buttons that have one (no empty label gaps).
-    const gap = SizedBox(height: 14);
+    // Tight, even spacing; a 44px tap area for every button; a count only
+    // under the buttons that have one.
+    const gap = SizedBox(height: 6);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Like + spark burst
+        // Like: the heart squishes, pops past full size and settles as it
+        // fills in; unliking gives a small dip.
         _SideButton(
           label: _formatCount(_likeCount),
           onTap: triggerLike,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              if (_burstController != null)
-                AnimatedBuilder(
-                  animation: _burstController!,
-                  builder: (context, child) => Opacity(
-                    opacity: _burstOpacity?.value ?? 0,
-                    child: CustomPaint(
-                      size: const Size(44, 44),
-                      painter: _SparkPainter(progress: _burstScale?.value ?? 0),
-                    ),
-                  ),
-                ),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: Icon(
-                  _liked ? Icons.favorite : Icons.favorite_border,
-                  key: ValueKey(_liked),
-                  color: _liked ? Colors.red : Colors.white,
-                  size: 30,
-                  shadows: _iconShadow,
-                ),
+          child: AnimatedBuilder(
+            animation: _popController ?? const AlwaysStoppedAnimation(0.0),
+            builder: (context, child) {
+              final anim = _poppingLike ? _likeScale : _unlikeScale;
+              return Transform.scale(scale: anim?.value ?? 1.0, child: child);
+            },
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 160),
+              switchInCurve: Curves.easeOut,
+              transitionBuilder: (child, animation) =>
+                  FadeTransition(opacity: animation, child: child),
+              child: Icon(
+                _liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                key: ValueKey(_liked),
+                color: _liked ? const Color(0xFFFF3B5C) : Colors.white,
+                size: 32,
+                shadows: _iconShadow,
               ),
-            ],
+            ),
           ),
         ),
         gap,
@@ -322,16 +339,20 @@ class _ClipSideBarState extends State<ClipSideBar>
         _SideButton(
           label: _formatCount(_commentCount),
           onTap: widget.onCommentTap,
-          child: const Icon(Icons.chat_bubble_outline,
-              color: Colors.white, size: 27, shadows: _iconShadow),
+          child: const Icon(Icons.chat_bubble_outline_rounded,
+              color: Colors.white, size: 29, shadows: _iconShadow),
         ),
         gap,
 
         // Share
         _SideButton(
           onTap: _handleShareTap,
-          child: const Icon(Icons.reply,
-              color: Colors.white, size: 30, shadows: _iconShadow),
+          // A forward arrow (the reply arrow, mirrored).
+          child: Transform.flip(
+            flipX: true,
+            child: const Icon(Icons.reply_rounded,
+                color: Colors.white, size: 32, shadows: _iconShadow),
+          ),
         ),
         gap,
 
@@ -346,9 +367,9 @@ class _ClipSideBarState extends State<ClipSideBar>
                 color: Colors.white, strokeWidth: 2.5),
           )
               : Icon(
-            _isSaved ? Icons.bookmark : Icons.bookmark_border,
+            _isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
             color: Colors.white,
-            size: 28,
+            size: 30,
             shadows: _iconShadow,
           ),
         ),
@@ -358,50 +379,7 @@ class _ClipSideBarState extends State<ClipSideBar>
 }
 
 // Soft shadow so white icons stay visible on bright clips.
-const List<Shadow> _iconShadow = [Shadow(color: Colors.black38, blurRadius: 6)];
-
-// ─── Spark painter ────────────────────────────────────────────────────────────
-
-class _SparkPainter extends CustomPainter {
-  final double progress;
-  static const int _sparkCount = 8;
-
-  const _SparkPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.red
-      ..strokeWidth = 2.0
-      ..strokeCap = StrokeCap.round;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    const minRadius = 16.0;
-    const maxRadius = 24.0;
-    const sparkLength = 8.0;
-
-    for (int i = 0; i < _sparkCount; i++) {
-      final angle = (2 * math.pi / _sparkCount) * i;
-      final innerRadius = minRadius + (maxRadius - minRadius) * progress;
-      final outerRadius = innerRadius + sparkLength * progress;
-
-      final start = Offset(
-        center.dx + innerRadius * math.cos(angle),
-        center.dy + innerRadius * math.sin(angle),
-      );
-      final end = Offset(
-        center.dx + outerRadius * math.cos(angle),
-        center.dy + outerRadius * math.sin(angle),
-      );
-
-      canvas.drawLine(start, end, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_SparkPainter oldDelegate) =>
-      oldDelegate.progress != progress;
-}
+const List<Shadow> _iconShadow = [Shadow(color: Colors.black45, blurRadius: 6)];
 
 // ─── Side button ──────────────────────────────────────────────────────────────
 
@@ -422,7 +400,7 @@ class _SideButton extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(width: 44, height: 44, child: Center(child: child)),
+          SizedBox(width: 44, height: 40, child: Center(child: child)),
           if (label.isNotEmpty)
             Text(
               label,
@@ -430,7 +408,7 @@ class _SideButton extends StatelessWidget {
                 color: Colors.white,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                height: 1.1,
+                height: 1.0,
                 shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
               ),
             ),

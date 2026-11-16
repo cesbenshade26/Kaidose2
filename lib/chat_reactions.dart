@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:lottie/lottie.dart';
 
 // Reaction model
@@ -84,7 +85,7 @@ class ReactionPicker extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.isDark ? context.colors.surfaceMuted : context.colors.surface,
         borderRadius: BorderRadius.circular(25),
         boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))],
       ),
@@ -145,8 +146,10 @@ class MessageReactionsDisplay extends StatelessWidget {
                 if (count > 1) ...[
                   const SizedBox(width: 3),
                   Text(count.toString(),
-                      style: const TextStyle(
-                          fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: context.colors.text)),
                 ],
               ],
             ),

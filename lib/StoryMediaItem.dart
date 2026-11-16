@@ -12,5 +12,14 @@ class StoryMediaItem {
   /// The song attached to this post, if any.
   final MusicTrack? music;
 
-  StoryMediaItem({required this.file, required this.isVideo, this.music});
+  /// Set when the post was added from a Daily ("Add to My Daily"):
+  /// {dailyId, dailyTitle, private}. Shows a small "From ___" tag.
+  final Map<String, dynamic>? source;
+
+  StoryMediaItem({
+    required this.file,
+    required this.isVideo,
+    this.music,
+    this.source,
+  });
 }

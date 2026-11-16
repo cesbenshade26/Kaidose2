@@ -280,6 +280,36 @@ class GroupChatService {
     });
   }
 
+  /// A clip shared into the group from Clips (plays right in the chat).
+  Future<void> sendSharedClip({
+    required String groupId,
+    required String senderUsername,
+    required String clipId,
+    required String videoUrl,
+    String caption = '',
+    String? thumbUrl,
+  }) async {
+    final uid = currentUserId;
+    if (uid == null) return;
+    final ref = _groups.doc(groupId);
+    await ref.collection('messages').add({
+      'text': caption,
+      'videoUrl': videoUrl,
+      if (thumbUrl != null) 'thumbUrl': thumbUrl,
+      'clipId': clipId,
+      'senderId': uid,
+      'senderUsername': senderUsername,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+    await ref.update({
+      'lastMessageText': caption.isNotEmpty ? caption : 'Clip',
+      'lastSenderUsername': senderUsername,
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastKind': 'clip',
+      ...await _unreadBumps(groupId, uid, 'clip'),
+    });
+  }
+
   /// `unread.<member>.<kind>: +1` for everyone except the sender.
   Future<Map<String, Object>> _unreadBumps(
       String groupId, String senderUid, String kind) async {

@@ -7,6 +7,7 @@ import 'user_service.dart';
 import 'ManageDaily.dart';
 import 'friend_request_service.dart';
 import 'FeedService.dart';
+import 'GroupAvatar.dart';
 import 'UnifiedMediaPicker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -412,25 +413,7 @@ class _FriendPickerForDailyState extends State<_FriendPickerForDaily> {
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.cyan.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        friendName.isNotEmpty
-                            ? friendName[0].toUpperCase()
-                            : '?',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.cyan[700]),
-                      ),
-                    ),
-                  ),
+                  MemberAvatar(userId: friendId, size: 50),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

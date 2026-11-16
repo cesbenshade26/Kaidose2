@@ -5,48 +5,60 @@ import 'message_service.dart';
 import 'user_service.dart';
 import 'SendToDailySelector.dart';
 import 'NativeShareBar.dart';
+import 'GroupAvatar.dart';
+import 'GroupChatService.dart';
+import 'ChatUnread.dart' show ChatAvatar;
+import 'DailyShare.dart';
+import 'AddToMyDaily.dart';
 
-/// Opens the generic Share sheet — a bottom sheet matching the same
-/// look/behavior as ClipCommentSheet (rounded white card sliding up from
-/// the bottom, drag-to-dismiss) with a horizontally scrollable row of the
-/// user's friends near the top. Call this from anywhere a "share" action
-/// is needed. Pass [clipId] so tapping a friend actually sends that clip
-/// into their chat, and "Send to Daily" actually sends it to whichever
-/// Dailies get checked; omit it to fall back to a plain friend picker
-/// (pass [onFriendSelected] yourself for custom behavior in that case).
+/// Opens the Share sheet (rounded white card sliding up from the bottom,
+/// drag to dismiss). One row holds the quick actions, then your group
+/// chats, then your friends, each with their picture; tap one to send.
+///
+///  * [clipId]: sharing a clip. Actions: Add to My Daily, Send to Daily.
+///  * [daily]: sharing a Daily message. Action: Add to My Daily.
+///    [onAddToMyDaily] does the adding (the message knows its own media).
+///  * Neither: a plain friend picker; pass [onFriendSelected].
 Future<void> showShareSheet(
     BuildContext context, {
       void Function(String friendUserId, String friendUsername)? onFriendSelected,
       String? clipId,
+      SharedDailyContent? daily,
+      VoidCallback? onAddToMyDaily,
     }) {
+  // Runs after the sheet closes, on the screen underneath.
+  final VoidCallback? addToMyDaily = onAddToMyDaily ??
+      (clipId != null ? () => AddToMyDaily.fromClip(context, clipId) : null);
+
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (context) => ShareSheet(
-      onClose: () => Navigator.pop(context),
+    builder: (sheetContext) => ShareSheet(
+      onClose: () => Navigator.pop(sheetContext),
       onFriendSelected: onFriendSelected,
       clipId: clipId,
+      daily: daily,
+      onAddToMyDaily: addToMyDaily,
     ),
   );
 }
 
-/// Generic share bottom sheet content. When [clipId] is provided, tapping a
-/// friend sends that clip straight into the friend's chat via
-/// MessageService — no confirmation step — and "Send to Daily" sends it to
-/// whichever Dailies get checked. When [clipId] is omitted, the sheet is
-/// purely a friend picker: [onFriendSelected] fires on tap and nothing is
-/// sent, so this stays reusable for non-clip sharing later.
+/// Generic share bottom sheet content. See [showShareSheet].
 class ShareSheet extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(String friendUserId, String friendUsername)? onFriendSelected;
   final String? clipId;
+  final SharedDailyContent? daily;
+  final VoidCallback? onAddToMyDaily;
 
   const ShareSheet({
     Key? key,
     required this.onClose,
     this.onFriendSelected,
     this.clipId,
+    this.daily,
+    this.onAddToMyDaily,
   }) : super(key: key);
 
   @override
@@ -57,87 +69,141 @@ class _ShareSheetState extends State<ShareSheet> {
   final MessageService _messageService = MessageService();
   final UserService _userService = UserService();
   bool _isSending = false;
+  String? _myName;
 
-  Future<void> _handleFriendTap(String friendUserId, String friendUsername) async {
-    // Caller wants custom behavior instead of the default send — defer to it.
-    if (widget.onFriendSelected != null) {
-      widget.onFriendSelected!(friendUserId, friendUsername);
-      return;
+  Future<String> _myUsername() async {
+    if (_myName != null) return _myName!;
+    var name = 'You';
+    final uid = _messageService.currentUserId;
+    if (uid != null) {
+      final user = await _userService.getUserById(uid);
+      if (user?.username != null && user!.username.isNotEmpty) {
+        name = user.username;
+      }
     }
+    _myName = name;
+    return name;
+  }
 
-    if (widget.clipId == null || _isSending) return;
+  Future<Map<String, dynamic>> _clipData() async {
+    final clipDoc = await FirebaseFirestore.instance
+        .collection('clips')
+        .doc(widget.clipId)
+        .get();
+    if (!clipDoc.exists) throw Exception('Clip not found');
+    final data = clipDoc.data()!;
+    final videoUrl = data['videoUrl'] as String? ?? '';
+    if (videoUrl.isEmpty) throw Exception('Clip has no video');
+    return data;
+  }
 
+  /// Sends to one person or group, then closes with a short confirmation.
+  Future<void> _send(String name, Future<bool> Function() send) async {
+    if (_isSending) return;
     setState(() => _isSending = true);
-
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final clipDoc = await FirebaseFirestore.instance
-          .collection('clips')
-          .doc(widget.clipId)
-          .get();
-
-      if (!clipDoc.exists) {
-        throw Exception('Clip not found');
-      }
-
-      final data = clipDoc.data()!;
-      final videoUrl = data['videoUrl'] as String? ?? '';
-      final caption = data['caption'] as String? ?? '';
-
-      if (videoUrl.isEmpty) {
-        throw Exception('Clip has no video URL');
-      }
-
-      String username = 'You';
-      final currentUid = _messageService.currentUserId;
-      if (currentUid != null) {
-        final user = await _userService.getUserById(currentUid);
-        if (user?.username != null && user!.username.isNotEmpty) {
-          username = user.username;
-        }
-      }
-
-      final success = await _messageService.sendChatMessage(
-        recipientUserId: friendUserId,
-        text: caption.isNotEmpty ? caption : 'Sent a clip',
-        senderUsername: username,
-        metadata: {
-          'type': 'clip',
-          'clipId': widget.clipId,
-          'videoUrl': videoUrl,
-        },
-      );
-
-      if (mounted) {
-        final messenger = ScaffoldMessenger.of(context);
-        widget.onClose();
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              success ? 'Sent to $friendUsername!' : 'Error sending clip',
-            ),
-            backgroundColor: success ? Colors.green : Colors.red,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+      final ok = await send();
+      if (!mounted) return;
+      widget.onClose();
+      messenger.showSnackBar(SnackBar(
+        content: Text(ok ? 'Sent to $name' : "Couldn't send to $name"),
+        backgroundColor: ok ? Colors.black87 : Colors.red,
+        duration: const Duration(seconds: 2),
+      ));
     } catch (e) {
-      print('ShareSheet: send to friend error: $e');
+      print('ShareSheet: send error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sending clip: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+        messenger.showSnackBar(SnackBar(
+          content: Text("Couldn't send: $e"),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ));
       }
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
   }
 
+  void _handleFriendTap(String friendUserId, String friendUsername) {
+    // Caller wants custom behavior instead of the default send — defer to it.
+    if (widget.onFriendSelected != null) {
+      widget.onFriendSelected!(friendUserId, friendUsername);
+      return;
+    }
+    final daily = widget.daily;
+    if (daily != null) {
+      _send(friendUsername, () async {
+        return DailyShareSender.toFriend(
+            daily, friendUserId, await _myUsername());
+      });
+      return;
+    }
+    if (widget.clipId == null) return;
+    _send(friendUsername, () async {
+      final data = await _clipData();
+      final caption = data['caption'] as String? ?? '';
+      return _messageService.sendChatMessage(
+        recipientUserId: friendUserId,
+        text: caption.isNotEmpty ? caption : 'Sent a clip',
+        senderUsername: await _myUsername(),
+        metadata: {
+          'type': 'clip',
+          'clipId': widget.clipId,
+          'videoUrl': data['videoUrl'],
+        },
+      );
+    });
+  }
+
+  void _handleGroupTap(GroupChat group, String title) {
+    final daily = widget.daily;
+    if (daily != null) {
+      _send(title, () async {
+        return DailyShareSender.toGroup(daily, group.id, await _myUsername());
+      });
+      return;
+    }
+    if (widget.clipId == null) return;
+    _send(title, () async {
+      final data = await _clipData();
+      await GroupChatService().sendSharedClip(
+        groupId: group.id,
+        senderUsername: await _myUsername(),
+        clipId: widget.clipId!,
+        videoUrl: data['videoUrl'] as String,
+        caption: data['caption'] as String? ?? '',
+        thumbUrl: data['thumbnailUrl'] as String?,
+      );
+      return true;
+    });
+  }
+
+  void _addToMyDaily() {
+    final add = widget.onAddToMyDaily;
+    widget.onClose();
+    add?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final picker = widget.onFriendSelected != null;
+    final actions = <ShareAction>[
+      if (!picker && widget.onAddToMyDaily != null)
+        ShareAction(
+          label: 'Add to My Daily',
+          icon: Icons.add_circle_outline_rounded,
+          onTap: _addToMyDaily,
+        ),
+      if (!picker && widget.clipId != null)
+        ShareAction(
+          label: 'Send to Daily',
+          icon: Icons.wb_sunny_outlined,
+          onTap: () => showSendToDailySheet(context, clipId: widget.clipId),
+        ),
+    ];
+    final shareText = widget.daily?.text ?? '';
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -191,10 +257,9 @@ class _ShareSheetState extends State<ShareSheet> {
             const SizedBox(height: 16),
 
             FriendSelectorBar(
+              actions: actions,
               onFriendTap: _handleFriendTap,
-              leadingLabel: 'Send to Daily',
-              leadingIcon: Icons.circle_outlined, // filler icon for now
-              onLeadingTap: () => showSendToDailySheet(context, clipId: widget.clipId),
+              onGroupTap: picker ? null : _handleGroupTap,
             ),
 
             if (_isSending) ...[
@@ -205,25 +270,28 @@ class _ShareSheetState extends State<ShareSheet> {
               ),
             ],
 
-            const SizedBox(height: 20),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Share via',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[600],
+            if (widget.clipId != null || shareText.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Share via',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[600],
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 4),
-
-            NativeShareBar(clipId: widget.clipId),
+              const SizedBox(height: 4),
+              NativeShareBar(
+                clipId: widget.clipId,
+                fallbackShareText: shareText.isEmpty ? null : shareText,
+              ),
+            ],
 
             const SizedBox(height: 24),
           ],
@@ -233,17 +301,26 @@ class _ShareSheetState extends State<ShareSheet> {
   }
 }
 
-/// Reusable horizontally-scrollable row of the current user's friends,
-/// each shown as a bubble avatar + name — same visual language as the
-/// friend rows in Chat.dart. Not tied to sharing specifically; usable
-/// anywhere a quick friend picker is needed.
+/// A round action bubble at the start of the share row.
+class ShareAction {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  const ShareAction(
+      {required this.label, required this.icon, required this.onTap});
+}
+
+/// Reusable horizontally-scrollable row: optional action bubbles first,
+/// then your group chats (when [onGroupTap] is set), then your friends,
+/// each with their picture and name. Usable anywhere a quick picker is
+/// needed.
 ///
-/// Optionally takes a "leading" action bubble ([leadingLabel]/[leadingIcon]/
-/// [onLeadingTap]) that renders first, before any friends, in the same
-/// scrollable row — it scrolls away with the rest of the row rather than
-/// staying pinned. Leave those null for a plain friend list.
+/// The single [leadingLabel]/[leadingIcon]/[onLeadingTap] action still
+/// works (it's added after [actions]).
 class FriendSelectorBar extends StatefulWidget {
   final void Function(String friendUserId, String friendUsername)? onFriendTap;
+  final void Function(GroupChat group, String title)? onGroupTap;
+  final List<ShareAction> actions;
   final String? leadingLabel;
   final IconData? leadingIcon;
   final VoidCallback? onLeadingTap;
@@ -251,6 +328,8 @@ class FriendSelectorBar extends StatefulWidget {
   const FriendSelectorBar({
     Key? key,
     this.onFriendTap,
+    this.onGroupTap,
+    this.actions = const [],
     this.leadingLabel,
     this.leadingIcon,
     this.onLeadingTap,
@@ -262,43 +341,50 @@ class FriendSelectorBar extends StatefulWidget {
 
 class _FriendSelectorBarState extends State<FriendSelectorBar> {
   final FriendRequestService _friendRequestService = FriendRequestService();
+  late final Stream<List<FriendRequest>> _friends =
+  _friendRequestService.getAcceptedFriends();
+  late final Stream<List<GroupChat>> _groups = GroupChatService().getMyGroups();
 
-  bool get _hasLeading =>
-      widget.leadingLabel != null &&
-          widget.leadingIcon != null &&
-          widget.onLeadingTap != null;
+  List<ShareAction> get _actions => [
+    ...widget.actions,
+    if (widget.leadingLabel != null &&
+        widget.leadingIcon != null &&
+        widget.onLeadingTap != null)
+      ShareAction(
+        label: widget.leadingLabel!,
+        icon: widget.leadingIcon!,
+        onTap: widget.onLeadingTap!,
+      ),
+  ];
 
-  Widget _buildLeadingBubble() {
+  Widget _bubble({
+    required Widget avatar,
+    required String label,
+    VoidCallback? onTap,
+    bool bold = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(right: 14),
       child: GestureDetector(
-        onTap: widget.onLeadingTap,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.15),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.cyan, width: 1.5),
-              ),
-              child: Icon(widget.leadingIcon, color: Colors.cyan[700], size: 26),
-            ),
+            SizedBox(width: 56, height: 56, child: avatar),
             const SizedBox(height: 6),
             SizedBox(
               width: 64,
               child: Text(
-                widget.leadingLabel!,
-                style: const TextStyle(
-                  fontSize: 11,
+                label,
+                style: TextStyle(
+                  fontSize: bold ? 11 : 12,
                   color: Colors.black87,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
                 ),
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                maxLines: 2,
+                maxLines: bold ? 2 : 1,
               ),
             ),
           ],
@@ -307,123 +393,94 @@ class _FriendSelectorBarState extends State<FriendSelectorBar> {
     );
   }
 
-  Widget _buildFriendBubble(FriendRequest f, String? currentUid) {
+  Widget _actionBubble(ShareAction a) {
+    return _bubble(
+      label: a.label,
+      bold: true,
+      onTap: a.onTap,
+      avatar: Container(
+        decoration: BoxDecoration(
+          color: Colors.cyan.withOpacity(0.12),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.cyan, width: 1.5),
+        ),
+        child: Icon(a.icon, color: Colors.cyan[700], size: 26),
+      ),
+    );
+  }
+
+  Widget _groupBubble(GroupChat g, String? myUid) {
+    final title = g.displayName(myUid);
+    return _bubble(
+      label: title,
+      onTap: widget.onGroupTap == null ? null : () => widget.onGroupTap!(g, title),
+      avatar: ChatAvatar(name: title, group: true, size: 56),
+    );
+  }
+
+  Widget _friendBubble(FriendRequest f, String? currentUid) {
     final isCurrentUserSender = f.fromUserId == currentUid;
     final friendName = isCurrentUserSender ? f.toUsername : f.fromUsername;
     final friendUserId = isCurrentUserSender ? f.toUserId : f.fromUserId;
-
-    return Padding(
-      padding: const EdgeInsets.only(right: 14),
-      child: GestureDetector(
-        onTap: widget.onFriendTap != null
-            ? () => widget.onFriendTap!(friendUserId, friendName)
-            : null,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: ClipOval(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned(
-                      top: 13,
-                      child: Container(
-                        width: 18,
-                        height: 18,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.cyan[700],
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: -7,
-                      child: Container(
-                        width: 49,
-                        height: 29,
-                        decoration: BoxDecoration(
-                          color: Colors.cyan[700],
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(25),
-                            topRight: Radius.circular(25),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            SizedBox(
-              width: 64,
-              child: Text(
-                friendName,
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return _bubble(
+      label: friendName,
+      onTap: widget.onFriendTap == null
+          ? null
+          : () => widget.onFriendTap!(friendUserId, friendName),
+      avatar: MemberAvatar(userId: friendUserId, size: 56),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final actions = _actions;
+    final showGroups = widget.onGroupTap != null;
+
     return SizedBox(
       height: 96,
-      child: StreamBuilder<List<FriendRequest>>(
-        stream: _friendRequestService.getAcceptedFriends(),
-        builder: (context, snapshot) {
-          final bool isLoading =
-              snapshot.connectionState == ConnectionState.waiting;
-          final friends = snapshot.data ?? [];
-          final currentUid = _friendRequestService.currentUserId;
-          final hasLeading = _hasLeading;
+      child: StreamBuilder<List<GroupChat>>(
+        stream: showGroups ? _groups : const Stream<List<GroupChat>>.empty(),
+        builder: (context, groupSnap) {
+          final groups = showGroups ? (groupSnap.data ?? const <GroupChat>[]) : const <GroupChat>[];
+          return StreamBuilder<List<FriendRequest>>(
+            stream: _friends,
+            builder: (context, snapshot) {
+              final isLoading =
+                  snapshot.connectionState == ConnectionState.waiting;
+              final friends = snapshot.data ?? [];
+              final currentUid = _friendRequestService.currentUserId;
 
-          if (!hasLeading && !isLoading && friends.isEmpty) {
-            return Center(
-              child: Text(
-                'No friends yet',
-                style: TextStyle(color: Colors.grey[500], fontSize: 14),
-              ),
-            );
-          }
-
-          final itemCount =
-              (hasLeading ? 1 : 0) + (isLoading ? 1 : friends.length);
-
-          return ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: itemCount,
-            itemBuilder: (context, index) {
-              if (hasLeading && index == 0) {
-                return _buildLeadingBubble();
-              }
-
-              final friendIndex = index - (hasLeading ? 1 : 0);
-
-              if (isLoading) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: Center(
-                    child: CircularProgressIndicator(color: Colors.cyan),
+              if (actions.isEmpty &&
+                  groups.isEmpty &&
+                  !isLoading &&
+                  friends.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No friends yet',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
                   ),
                 );
               }
 
-              return _buildFriendBubble(friends[friendIndex], currentUid);
+              final children = <Widget>[
+                for (final a in actions) _actionBubble(a),
+                for (final g in groups) _groupBubble(g, currentUid),
+                if (isLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: Center(
+                      child: CircularProgressIndicator(color: Colors.cyan),
+                    ),
+                  )
+                else
+                  for (final f in friends) _friendBubble(f, currentUid),
+              ];
+
+              return ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: children,
+              );
             },
           );
         },

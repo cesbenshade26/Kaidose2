@@ -16,6 +16,7 @@ import 'NotificationScreen.dart';
 import 'NotificationBell.dart';
 import 'friend_request_service.dart';
 import 'YourDailyBubbles.dart';
+import 'StoryRing.dart';
 import 'Add.dart';
 import 'ProfileStatsRow.dart';
 import 'auth_service.dart';
@@ -185,6 +186,18 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         _loadUsernameData();
       });
     }
+  }
+
+  void _openProfilePicScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
+    ).then((_) {
+      if (!mounted) return;
+      setState(() {
+        _profilePic = ProfilePicManager.globalProfilePic;
+      });
+    });
   }
 
   @override
@@ -512,39 +525,35 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                   children: [
                     Center(child:
                     GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const ProfilePicScreen()),
-                        ).then((_) {
-                          setState(() {
-                            _profilePic = ProfilePicManager.globalProfilePic;
-                          });
-                        });
-                      },
+                      // Tap: your story if you have one today, otherwise
+                      // your profile picture. Hold: always the picture.
+                      onLongPress: _openProfilePicScreen,
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: [
-                          Container(
-                            width: BackgroundSpec.avatarSize,
-                            height: BackgroundSpec.avatarSize,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.grey[300],
-                            ),
-                            child: ClipOval(
-                              child: _profilePic != null && _profilePic!.existsSync()
-                                  ? Image.file(
-                                _profilePic!,
-                                fit: BoxFit.cover,
-                                width: BackgroundSpec.avatarSize,
-                                height: BackgroundSpec.avatarSize,
-                                key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0);
-                                },
-                              )
-                                  : const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0),
+                          OwnStoryRing(
+                            onTapNoStory: _openProfilePicScreen,
+                            child: Container(
+                              width: BackgroundSpec.avatarSize,
+                              height: BackgroundSpec.avatarSize,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey[300],
+                              ),
+                              child: ClipOval(
+                                child: _profilePic != null && _profilePic!.existsSync()
+                                    ? Image.file(
+                                  _profilePic!,
+                                  fit: BoxFit.cover,
+                                  width: BackgroundSpec.avatarSize,
+                                  height: BackgroundSpec.avatarSize,
+                                  key: ValueKey(_profilePic!.path + _profilePic!.lastModifiedSync().toString()),
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0);
+                                  },
+                                )
+                                    : const DefaultProfilePic(size: BackgroundSpec.avatarSize, borderWidth: 0),
+                              ),
                             ),
                           ),
                           // Small "+" — post to Your Daily. Closing that screen comes

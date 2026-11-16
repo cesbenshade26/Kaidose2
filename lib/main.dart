@@ -12,12 +12,15 @@ import 'NotificationScreen.dart';
 import 'NotificationService.dart';
 import 'InterestOnboarding.dart';
 import 'Home.dart';
+import 'AppColors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    // Light / dark / system choice saved on this phone (see AppColors.dart).
+    await AppTheme.load();
     final startScreen = await _pickStartScreen();
     runApp(KaidoseApp(startScreen: startScreen));
   } catch (e) {
@@ -80,18 +83,26 @@ class KaidoseApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      // Lets a tapped push notification open the right screen.
-      navigatorKey: NotificationService.navigatorKey,
-      home: startScreen,
-      routes: {
-        '/opening': (context) => const OpeningScreen(),
-        '/user-account': (context) => const UserAccount(),
-        '/verify-email': (context) => const EmailVerificationScreen(),
-        '/forgot-password': (context) => const ForgotPasswordScreen(),
-        '/notifications': (context) => const NotificationsScreen(),
-      },
+    // Rebuilds when the light/dark choice changes in Settings. Dark mode
+    // stays off (AppTheme.darkModeReady) until every screen is converted.
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: AppTheme.mode,
+      builder: (context, _, __) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: AppTheme.effective,
+        // Lets a tapped push notification open the right screen.
+        navigatorKey: NotificationService.navigatorKey,
+        home: startScreen,
+        routes: {
+          '/opening': (context) => const OpeningScreen(),
+          '/user-account': (context) => const UserAccount(),
+          '/verify-email': (context) => const EmailVerificationScreen(),
+          '/forgot-password': (context) => const ForgotPasswordScreen(),
+          '/notifications': (context) => const NotificationsScreen(),
+        },
+      ),
     );
   }
 }

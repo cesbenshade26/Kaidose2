@@ -152,6 +152,25 @@ class YourDailyBubbleManager {
     _notifyListeners();
   }
 
+  /// "Delete bubble" in the edit card. Deletes it in Firestore first, so it
+  /// disappears for everyone who views your profile, then removes it here.
+  /// Returns false (and keeps the bubble) if the delete didn't go through.
+  static Future<bool> deleteBubble(int index) async {
+    if (index < 0 || index >= bubbles.length) return false;
+    final bubble = bubbles[index];
+    if (bubble.id != null) {
+      final ok = await DailyBubbleService.deleteBubble(bubbleId: bubble.id!);
+      if (!ok) return false;
+    }
+    bubbles.removeAt(index);
+    isCreating = false;
+    editingIndex = null;
+    draftName = '';
+    draftCover = null;
+    _notifyListeners();
+    return true;
+  }
+
   /// X button — discards the draft without touching any saved bubble.
   static void cancelCreatingBubble() {
     isCreating = false;
@@ -242,6 +261,48 @@ class _YourDailyBubbleCreatorOverlayState
     await YourDailyBubbleManager.finishCreatingBubble();
 
     if (mounted) setState(() => _isSaving = false);
+  }
+
+  Future<void> _handleDelete() async {
+    final index = YourDailyBubbleManager.editingIndex;
+    if (_isSaving || index == null) return;
+    final name = YourDailyBubbleManager.bubbles[index].name;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Delete bubble?'),
+        content: Text(
+          '${name.isNotEmpty ? '"$name"' : 'This bubble'} will be removed '
+              'from your profile for everyone. This can\'t be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isSaving = true);
+    final ok = await YourDailyBubbleManager.deleteBubble(index);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Couldn\'t delete the bubble. Try again.')),
+      );
+    }
   }
 
   @override
@@ -427,6 +488,20 @@ class _YourDailyBubbleCreatorOverlayState
                             ),
                           ),
                         ),
+                        if (isEditing) ...[
+                          const SizedBox(height: 4),
+                          TextButton(
+                            onPressed: _isSaving ? null : _handleDelete,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red,
+                            ),
+                            child: const Text(
+                              'Delete bubble',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

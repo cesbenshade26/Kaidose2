@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'YourDaily.dart';
 import 'AddClip.dart';
 
@@ -26,24 +27,24 @@ class AddWidget extends StatelessWidget {
         return const AddClipScreen(closeable: true);
       case AddDestination.yourDaily:
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: context.colors.background,
           appBar: AppBar(
-            backgroundColor: Colors.white,
+            backgroundColor: context.colors.background,
             surfaceTintColor: Colors.transparent,
-            foregroundColor: Colors.black,
+            foregroundColor: context.colors.text,
             elevation: 0,
             centerTitle: true,
             automaticallyImplyLeading: false,
             leading: IconButton(
-              icon: const Icon(Icons.close, color: Colors.black),
+              icon: Icon(Icons.close, color: context.colors.text),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
-            title: const Text(
+            title: Text(
               'Your Daily',
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black),
+                  color: context.colors.text),
             ),
           ),
           body: const YourDailyWidget(),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// What's waiting for me in one chat, read from its Firestore doc.
@@ -98,6 +99,43 @@ class ChatColors {
   static const sub = Color(0xFF8E8E93); // previews, times, icons
   static const line = Color(0xFFEFEFF1); // dividers
   static const mutedDot = Color(0xFFC7C7CC);
+}
+
+
+/// The same chat palette, picked for light or dark mode.
+class ChatPalette {
+  final Color accent, accentSoft, ink, sub, line, mutedDot;
+  const ChatPalette({
+    required this.accent,
+    required this.accentSoft,
+    required this.ink,
+    required this.sub,
+    required this.line,
+    required this.mutedDot,
+  });
+
+  static const light = ChatPalette(
+    accent: ChatColors.accent,
+    accentSoft: ChatColors.accentSoft,
+    ink: ChatColors.ink,
+    sub: ChatColors.sub,
+    line: ChatColors.line,
+    mutedDot: ChatColors.mutedDot,
+  );
+
+  static const dark = ChatPalette(
+    accent: Color(0xFF26C6DA),
+    accentSoft: Color(0xFF15373C),
+    ink: Color(0xFFF2F2F7),
+    sub: Color(0xFF8E8E93),
+    line: Color(0xFF2C2C2E),
+    mutedDot: Color(0xFF48484A),
+  );
+}
+
+extension ChatColorsContext on BuildContext {
+  /// Chat list colors for the current mode (light or dark).
+  ChatPalette get chatColors => isDark ? ChatPalette.dark : ChatPalette.light;
 }
 
 /// What kind of thing is new, as an icon + label.
@@ -217,19 +255,19 @@ class ChatAvatar extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: ChatColors.accentSoft,
+      decoration: BoxDecoration(
+        color: context.chatColors.accentSoft,
         shape: BoxShape.circle,
       ),
       child: group
           ? Icon(Icons.group_outlined,
-          color: ChatColors.accent, size: size * 0.46)
+          color: context.chatColors.accent, size: size * 0.46)
           : Text(
         initial,
         style: TextStyle(
           fontSize: size * 0.4,
           fontWeight: FontWeight.w700,
-          color: ChatColors.accent,
+          color: context.chatColors.accent,
         ),
       ),
     );
@@ -251,7 +289,7 @@ class ChatStatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = muted ? ChatColors.sub : ChatColors.accent;
+    final color = muted ? context.chatColors.sub : context.chatColors.accent;
     return Row(
       children: [
         Icon(icon, size: 15, color: color),
@@ -305,7 +343,7 @@ class ChatRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final highlight = unread && !muted;
     return Material(
-      color: Colors.white,
+      color: context.colors.background,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -334,19 +372,19 @@ class ChatRow extends StatelessWidget {
                               fontSize: 16,
                               fontWeight:
                               unread ? FontWeight.w700 : FontWeight.w500,
-                              color: ChatColors.ink,
+                              color: context.chatColors.ink,
                             ),
                           ),
                         ),
                         if (pinned) ...[
                           const SizedBox(width: 5),
-                          const Icon(Icons.push_pin,
-                              size: 13, color: ChatColors.sub),
+                          Icon(Icons.push_pin,
+                              size: 13, color: context.chatColors.sub),
                         ],
                         if (muted) ...[
                           const SizedBox(width: 4),
-                          const Icon(Icons.notifications_off_outlined,
-                              size: 14, color: ChatColors.sub),
+                          Icon(Icons.notifications_off_outlined,
+                              size: 14, color: context.chatColors.sub),
                         ],
                       ],
                     ),
@@ -366,7 +404,7 @@ class ChatRow extends StatelessWidget {
                       fontSize: 12,
                       fontWeight:
                       highlight ? FontWeight.w600 : FontWeight.w400,
-                      color: highlight ? ChatColors.accent : ChatColors.sub,
+                      color: highlight ? context.chatColors.accent : context.chatColors.sub,
                     ),
                   ),
                   const SizedBox(height: 7),
@@ -377,7 +415,7 @@ class ChatRow extends StatelessWidget {
                       width: 9,
                       height: 9,
                       decoration: BoxDecoration(
-                        color: muted ? ChatColors.mutedDot : ChatColors.accent,
+                        color: muted ? context.chatColors.mutedDot : context.chatColors.accent,
                         shape: BoxShape.circle,
                       ),
                     ),

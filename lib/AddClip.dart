@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
@@ -136,6 +137,13 @@ class _AddClipScreenState extends State<AddClipScreen> {
         _suggesting = false;
       });
       if (captions.isEmpty) _captionError();
+    } on FirebaseFunctionsException catch (e) {
+      // The server's own reason, e.g. "AI returned no captions".
+      print('AddClipScreen: caption suggestions failed: '
+          '${e.code} / ${e.message} / ${e.details}');
+      if (!mounted) return;
+      setState(() => _suggesting = false);
+      _captionError();
     } catch (e) {
       print('AddClipScreen: caption suggestions failed: $e');
       if (!mounted) return;
@@ -389,16 +397,16 @@ class _AddClipScreenState extends State<AddClipScreen> {
         });
       } else {
         messenger.showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('Failed to post clip. Try again.'),
-            backgroundColor: Colors.red,
+            backgroundColor: context.colors.danger,
           ),
         );
       }
     } catch (e) {
       print('AddClipScreen: post error: $e');
       messenger.showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Error: $e'), backgroundColor: context.colors.danger),
       );
     } finally {
       if (mounted) setState(() => _isPosting = false);
@@ -410,27 +418,27 @@ class _AddClipScreenState extends State<AddClipScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: context.colors.background,
         surfaceTintColor: Colors.transparent,
-        foregroundColor: Colors.black,
+        foregroundColor: context.colors.text,
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
-        title: const Text(
+        title: Text(
           'New Clip',
           style: TextStyle(
-              fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black),
+              fontSize: 18, fontWeight: FontWeight.w600, color: context.colors.text),
         ),
         leading: _hasMedia
             ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: context.colors.text),
           onPressed: _isPosting ? null : _clearMedia,
         )
             : (widget.closeable
             ? IconButton(
-          icon: const Icon(Icons.close, color: Colors.black),
+          icon: Icon(Icons.close, color: context.colors.text),
           onPressed: () => Navigator.of(context).maybePop(),
         )
             : null),
@@ -495,9 +503,9 @@ class _AddClipScreenState extends State<AddClipScreen> {
   }
 
   BoxDecoration get _cardDecoration => BoxDecoration(
-    color: Colors.grey[50],
+    color: context.colors.surfaceMuted,
     borderRadius: BorderRadius.circular(22),
-    border: Border.all(color: Colors.grey[800]!, width: 1),
+    border: Border.all(color: context.colors.text.withOpacity(0.75), width: 1),
   );
 
   Widget _buildEmptyCard() {
@@ -513,26 +521,26 @@ class _AddClipScreenState extends State<AddClipScreen> {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.colors.surface,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(color: context.colors.border),
                 ),
                 child: Icon(Icons.play_arrow_rounded,
-                    size: 34, color: Colors.grey[800]),
+                    size: 34, color: context.colors.text),
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Share a moment',
                 style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87),
+                    color: context.colors.text),
               ),
               const SizedBox(height: 6),
               Text(
                 'A video up to 60 seconds, or up to 10 photos',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 14, color: context.colors.textMuted),
               ),
               const SizedBox(height: 24),
               _primaryButton(
@@ -566,7 +574,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
         label: Text(label,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.cyan,
+          backgroundColor: context.colors.accent,
           foregroundColor: Colors.white,
           elevation: 0,
           shape:
@@ -589,8 +597,8 @@ class _AddClipScreenState extends State<AddClipScreen> {
         label: Text(label,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
         style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.black87,
-          side: BorderSide(color: Colors.grey[400]!),
+          foregroundColor: context.colors.text,
+          side: BorderSide(color: context.colors.textFaint),
           shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
@@ -729,8 +737,8 @@ class _AddClipScreenState extends State<AddClipScreen> {
 
     final c = _videoController;
     if (_isInitializing || c == null || !c.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2.5),
+      return Center(
+        child: CircularProgressIndicator(color: context.colors.accent, strokeWidth: 2.5),
       );
     }
 
@@ -873,11 +881,11 @@ class _AddClipScreenState extends State<AddClipScreen> {
                     width: size,
                     height: size,
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
+                      color: context.colors.surfaceMuted,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey[400]!),
+                      border: Border.all(color: context.colors.textFaint),
                     ),
-                    child: Icon(Icons.add, color: Colors.grey[700]),
+                    child: Icon(Icons.add, color: context.colors.textMuted),
                   ),
                 ),
               ),
@@ -895,14 +903,14 @@ class _AddClipScreenState extends State<AddClipScreen> {
       child = Row(
         key: const ValueKey('thinking'),
         children: [
-          const SizedBox(
+          SizedBox(
             width: 14,
             height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyan),
+            child: CircularProgressIndicator(strokeWidth: 2, color: context.colors.accent),
           ),
           const SizedBox(width: 8),
           Text('Writing captions...',
-              style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+              style: TextStyle(fontSize: 13, color: context.colors.textMuted)),
         ],
       );
     } else if (_suggestions.isNotEmpty) {
@@ -921,8 +929,8 @@ class _AddClipScreenState extends State<AddClipScreen> {
                     child: Text(c, overflow: TextOverflow.ellipsis),
                   ),
                   labelStyle:
-                  const TextStyle(fontSize: 13, color: Colors.black87),
-                  backgroundColor: Colors.cyan.withOpacity(0.08),
+                  TextStyle(fontSize: 13, color: context.colors.text),
+                  backgroundColor: context.colors.accent.withOpacity(0.08),
                   side: BorderSide.none,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
@@ -932,7 +940,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
             IconButton(
               tooltip: 'More ideas',
               padding: EdgeInsets.zero,
-              icon: Icon(Icons.refresh, size: 18, color: Colors.grey[600]),
+              icon: Icon(Icons.refresh, size: 18, color: context.colors.textMuted),
               onPressed: _isPosting ? null : _suggestCaptions,
             ),
           ],
@@ -947,14 +955,14 @@ class _AddClipScreenState extends State<AddClipScreen> {
           behavior: HitTestBehavior.opaque,
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.auto_awesome, size: 15, color: Colors.cyan),
+            children: [
+              Icon(Icons.auto_awesome, size: 15, color: context.colors.accent),
               SizedBox(width: 6),
               Text('Suggest a caption',
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: Colors.cyan)),
+                      color: context.colors.accent)),
             ],
           ),
         ),
@@ -982,13 +990,13 @@ class _AddClipScreenState extends State<AddClipScreen> {
             maxLines: 2,
             minLines: 1,
             textCapitalization: TextCapitalization.sentences,
-            style: const TextStyle(color: Colors.black87, fontSize: 15),
+            style: TextStyle(color: context.colors.text, fontSize: 15),
             decoration: InputDecoration(
               hintText: 'Add a caption...',
-              hintStyle: TextStyle(color: Colors.grey[500]),
-              counterStyle: TextStyle(color: Colors.grey[500], fontSize: 11),
+              hintStyle: TextStyle(color: context.colors.textFaint),
+              counterStyle: TextStyle(color: context.colors.textFaint, fontSize: 11),
               filled: true,
-              fillColor: Colors.grey[100],
+              fillColor: context.colors.surfaceMuted,
               contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               border: OutlineInputBorder(
@@ -997,7 +1005,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Colors.cyan, width: 1.5),
+                borderSide: BorderSide(color: context.colors.accent, width: 1.5),
               ),
             ),
           ),
@@ -1008,9 +1016,9 @@ class _AddClipScreenState extends State<AddClipScreen> {
             child: ElevatedButton(
               onPressed: _isPosting ? null : _post,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.cyan,
+                backgroundColor: context.colors.accent,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.cyan.withOpacity(0.4),
+                disabledBackgroundColor: context.colors.accent.withOpacity(0.4),
                 disabledForegroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(

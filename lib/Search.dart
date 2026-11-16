@@ -20,6 +20,9 @@ class _SearchScreenState extends State<SearchScreen> {
   static const _tabs = ['All', 'People', 'Dailies', 'Clips'];
   static const int _all = 0, _people = 1, _dailies = 2, _clips = 3;
 
+  /// Tab row (44) + sliding line (2) + divider (1).
+  static const double _tabsHeight = 47;
+
   /// Recent searches live for the app session.
   static final List<String> _recent = [];
 
@@ -69,16 +72,33 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The whole page scrolls: the search box and tabs slide away as you
+    // scroll down through results and slide back as soon as you scroll up
+    // a little (floating + snap), so the search box is never far away.
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildSearchBar(),
-            _buildTabs(),
-            Expanded(child: _getTabContent()),
-          ],
-        ),
+      body: NestedScrollView(
+        floatHeaderSlivers: true,
+        headerSliverBuilder: (context, innerScrolled) => [
+          SliverAppBar(
+            floating: true,
+            snap: true,
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            elevation: 0,
+            automaticallyImplyLeading: false,
+            centerTitle: false,
+            titleSpacing: 0,
+            toolbarHeight: 64,
+            title: _buildSearchBar(),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(_tabsHeight),
+              child: _buildTabs(),
+            ),
+          ),
+        ],
+        body: SafeArea(top: false, child: _getTabContent()),
       ),
     );
   }
@@ -130,50 +150,55 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildTabs() {
     final width = MediaQuery.of(context).size.width / _tabs.length;
-    return Column(
-      children: [
-        Row(
-          children: [
-            for (var i = 0; i < _tabs.length; i++)
-              Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => setState(() => _selectedTabIndex = i),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      _tabs[i],
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: _selectedTabIndex == i
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        color:
-                        _selectedTabIndex == i ? Colors.black : Colors.grey,
+    return SizedBox(
+      height: _tabsHeight,
+      child: Column(
+        children: [
+          Row(
+            children: [
+              for (var i = 0; i < _tabs.length; i++)
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _selectedTabIndex = i),
+                    child: SizedBox(
+                      height: 44,
+                      child: Center(
+                        child: Text(
+                          _tabs[i],
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: _selectedTabIndex == i
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color:
+                            _selectedTabIndex == i ? Colors.black : Colors.grey,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-        SizedBox(
-          height: 2,
-          child: Stack(
-            children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                left: width * _selectedTabIndex + width * 0.2,
-                width: width * 0.6,
-                child: Container(height: 2, color: Colors.black),
-              ),
             ],
           ),
-        ),
-        Divider(height: 1, color: Colors.grey[200]),
-      ],
+          SizedBox(
+            height: 2,
+            child: Stack(
+              children: [
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  left: width * _selectedTabIndex + width * 0.2,
+                  width: width * 0.6,
+                  child: Container(height: 2, color: Colors.black),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: Colors.grey[200]),
+        ],
+      ),
     );
   }
 

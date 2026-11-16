@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'Home.dart';
+import 'AccessContacts.dart';
+import 'GroupAvatar.dart';
+import 'friend_request_service.dart';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -24,17 +27,6 @@ const List<Map<String, dynamic>> _interestOptions = [
   {'label': 'Finance',     'emoji': '💰'},
   {'label': 'Science',     'emoji': '🔬'},
   {'label': 'Comedy',      'emoji': '😂'},
-];
-
-const List<Map<String, dynamic>> _vibeOptions = [
-  {'label': 'Chill',         'emoji': '😌'},
-  {'label': 'Competitive',   'emoji': '🔥'},
-  {'label': 'Creative',      'emoji': '✨'},
-  {'label': 'Adventurous',   'emoji': '🧗'},
-  {'label': 'Funny',         'emoji': '😂'},
-  {'label': 'Motivated',     'emoji': '🚀'},
-  {'label': 'Social',        'emoji': '🤝'},
-  {'label': 'Introspective', 'emoji': '🌙'},
 ];
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
@@ -63,12 +55,12 @@ class _OnboardingFlow extends StatefulWidget {
 class _OnboardingFlowState extends State<_OnboardingFlow>
     with SingleTickerProviderStateMixin {
 
-  static const int _totalPages = 4;
+  // Interests, one word, people you might know.
+  static const int _totalPages = 3;
   int _page = 0;
 
   // Answers
   final Set<String> _interests = {};
-  final Set<String> _vibes = {};
   final TextEditingController _wordCtrl = TextEditingController();
 
   // Slide animation
@@ -82,17 +74,21 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
   String _subtitle = '';
   double _subtitleOpacity = 0;
 
-  // Follow suggestions
-  List<Map<String, dynamic>> _users = [];
-  final Set<String> _followed = {};
-  bool _loadingUsers = true;
+  // People you might know
+  final FriendRequestService _friends = FriendRequestService();
+  _ContactsState _contactsState = _ContactsState.notAsked;
+  List<_Person> _fromContacts = [];
+  List<_Person> _popular = [];
+  bool _loadingPopular = true;
+  final Set<String> _requested = {};
+  final Set<String> _sending = {};
+  String? _myUsername;
   bool _saving = false;
 
   static const List<String> _subtitles = [
     '',
-    'Sweet. Now, what\'s your vibe?',
-    'Love it. One more thing —',
-    'Almost there — a few people you might like.',
+    'Sweet. One more thing —',
+    'Almost there — find your people.',
   ];
 
   @override
@@ -103,7 +99,9 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
       duration: const Duration(milliseconds: 400),
     );
     _setupAnimations(forward: true);
-    _loadUsers();
+    _loadMe();
+    _loadPopular();
+    _checkContacts();
     _wordCtrl.addListener(() => setState(() {}));
   }
 
@@ -119,28 +117,135 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
     ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeInCubic));
   }
 
-  Future<void> _loadUsers() async {
+  Future<void> _loadMe() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .limit(30)
-          .get();
-      final list = snap.docs
-          .where((d) => d.id != uid)
-          .map((d) => <String, dynamic>{'uid': d.id, ...d.data()})
+      final doc =
+      await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      _myUsername = doc.data()?['username'] as String?;
+    } catch (_) {}
+  }
+
+  /// Popular accounts: verified ones first, then the people whose clips get
+  /// the most likes. Shown after contacts (or alone, without contacts).
+  Future<void> _loadPopular() async {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    final out = <String, _Person>{};
+    try {
+      final db = FirebaseFirestore.instance;
+      final results = await Future.wait([
+        db.collection('users').where('verified', isEqualTo: true).limit(10).get(),
+        db.collection('clips').orderBy('likeCount', descending: true).limit(80).get(),
+      ]);
+      for (final d in results[0].docs) {
+        final name = d.data()['username'] as String?;
+        if (d.id == me || name == null || name.isEmpty) continue;
+        out[d.id] = _Person(d.id, name, 'Verified', verified: true);
+      }
+      // Total likes per creator across their most-liked clips.
+      final likes = <String, int>{};
+      final names = <String, String>{};
+      for (final d in results[1].docs) {
+        final data = d.data();
+        final uid = data['creatorUid'] as String?;
+        final name = data['creatorUsername'] as String?;
+        if (uid == null || uid == me || name == null || name.isEmpty) continue;
+        likes[uid] = (likes[uid] ?? 0) + ((data['likeCount'] as num?)?.toInt() ?? 0);
+        names[uid] = name;
+      }
+      final ranked = likes.keys.toList()
+        ..sort((a, b) => likes[b]!.compareTo(likes[a]!));
+      for (final uid in ranked.take(20)) {
+        if (out.containsKey(uid)) continue;
+        final n = likes[uid]!;
+        out[uid] = _Person(uid, names[uid]!,
+            n > 0 ? 'Popular on Kaidose · ${_count(n)} likes' : 'Popular on Kaidose');
+      }
+    } catch (e) {
+      print('InterestOnboarding: popular load error: $e');
+    }
+    if (mounted) {
+      setState(() {
+        _popular = out.values.toList();
+        _loadingPopular = false;
+      });
+    }
+  }
+
+  static String _count(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return '$n';
+  }
+
+  /// If contacts access was given before (e.g. reinstall), match right away.
+  Future<void> _checkContacts() async {
+    if (await AccessContacts.hasPermission()) await _matchContacts();
+  }
+
+  Future<void> _allowContacts() async {
+    setState(() => _contactsState = _ContactsState.loading);
+    final ok = await AccessContacts.requestAccess();
+    if (!mounted) return;
+    if (!ok) {
+      setState(() => _contactsState = _ContactsState.denied);
+      return;
+    }
+    await _matchContacts();
+  }
+
+  Future<void> _matchContacts() async {
+    if (mounted) setState(() => _contactsState = _ContactsState.loading);
+    final contacts = await AccessContacts.loadContacts();
+    final matches = await AccessContacts.findOnKaidose(contacts);
+    if (!mounted) return;
+    setState(() {
+      _fromContacts = matches
+          .map((m) => _Person(
+        m.uid,
+        m.username,
+        (m.contactName != null &&
+            m.contactName!.toLowerCase() != m.username.toLowerCase())
+            ? '${m.contactName} in your contacts'
+            : 'In your contacts',
+      ))
           .toList();
-      if (mounted) setState(() { _users = list; _loadingUsers = false; });
-    } catch (_) {
-      if (mounted) setState(() => _loadingUsers = false);
+      _contactsState = _ContactsState.done;
+    });
+  }
+
+  /// Sends a real friend request right away (same as Search's Add).
+  Future<void> _add(_Person p) async {
+    if (_requested.contains(p.uid) || _sending.contains(p.uid)) return;
+    setState(() => _sending.add(p.uid));
+    final result = await _friends.sendFriendRequest(
+      toUserId: p.uid,
+      toUsername: p.username,
+      fromUsername: _myUsername ?? 'Someone',
+    );
+    if (!mounted) return;
+    setState(() {
+      _sending.remove(p.uid);
+      // "Already sent" / "already friends" also count as done here.
+      final err = '${result['error'] ?? ''}'.toLowerCase();
+      if (result['success'] == true ||
+          err.contains('already') ||
+          err.contains('sent you')) {
+        _requested.add(p.uid);
+      }
+    });
+    if (result['success'] != true && !_requested.contains(p.uid) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't send that request. Try again.")),
+      );
     }
   }
 
   bool get _canProceed {
     switch (_page) {
       case 0: return _interests.isNotEmpty;
-      case 1: return _vibes.isNotEmpty;
-      case 2: return _wordCtrl.text.trim().isNotEmpty;
+      case 1: return _wordCtrl.text.trim().isNotEmpty;
       default: return true;
     }
   }
@@ -231,27 +336,14 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     try {
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+      // The one word is never shown; a Cloud Function turns it into a few
+      // starting topics for the feed (onUserOneWord).
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'interests': _interests.toList(),
-        'vibes': _vibes.toList(),
         'oneWord': _wordCtrl.text.trim(),
         'onboardingComplete': true,
         'onboardedAt': FieldValue.serverTimestamp(),
-      });
-      if (_followed.isNotEmpty) {
-        final batch = FirebaseFirestore.instance.batch();
-        for (final fid in _followed) {
-          batch.set(
-            FirebaseFirestore.instance.collection('users').doc(uid).collection('following').doc(fid),
-            {'followedAt': FieldValue.serverTimestamp()},
-          );
-          batch.set(
-            FirebaseFirestore.instance.collection('users').doc(fid).collection('followers').doc(uid),
-            {'followedAt': FieldValue.serverTimestamp()},
-          );
-        }
-        await batch.commit();
-      }
+      }, SetOptions(merge: true));
     } catch (e) {
       print('InterestOnboarding: save error: $e');
     }
@@ -356,26 +448,16 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
               : _interests.add(label);
         }),
       );
-      case 1: return _VibePage(
-        selected: _vibes,
-        onToggle: (label) => setState(() {
-          if (_vibes.contains(label)) {
-            _vibes.remove(label);
-          } else if (_vibes.length < 3) {
-            _vibes.add(label);
-          }
-        }),
-      );
-      case 2: return _OneWordPage(controller: _wordCtrl);
-      case 3: return _FollowPage(
-        users: _users,
-        followed: _followed,
-        loading: _loadingUsers,
-        onToggle: (uid) => setState(() {
-          _followed.contains(uid)
-              ? _followed.remove(uid)
-              : _followed.add(uid);
-        }),
+      case 1: return _OneWordPage(controller: _wordCtrl);
+      case 2: return _PeoplePage(
+        contactsState: _contactsState,
+        fromContacts: _fromContacts,
+        popular: _popular,
+        loadingPopular: _loadingPopular,
+        requested: _requested,
+        sending: _sending,
+        onAllowContacts: _allowContacts,
+        onAdd: _add,
       );
       default: return const SizedBox();
     }
@@ -423,7 +505,9 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
           ),
           const SizedBox(height: 10),
           GestureDetector(
-            onTap: !_saving ? () => _advance(skip: true) : null,
+            onTap: (!_saving && !_transitioning)
+                ? () => _advance(skip: true)
+                : null,
             child: Text(
               'Skip',
               style: TextStyle(
@@ -512,82 +596,6 @@ class _InterestsPage extends StatelessWidget {
   }
 }
 
-class _VibePage extends StatelessWidget {
-  final Set<String> selected;
-  final ValueChanged<String> onToggle;
-
-  const _VibePage({required this.selected, required this.onToggle});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('What\'s your vibe?',
-              style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87)),
-          const SizedBox(height: 6),
-          Text('Pick up to 3.',
-              style: TextStyle(fontSize: 15, color: Colors.grey[500])),
-          const SizedBox(height: 24),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 2.5,
-            children: _vibeOptions.map((opt) {
-              final label = opt['label'] as String;
-              final sel = selected.contains(label);
-              final maxed = selected.length >= 3 && !sel;
-              return GestureDetector(
-                onTap: maxed ? null : () => onToggle(label),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  decoration: BoxDecoration(
-                    color: sel
-                        ? Colors.cyan
-                        : maxed
-                        ? Colors.grey[50]
-                        : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: sel ? Colors.cyan : Colors.grey[300]!,
-                        width: 1.5),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(opt['emoji'] as String,
-                          style: const TextStyle(fontSize: 20)),
-                      const SizedBox(width: 8),
-                      Text(label,
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: sel
-                                  ? Colors.white
-                                  : maxed
-                                  ? Colors.grey[400]
-                                  : Colors.black87)),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-}
-
 class _OneWordPage extends StatelessWidget {
   final TextEditingController controller;
 
@@ -595,8 +603,11 @@ class _OneWordPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+    // Scrollable: when the keyboard opens there isn't room for the big
+    // question + field, and a fixed Column overflowed (the striped error).
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -642,138 +653,234 @@ class _OneWordPage extends StatelessWidget {
   }
 }
 
-class _FollowPage extends StatelessWidget {
-  final List<Map<String, dynamic>> users;
-  final Set<String> followed;
-  final bool loading;
-  final ValueChanged<String> onToggle;
+enum _ContactsState { notAsked, loading, denied, done }
 
-  const _FollowPage({
-    required this.users,
-    required this.followed,
-    required this.loading,
-    required this.onToggle,
+class _Person {
+  final String uid;
+  final String username;
+  final String subtitle;
+  final bool verified;
+  const _Person(this.uid, this.username, this.subtitle, {this.verified = false});
+}
+
+/// "People you might know": first an ask for contacts, then friends found
+/// in contacts, then popular accounts. "Add" sends a real friend request.
+class _PeoplePage extends StatelessWidget {
+  final _ContactsState contactsState;
+  final List<_Person> fromContacts;
+  final List<_Person> popular;
+  final bool loadingPopular;
+  final Set<String> requested;
+  final Set<String> sending;
+  final VoidCallback onAllowContacts;
+  final ValueChanged<_Person> onAdd;
+
+  const _PeoplePage({
+    required this.contactsState,
+    required this.fromContacts,
+    required this.popular,
+    required this.loadingPopular,
+    required this.requested,
+    required this.sending,
+    required this.onAllowContacts,
+    required this.onAdd,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final contactIds = fromContacts.map((p) => p.uid).toSet();
+    final popularShown =
+    popular.where((p) => !contactIds.contains(p.uid)).toList();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('People you might like',
-                  style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87)),
-              const SizedBox(height: 6),
-              Text('Follow a few to get started.',
-                  style: TextStyle(fontSize: 15, color: Colors.grey[500])),
-              const SizedBox(height: 16),
-            ],
+        const Text('People you might know',
+            style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87)),
+        const SizedBox(height: 6),
+        Text('Add a few friends to get started.',
+            style: TextStyle(fontSize: 15, color: Colors.grey[500])),
+        const SizedBox(height: 20),
+
+        // Contacts
+        if (contactsState == _ContactsState.notAsked) _contactsCard(),
+        if (contactsState == _ContactsState.loading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Center(
+                child: CircularProgressIndicator(color: Colors.cyan)),
           ),
-        ),
-        Expanded(
-          child: loading
-              ? const Center(
-              child: CircularProgressIndicator(color: Colors.cyan))
-              : users.isEmpty
-              ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(
-                'You\'re one of the first ones here 👋\nCome back soon for suggestions!',
-                style: TextStyle(
-                    color: Colors.grey[500], fontSize: 15),
-                textAlign: TextAlign.center,
-              ),
-            ),
+        if (contactsState == _ContactsState.denied)
+          _note('Contacts are off. You can turn them on later in your '
+              'phone\'s Settings to find friends.'),
+        if (contactsState == _ContactsState.done) ...[
+          if (fromContacts.isEmpty)
+            _note('None of your contacts are on Kaidose yet. '
+                'Invite a few once you\'re in!')
+          else ...[
+            _sectionLabel('From your contacts'),
+            ...fromContacts.map(_row),
+            const SizedBox(height: 12),
+          ],
+        ],
+
+        // Popular
+        if (loadingPopular)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Center(
+                child: CircularProgressIndicator(color: Colors.cyan)),
           )
-              : ListView.builder(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-            itemCount: users.length,
-            itemBuilder: (context, i) {
-              final user = users[i];
-              final uid = user['uid'] as String;
-              final username =
-                  (user['username'] as String?) ?? 'Unknown';
-              final isFollowed = followed.contains(uid);
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                      color: Colors.grey[200]!, width: 1),
-                ),
-                child: Row(
+        else if (popularShown.isNotEmpty) ...[
+          _sectionLabel('Popular on Kaidose'),
+          ...popularShown.map(_row),
+        ] else if (fromContacts.isEmpty &&
+            contactsState != _ContactsState.notAsked)
+          _note('You\'re one of the first ones here 👋 '
+              'Come back soon for suggestions!'),
+      ],
+    );
+  }
+
+  Widget _contactsCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.cyan.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.contacts_outlined,
+                color: Colors.cyan, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Find friends from your contacts',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text('Only used to find people you know on Kaidose.',
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey[600])),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onAllowContacts,
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.cyan,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+            ),
+            child: const Text('Allow',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Text(text,
+        style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Colors.grey[600],
+            letterSpacing: 0.3)),
+  );
+
+  Widget _note(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 20),
+    child: Text(text,
+        style: TextStyle(fontSize: 14, color: Colors.grey[500], height: 1.35)),
+  );
+
+  Widget _row(_Person p) {
+    final done = requested.contains(p.uid);
+    final busy = sending.contains(p.uid);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          MemberAvatar(userId: p.uid, size: 44),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          username.isNotEmpty
-                              ? username[0].toUpperCase()
-                              : '?',
-                          style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.cyan[700]),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(username,
+                    Flexible(
+                      child: Text(p.username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600)),
+                              fontSize: 15.5, fontWeight: FontWeight.w600)),
                     ),
-                    GestureDetector(
-                      onTap: () => onToggle(uid),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: isFollowed
-                              ? Colors.grey[100]
-                              : Colors.cyan,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: isFollowed
-                                  ? Colors.grey[300]!
-                                  : Colors.cyan),
-                        ),
-                        child: Text(
-                          isFollowed ? 'Following' : 'Follow',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: isFollowed
-                                  ? Colors.grey[600]
-                                  : Colors.white),
-                        ),
-                      ),
-                    ),
+                    if (p.verified) ...[
+                      const SizedBox(width: 4),
+                      const Icon(Icons.verified, size: 15, color: Colors.cyan),
+                    ],
                   ],
                 ),
-              );
-            },
+                const SizedBox(height: 1),
+                Text(p.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey[500])),
+              ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: (done || busy) ? null : () => onAdd(p),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 92,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: done ? Colors.grey[100] : Colors.cyan,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: done ? Colors.grey[300]! : Colors.cyan),
+              ),
+              child: busy
+                  ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+                  : Text(
+                done ? 'Requested' : 'Add',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: done ? Colors.grey[600] : Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

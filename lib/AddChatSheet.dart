@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 
 enum AddChatOption { groupChat }
 
@@ -9,7 +10,7 @@ Future<AddChatOption?> showAddChatSheet(BuildContext context) {
     context: context,
     backgroundColor: Colors.transparent,
     builder: (context) => Material(
-      color: Colors.white,
+      color: context.colors.surface,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: SafeArea(
         child: Column(
@@ -20,7 +21,7 @@ Future<AddChatOption?> showAddChatSheet(BuildContext context) {
               height: 4,
               margin: const EdgeInsets.only(top: 12, bottom: 12),
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: context.colors.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -52,15 +53,15 @@ Widget _tile(
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: Colors.cyan.withOpacity(0.15),
+        color: context.colors.accent.withOpacity(0.15),
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: Colors.cyan[700]),
+      child: Icon(icon, color: context.colors.accent),
     ),
     title: Text(title,
         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
     subtitle: Text(subtitle,
-        style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+        style: TextStyle(fontSize: 13, color: context.colors.textMuted)),
     onTap: () => Navigator.pop(context, option),
   );
 }

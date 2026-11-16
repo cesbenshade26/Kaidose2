@@ -42,7 +42,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs access to camera to take profile pictures</string>
 	<key>NSContactsUsageDescription</key>
-	<string>We need access to your contacts to help you find friends</string>
+	<string>Kaidose uses your contacts to find friends who are already on Kaidose.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Kaidose uses your location to fill in your country code and show you content near you.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

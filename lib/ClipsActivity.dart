@@ -204,19 +204,43 @@ class ClipThumb {
       ResizeImage(CachedNetworkImageProvider(url), width: 360);
 }
 
+/// The Clips tab on a profile. [userId] null (or your own id) = your clips,
+/// with hold-to-pin/delete. Anyone else's id = their clips, same grid and
+/// viewer, pinned ones first, no editing.
 class ClipsActivity extends StatefulWidget {
-  const ClipsActivity({Key? key}) : super(key: key);
+  final String? userId;
+
+  const ClipsActivity({Key? key, this.userId}) : super(key: key);
 
   @override
   State<ClipsActivity> createState() => _ClipsActivityState();
 }
 
 class _ClipsActivityState extends State<ClipsActivity> {
+  bool get _isOwn =>
+      widget.userId == null || widget.userId == ClipService.currentUid;
+
+  // Someone else's clips (only used when it isn't your profile).
+  Stream<List<ClipData>>? _otherClips;
+
   @override
   void initState() {
     super.initState();
-    // Normally already running (Profile starts it); this is a safety net.
-    MyClipsCache.instance.start();
+    if (_isOwn) {
+      // Normally already running (Profile starts it); this is a safety net.
+      MyClipsCache.instance.start();
+    } else {
+      _otherClips = ClipService.getUserClips(widget.userId!);
+    }
+  }
+
+  /// Their pinned clips first (in pin order), then newest first.
+  List<ClipData> _arrangeOther(List<ClipData> list) {
+    final pinned = list.where((c) => c.isPinned).toList()
+      ..sort((a, b) => a.pinnedAt!.compareTo(b.pinnedAt!));
+    final rest = list.where((c) => !c.isPinned).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return [...pinned, ...rest];
   }
 
   void _toast(String text) {
@@ -328,82 +352,125 @@ class _ClipsActivityState extends State<ClipsActivity> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isOwn) return _buildOther();
+
     final cache = MyClipsCache.instance;
     return AnimatedBuilder(
       animation: cache,
       builder: (context, _) {
         final clips = cache.clips;
-
         if (clips == null) {
-          if (cache.failed) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Error loading clips',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  textAlign: TextAlign.center,
+          return cache.failed ? _errorState() : _loadingState();
+        }
+        if (clips.isEmpty) return _emptyState();
+        return _buildGrid(
+          clips,
+          pinned: cache.isPinned,
+          fallbackToVideo: (c) => cache.thumbFailed(c.id),
+          onLongPress: _showClipMenu,
+        );
+      },
+    );
+  }
+
+  Widget _buildOther() {
+    return StreamBuilder<List<ClipData>>(
+      stream: _otherClips,
+      builder: (context, snapshot) {
+        if (snapshot.hasError && !snapshot.hasData) return _errorState();
+        if (!snapshot.hasData) return _loadingState();
+        final clips = _arrangeOther(snapshot.data!);
+        if (clips.isEmpty) return _emptyState();
+        return _buildGrid(
+          clips,
+          pinned: (c) => c.isPinned,
+          // Thumbnails are only made for your own old clips; for anyone
+          // else's clip without one, show the video's first frame.
+          fallbackToVideo: (c) =>
+          c.thumbnailUrl == null || c.thumbnailUrl!.isEmpty,
+        );
+      },
+    );
+  }
+
+  Widget _loadingState() =>
+      const Center(child: CircularProgressIndicator(color: Colors.cyan));
+
+  Widget _errorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'Error loading clips',
+          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.videocam_outlined, size: 80, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'No Clips Yet',
+            style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700]),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isOwn
+                ? 'Your posted clips will show up here'
+                : 'Clips they post will show up here',
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrid(
+      List<ClipData> clips, {
+        required bool Function(ClipData) pinned,
+        required bool Function(ClipData) fallbackToVideo,
+        void Function(ClipData)? onLongPress,
+      }) {
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 1,
+        mainAxisSpacing: 1,
+        childAspectRatio: 9 / 16,
+      ),
+      itemCount: clips.length,
+      itemBuilder: (context, index) {
+        final clip = clips[index];
+        return _ClipThumbnail(
+          key: ValueKey(clip.id),
+          clip: clip,
+          fallbackToVideo: fallbackToVideo(clip),
+          pinned: pinned(clip),
+          onLongPress: onLongPress == null ? null : () => onLongPress(clip),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => _MyClipViewer(
+                  clips: clips,
+                  initialIndex: index,
+                  // Someone else's clips get their own video slots, so
+                  // watching them here never takes the video the Clips feed
+                  // is holding for the same clip underneath.
+                  poolPrefix: _isOwn ? '' : 'profile:',
                 ),
               ),
-            );
-          }
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.cyan),
-          );
-        }
-
-        if (clips.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.videocam_outlined,
-                    size: 80, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                Text(
-                  'No Clips Yet',
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700]),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Your posted clips will show up here',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return GridView.builder(
-          padding: EdgeInsets.zero,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 1,
-            mainAxisSpacing: 1,
-            childAspectRatio: 9 / 16,
-          ),
-          itemCount: clips.length,
-          itemBuilder: (context, index) {
-            return _ClipThumbnail(
-              key: ValueKey(clips[index].id),
-              clip: clips[index],
-              fallbackToVideo: cache.thumbFailed(clips[index].id),
-              pinned: cache.isPinned(clips[index]),
-              onLongPress: () => _showClipMenu(clips[index]),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => _MyClipViewer(
-                      clips: clips,
-                      initialIndex: index,
-                    ),
-                  ),
-                );
-              },
             );
           },
         );
@@ -584,7 +651,14 @@ class _MyClipViewer extends StatefulWidget {
   final List<ClipData> clips;
   final int initialIndex;
 
-  const _MyClipViewer({required this.clips, required this.initialIndex});
+  /// Prefix for this viewer's video slots in the preloader.
+  final String poolPrefix;
+
+  const _MyClipViewer({
+    required this.clips,
+    required this.initialIndex,
+    this.poolPrefix = '',
+  });
 
   @override
   State<_MyClipViewer> createState() => _MyClipViewerState();
@@ -607,7 +681,7 @@ class _MyClipViewerState extends State<_MyClipViewer> {
     PreloadedMediaPool.instance.preloadAround<ClipData>(
       widget.clips,
       index,
-      id: (c) => c.id,
+      id: (c) => '${widget.poolPrefix}${c.id}',
       url: (c) => c.isPhoto ? (c.photoUrl ?? '') : c.videoUrl,
       isImage: (c) => c.isPhoto,
       photos: (c) => c.allPhotos,
@@ -643,6 +717,7 @@ class _MyClipViewerState extends State<_MyClipViewer> {
             physics: const ClampingScrollPhysics(),
             itemBuilder: (context, index) {
               return _MyClipPage(
+                poolKey: '${widget.poolPrefix}${widget.clips[index].id}',
                 clip: widget.clips[index],
                 isActive: index == _currentPage,
               );
@@ -650,19 +725,14 @@ class _MyClipViewerState extends State<_MyClipViewer> {
           ),
           // Back arrow
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 8,
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.4),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.arrow_back,
-                    color: Colors.white, size: 24),
-              ),
+            top: MediaQuery.of(context).padding.top + 4,
+            left: 4,
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white,
+                  size: 22,
+                  shadows: [Shadow(color: Colors.black45, blurRadius: 6)]),
+              onPressed: () => Navigator.pop(context),
             ),
           ),
         ],
@@ -673,11 +743,24 @@ class _MyClipViewerState extends State<_MyClipViewer> {
 
 // ─── Single clip page ─────────────────────────────────────────────────────────
 
+/// Where the caption and side bar sit: just above the progress bar. This
+/// viewer is full screen (no bottom bar), so it clears the phone's home
+/// indicator first.
+double _overlayBottom(BuildContext context) =>
+    MediaQuery.of(context).padding.bottom + 14;
+
 class _MyClipPage extends StatefulWidget {
   final ClipData clip;
   final bool isActive;
 
-  const _MyClipPage({required this.clip, required this.isActive});
+  /// This clip's slot in the preloader (its id, maybe with a prefix).
+  final String poolKey;
+
+  const _MyClipPage({
+    required this.clip,
+    required this.isActive,
+    required this.poolKey,
+  });
 
   @override
   State<_MyClipPage> createState() => _MyClipPageState();
@@ -759,7 +842,7 @@ class _MyClipPageState extends State<_MyClipPage>
     // Photo clips have no video to load; the image is shown directly.
     if (widget.clip.isPhoto) return;
     final controller = await PreloadedMediaPool.instance
-        .lease(widget.clip.id, widget.clip.videoUrl);
+        .lease(widget.poolKey, widget.clip.videoUrl);
     if (!mounted) return;
     if (controller == null) {
       setState(() { _hasError = true; _isLoading = false; });
@@ -773,16 +856,17 @@ class _MyClipPageState extends State<_MyClipPage>
   @override
   void dispose() {
     // Stop it and hand it back; the preloader rewinds it if it keeps it,
-    // or disposes it.
+    // or disposes it. Done after this frame: pausing during teardown makes
+    // the progress bar redraw while the screen is locked (crash).
     final c = _controller;
-    if (c != null) {
+    final key = widget.poolKey;
+    final isPhoto = widget.clip.isPhoto;
+    Future.microtask(() {
       try {
-        c.pause();
+        c?.pause();
       } catch (_) {}
-    }
-    if (!widget.clip.isPhoto) {
-      PreloadedMediaPool.instance.release(widget.clip.id);
-    }
+      if (!isPhoto) PreloadedMediaPool.instance.release(key);
+    });
     _commentAnimController.dispose();
     _floatingHeartController.dispose();
     super.dispose();
@@ -894,7 +978,11 @@ class _MyClipPageState extends State<_MyClipPage>
                   child: child!,
                 );
               },
-              child: ClipCommentSheet(clipId: widget.clip.id, onClose: _closeComments),
+              child: ClipCommentSheet(
+                clipId: widget.clip.id,
+                creatorUid: widget.clip.creatorUid,
+                onClose: _closeComments,
+              ),
             ),
 
           // Side buttons — hidden when comments open
@@ -902,8 +990,8 @@ class _MyClipPageState extends State<_MyClipPage>
             animation: _commentAnimation,
             builder: (context, child) {
               return Positioned(
-                right: 12,
-                bottom: 80,
+                right: 6,
+                bottom: _overlayBottom(context) + 2,
                 child: AnimatedOpacity(
                   opacity: 1 - _commentAnimation.value,
                   duration: const Duration(milliseconds: 200),
@@ -916,6 +1004,7 @@ class _MyClipPageState extends State<_MyClipPage>
             },
             child: ClipSideBar(
               clipId: widget.clip.id,
+              creatorUid: widget.clip.creatorUid,
               onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
               onCommentTap: _openComments,
             ),
@@ -925,12 +1014,12 @@ class _MyClipPageState extends State<_MyClipPage>
           AnimatedBuilder(
             animation: _commentAnimation,
             builder: (context, child) {
-              final bottomOffset =
-                  60 + sheetHeight * _commentAnimation.value;
+              final bottomOffset = _overlayBottom(context) +
+                  sheetHeight * _commentAnimation.value;
               return Positioned(
                 bottom: bottomOffset,
-                left: 16,
-                right: 72,
+                left: 14,
+                right: 70,
                 child: child!,
               );
             },

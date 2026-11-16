@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'friend_request_service.dart';
 import 'user_service.dart';
 import 'AddToDaily.dart';
@@ -13,6 +14,8 @@ import 'GroupChatScreen.dart';
 import 'ManageGroupChat.dart';
 import 'UserProfileScreen.dart';
 import 'ChatUnread.dart';
+import 'GroupAvatar.dart';
+
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -165,11 +168,11 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       mainAxisSize: MainAxisSize.min,
       children: [
         tile,
-        const Divider(
+        Divider(
           height: 1,
           thickness: 0.6,
           indent: 80,
-          color: ChatColors.line,
+          color: context.chatColors.line,
         ),
       ],
     );
@@ -178,7 +181,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
   /// One entry in a row's "..." menu.
   PopupMenuItem<String> _menuItem(String value, IconData icon, String label,
       {bool destructive = false}) {
-    final color = destructive ? Colors.red : ChatColors.ink;
+    final color = destructive ? context.colors.danger : context.chatColors.ink;
     return PopupMenuItem<String>(
       value: value,
       child: Row(
@@ -197,9 +200,9 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
     required PopupMenuItemSelected<String> onSelected,
   }) {
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, color: ChatColors.sub, size: 22),
+      icon: Icon(Icons.more_vert, color: context.chatColors.sub, size: 22),
       splashRadius: 20,
-      color: Colors.white,
+      color: context.colors.surface,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onSelected: onSelected,
@@ -212,7 +215,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 13.5, color: ChatColors.sub),
+      style: TextStyle(fontSize: 13.5, color: context.chatColors.sub),
     );
   }
 
@@ -221,7 +224,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: context.colors.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Delete chat?'),
@@ -233,7 +236,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
               child: const Text('Cancel')),
           TextButton(
               onPressed: () => Navigator.pop(context, true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style: TextButton.styleFrom(foregroundColor: context.colors.danger),
               child: const Text('Delete')),
         ],
       ),
@@ -360,7 +363,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
 
     return _withDivider(
       ChatRow(
-        avatar: ChatAvatar(name: friendName),
+        avatar: MemberAvatar(userId: friendUserId, size: 50),
         onAvatarTap: () => UserProfileScreen.open(context, friendUserId,
             username: friendName),
         title: friendName,
@@ -440,64 +443,73 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    // The whole page scrolls: the "Chats" header slides away with the list
+    // and slides back as soon as you scroll up a little (floating + snap).
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: _isSearching
-            ? TextField(
-          controller: _searchController,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Search chats...',
-            hintStyle: TextStyle(
-              color: Colors.grey,
-              fontSize: 18,
+      backgroundColor: context.colors.background,
+      body: NestedScrollView(
+        floatHeaderSlivers: true,
+        headerSliverBuilder: (context, innerScrolled) => [
+          SliverAppBar(
+            floating: true,
+            snap: true,
+            backgroundColor: context.colors.background,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            elevation: 0,
+            automaticallyImplyLeading: false,
+            title: _isSearching
+                ? TextField(
+              controller: _searchController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Search chats...',
+                hintStyle: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 18,
+                ),
+                border: InputBorder.none,
+              ),
+              style: TextStyle(
+                fontSize: 18,
+                color: context.colors.text,
+              ),
+            )
+                : Text(
+              'Chats',
+              style: KaidoseBrand.wordmark(32),
             ),
-            border: InputBorder.none,
-          ),
-          style: const TextStyle(
-            fontSize: 18,
-            color: Colors.black,
-          ),
-        )
-            : Text(
-          'Chats',
-          style: KaidoseBrand.wordmark(32),
-        ),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline,
-                color: Colors.black, size: 28),
-            onPressed: _onAddPressed,
-          ),
-          IconButton(
-            icon: Icon(
-              _isSearching ? Icons.close : Icons.search,
-              color: Colors.black,
-              size: 28,
-            ),
-            onPressed: _toggleSearch,
+            centerTitle: false,
+            actions: [
+              IconButton(
+                icon: Icon(Icons.add_circle_outline,
+                    color: context.colors.text, size: 28),
+                onPressed: _onAddPressed,
+              ),
+              IconButton(
+                icon: Icon(
+                  _isSearching ? Icons.close : Icons.search,
+                  color: context.colors.text,
+                  size: 28,
+                ),
+                onPressed: _toggleSearch,
+              ),
+            ],
           ),
         ],
-      ),
-      body: StreamBuilder<List<GroupChat>>(
-        stream: _groupService.getMyGroups(),
-        builder: (context, groupSnapshot) {
-          final query = _searchController.text.trim().toLowerCase();
-          final myId = _friendRequestService.currentUserId;
-          final groups = (groupSnapshot.data ?? <GroupChat>[]).where((g) {
-            return query.isEmpty ||
-                g.displayName(myId).toLowerCase().contains(query) ||
-                g.namesExcluding(myId).toLowerCase().contains(query);
-          }).toList();
-          return _buildChatList(groups);
-        },
+        body: StreamBuilder<List<GroupChat>>(
+          stream: _groupService.getMyGroups(),
+          builder: (context, groupSnapshot) {
+            final query = _searchController.text.trim().toLowerCase();
+            final myId = _friendRequestService.currentUserId;
+            final groups = (groupSnapshot.data ?? <GroupChat>[]).where((g) {
+              return query.isEmpty ||
+                  g.displayName(myId).toLowerCase().contains(query) ||
+                  g.namesExcluding(myId).toLowerCase().contains(query);
+            }).toList();
+            return _buildChatList(groups);
+          },
+        ),
       ),
     );
   }
@@ -507,8 +519,8 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       stream: _friendRequestService.getAcceptedFriends(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: ChatColors.accent),
+          return Center(
+            child: CircularProgressIndicator(color: context.chatColors.accent),
           );
         }
 
@@ -529,7 +541,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                 Icon(
                   _isSearching ? Icons.search_off : Icons.chat_bubble_outline,
                   size: 80,
-                  color: Colors.grey[400],
+                  color: context.colors.textFaint,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -537,7 +549,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey[700],
+                    color: context.colors.textMuted,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -549,7 +561,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                         : 'Add friends from Search to start chatting',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey[600],
+                      color: context.colors.textMuted,
                     ),
                     textAlign: TextAlign.center,
                   ),

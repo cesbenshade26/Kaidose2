@@ -19,6 +19,7 @@ import 'DailyForYou.dart';
 import 'SkipCount.dart';
 import 'dart:io';
 import 'FriendStoryBar.dart';
+import 'StoryRing.dart';
 import 'CircleRevealTransition.dart';
 
 
@@ -39,7 +40,8 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   bool _hasViewedAllPhotos = false;
   bool _isAnimating = false;
   File? _profilePic;
-  Set<String> _viewedPhotosPaths = {};
+  // What you've watched of your own story is shared with Profile.
+  Set<String> get _viewedPhotosPaths => OwnStory.viewedPathsView;
 
   late AnimationController _slideController;
   late Animation<double> _slideAnimation;
@@ -163,6 +165,15 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     DailyPhotoTracker.addListener(_trackerListener!);
     DailyVideoTracker.addListener(_videoTrackerListener!);
     ProfilePicManager.addListener(_profilePicListener!);
+    OwnStory.changes.addListener(_onOwnStoryViewed);
+  }
+
+  /// Your story was watched somewhere (here or on Profile): update the ring.
+  void _onOwnStoryViewed() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(_checkViewingStatus);
+    });
   }
 
   @override
@@ -187,6 +198,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     if (_profilePicListener != null) {
       ProfilePicManager.removeListener(_profilePicListener!);
     }
+    OwnStory.changes.removeListener(_onOwnStoryViewed);
     super.dispose();
   }
 
@@ -285,7 +297,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _isAnimating = false;
 
       if (_todaysPhotos.isNotEmpty && _currentPhotoIndex < _todaysPhotos.length) {
-        _viewedPhotosPaths.add(_todaysPhotos[_currentPhotoIndex].path);
+        OwnStory.markViewed(_todaysPhotos[_currentPhotoIndex].path);
         _checkViewingStatus();
       }
     });
@@ -293,35 +305,12 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     _slideController.reset();
   }
 
+  /// Your story, in the same viewer as everyone else's. Posts count as
+  /// watched as they come up (shared with Profile's ring).
   void _openPhotoCarousel(Offset tapPosition) {
-    final items = _todaysStoryItems;
-    if (items.isNotEmpty) {
-      // Open at the first post you haven't seen yet (the old ones stay one
-      // tap back); if you've seen them all, start from the beginning.
-      var start = items.indexWhere((i) => !_viewedPhotosPaths.contains(i.file.path));
-      if (start < 0) start = 0;
-      // Mark first item as viewed
-      setState(() {
-        _viewedPhotosPaths.add(items[0].file.path);
-        _checkViewingStatus();
-      });
-      Navigator.push(
-        context,
-        CircleRevealRoute(
-          center: tapPosition,
-          builder: (context) =>
-              OwnStoryViewer(items: items, initialIndex: start),
-        ),
-      ).then((_) {
-        // Mark all as viewed once they close the viewer
-        setState(() {
-          for (final item in items) {
-            _viewedPhotosPaths.add(item.file.path);
-          }
-          _checkViewingStatus();
-        });
-      });
-    }
+    OwnStory.open(context, tapPosition).then((_) {
+      if (mounted) setState(_checkViewingStatus);
+    });
   }
 
 
