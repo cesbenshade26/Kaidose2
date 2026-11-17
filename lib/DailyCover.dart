@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'DailyFonts.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 import 'DailyCoverData.dart';
@@ -347,34 +347,10 @@ class _DailyCoverState extends State<DailyCover> {
     return true;
   }
 
-  TextStyle _getFontForDaily(DailyData daily) {
-    final fontFamily = daily.titleFont ?? 'Default';
-
-    switch (fontFamily) {
-      case 'Roboto':
-        return GoogleFonts.roboto();
-      case 'Playfair Display':
-        return GoogleFonts.playfairDisplay();
-      case 'Pacifico':
-        return GoogleFonts.pacifico();
-      case 'Bebas Neue':
-        return GoogleFonts.bebasNeue();
-      case 'Caveat':
-        return GoogleFonts.caveat();
-      case 'Permanent Marker':
-        return GoogleFonts.permanentMarker();
-      case 'Righteous':
-        return GoogleFonts.righteous();
-      case 'Lobster':
-        return GoogleFonts.lobster();
-      case 'Dancing Script':
-        return GoogleFonts.dancingScript();
-      case 'Bangers':
-        return GoogleFonts.bangers();
-      default:
-        return const TextStyle();
-    }
-  }
+  /// The Daily's own title font (shared fonts, preloaded at launch: see
+  /// DailyFonts). Only the Daily cards and the inside of a Daily use it.
+  TextStyle _getFontForDaily(DailyData daily, {FontWeight? weight}) =>
+      DailyFonts.style(daily.titleFont, fontWeight: weight);
 
   String _formatDate(DateTime date) {
     final now = DateTime.now();
@@ -763,7 +739,7 @@ class _DailyCoverState extends State<DailyCover> {
                     Expanded(
                       child: Text(
                         daily.title,
-                        style: _getFontForDaily(daily).copyWith(
+                        style: _getFontForDaily(daily, weight: FontWeight.w700).copyWith(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                           color: Colors.black87,
@@ -833,7 +809,7 @@ class _DailyCoverState extends State<DailyCover> {
                     daily.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: _getFontForDaily(daily).copyWith(
+                    style: _getFontForDaily(daily, weight: FontWeight.w700).copyWith(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: Colors.black87,

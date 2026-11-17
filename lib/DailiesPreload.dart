@@ -5,6 +5,7 @@ import 'DailyData.dart';
 import 'DailyList.dart';
 import 'DailyCover.dart' show DailyCoverPrefetch;
 import 'DailyForYou.dart';
+import 'DailyFonts.dart';
 
 /// Gets the Dailies screen ready the moment someone is signed in (app
 /// open or login), from anywhere in the app: My Dailies, the For You feed,
@@ -31,6 +32,8 @@ class DailiesPreload {
         DailyForYouController.resetShared();
       }
       if (user != null) {
+        // Again here in case the app opened offline.
+        DailyFonts.preload();
         final forYou = DailyForYouController.shared;
         forYou.removeListener(_warmForYou);
         forYou.addListener(_warmForYou);

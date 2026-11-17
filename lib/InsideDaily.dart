@@ -9,7 +9,7 @@ import 'DailySaved.dart';
 import 'DailyComments.dart';
 import 'DailyLikes.dart';
 import 'dart:io';
-import 'package:google_fonts/google_fonts.dart';
+import 'DailyFonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'user_service.dart';
 import 'UnifiedMediaPicker.dart';
@@ -890,34 +890,10 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
 
     return filtered;
   }
-  TextStyle _getFontForDaily(DailyData daily) {
-    final fontFamily = daily.titleFont ?? 'Default';
-
-    switch (fontFamily) {
-      case 'Roboto':
-        return GoogleFonts.roboto();
-      case 'Playfair Display':
-        return GoogleFonts.playfairDisplay();
-      case 'Pacifico':
-        return GoogleFonts.pacifico();
-      case 'Bebas Neue':
-        return GoogleFonts.bebasNeue();
-      case 'Caveat':
-        return GoogleFonts.caveat();
-      case 'Permanent Marker':
-        return GoogleFonts.permanentMarker();
-      case 'Righteous':
-        return GoogleFonts.righteous();
-      case 'Lobster':
-        return GoogleFonts.lobster();
-      case 'Dancing Script':
-        return GoogleFonts.dancingScript();
-      case 'Bangers':
-        return GoogleFonts.bangers();
-      default:
-        return const TextStyle();
-    }
-  }
+  /// The Daily's own title font (shared fonts, preloaded at launch: see
+  /// DailyFonts). Only the Daily cards and the inside of a Daily use it.
+  TextStyle _getFontForDaily(DailyData daily, {FontWeight? weight}) =>
+      DailyFonts.style(daily.titleFont, fontWeight: weight);
 
   Widget _buildOptionsMenu() {
     return Positioned(
@@ -1152,7 +1128,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         ),
         title: Text(
           widget.daily.title,
-          style: _getFontForDaily(widget.daily).copyWith(
+          style: _getFontForDaily(widget.daily, weight: FontWeight.w600).copyWith(
             color: Colors.black,
             fontSize: 18,
             fontWeight: FontWeight.w600,

@@ -269,7 +269,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: selected ? Colors.black : Colors.grey[100],
+          color: selected ? Colors.cyan : Colors.grey[100],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -277,7 +277,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : Colors.black87,
+            color: selected ? Colors.white : const Color(0xFF2E2E2E),
           ),
         ),
       ),

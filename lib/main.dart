@@ -16,6 +16,7 @@ import 'AppColors.dart';
 import 'SafetyService.dart';
 import 'DailyPostActivity.dart' show DailyPostVideoCache;
 import 'DailiesPreload.dart';
+import 'DailyFonts.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +33,9 @@ void main() async {
     // and the first cards' covers start loading as soon as someone is
     // signed in, at launch or right after logging in.
     DailiesPreload.start();
+    // Daily title fonts (cards + inside a Daily), so titles never show in
+    // the default font first. Not awaited: it never delays opening.
+    DailyFonts.preload();
     final startScreen = await _pickStartScreen();
     runApp(KaidoseApp(startScreen: startScreen));
   } catch (e) {

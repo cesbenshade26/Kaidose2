@@ -225,6 +225,9 @@ class DailyModeration {
 
     final batch = _db.batch();
     batch.set(_bans(dailyId).doc(uid), {
+      // Also the doc id; saved as a field so bans across Dailies can be
+      // counted (repeat offenders).
+      'uid': uid,
       'username': username,
       'bannedBy': me,
       'bannedByName': myName,

@@ -304,8 +304,11 @@ class MessageStorage {
           .orderBy('timestamp', descending: false)
           .get();
 
-      final messages =
-      snapshot.docs.map((doc) => DailyMessage.fromJson(doc.data())).toList();
+      // Posts removed by moderation are hidden from everyone.
+      final messages = snapshot.docs
+          .where((doc) => doc.data()['hidden'] != true)
+          .map((doc) => DailyMessage.fromJson(doc.data()))
+          .toList();
 
       print('Loaded ${messages.length} messages for daily: $dailyId');
       return messages;

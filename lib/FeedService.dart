@@ -1331,11 +1331,15 @@ class FeedService {
   }
 
   /// Clips nobody should see here: taken down (moderation / reports),
-  /// "Not interested", or from someone blocked (either way) or muted.
+  /// "not promoted" by moderation (still on the creator's profile, never
+  /// recommended), "Not interested", or from someone blocked (either way)
+  /// or muted.
   static bool _safetySkips(
       String clipId, String creatorUid, Map<String, dynamic>? data) {
     final s = SafetyService.instance;
-    if (data != null && data['hidden'] == true) return true;
+    if (data != null && (data['hidden'] == true || data['limited'] == true)) {
+      return true;
+    }
     if (s.notInterested.contains(clipId)) return true;
     return creatorUid.isNotEmpty && s.hidesCreator(creatorUid);
   }

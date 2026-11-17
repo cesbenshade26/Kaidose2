@@ -11,6 +11,7 @@ import 'Chat.dart';
 import 'YourDailyBubbles.dart';
 import 'ClipsActivity.dart' show MyClipsCache;
 import 'NotificationService.dart';
+import 'ContentNotices.dart';
 
 class HomeScreen extends StatefulWidget {
   /// Kept for existing callers. Opening Home without a specific tab always
@@ -135,6 +136,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // permission the first time) and handle a notification that was
     // tapped to open the app.
     NotificationService.instance.start();
+
+    // "Your post was removed" notices (with Request a review).
+    ContentNotices.start();
   }
 
   void _warmClipThumbnails() {

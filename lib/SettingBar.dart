@@ -14,6 +14,7 @@ import 'Moderation.dart';
 import 'AdminReportsScreen.dart';
 import 'AccountDeletion.dart';
 import 'GroupAvatar.dart';
+import 'Legal.dart';
 
 // Settings Screen
 class SettingsScreen extends StatelessWidget {
@@ -189,6 +190,20 @@ class ProfileSettingsSection extends StatelessWidget {
           icon: Icons.menu_book_rounded,
           title: 'Community Guidelines',
           onTap: () => TermsGate.show(context),
+        ),
+        const Divider(color: Colors.grey, thickness: 0.5),
+        _tile(
+          context,
+          icon: Icons.description_outlined,
+          title: 'Terms and Conditions',
+          onTap: Legal.openTerms,
+        ),
+        const Divider(color: Colors.grey, thickness: 0.5),
+        _tile(
+          context,
+          icon: Icons.privacy_tip_outlined,
+          title: 'Privacy Policy',
+          onTap: Legal.openPrivacy,
         ),
         const Divider(color: Colors.grey, thickness: 0.5),
         _tile(

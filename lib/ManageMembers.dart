@@ -8,6 +8,7 @@ import 'DailyBan.dart';
 import 'GroupAvatar.dart';
 import 'user_service.dart';
 import 'UserProfileScreen.dart';
+import 'ManageDaily.dart' show kManageInk;
 
 /// One person in the list.
 class _Person {
@@ -184,9 +185,9 @@ class _ManageMembersState extends State<ManageMembers> {
         Expanded(
           child: _loading
               ? const Center(
-              child: CircularProgressIndicator(color: Colors.black54))
+              child: CircularProgressIndicator(color: Colors.cyan))
               : RefreshIndicator(
-            color: Colors.black,
+            color: Colors.cyan,
             onRefresh: () => _load(freshNames: true),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -267,7 +268,7 @@ class _ManageMembersState extends State<ManageMembers> {
                             fontSize: 13.5,
                             fontWeight: FontWeight.w700,
                             color: _tab == t.$1
-                                ? Colors.black
+                                ? kManageInk
                                 : Colors.grey[600],
                           ),
                         ),
@@ -334,8 +335,10 @@ class _ManageMembersState extends State<ManageMembers> {
       uid: p.uid,
       title: p.username,
       tag: switch (role) {
-        DailyRole.owner => _tagChip('Owner', Icons.star_rounded),
-        DailyRole.moderator => _tagChip('Moderator', Icons.shield_rounded),
+        DailyRole.owner =>
+            _tagChip('Owner', Icons.star_rounded, accent: true),
+        DailyRole.moderator =>
+            _tagChip('Moderator', Icons.shield_rounded, accent: true),
         DailyRole.member => null,
       },
       trailing: actions.isEmpty
@@ -407,8 +410,8 @@ class _ManageMembersState extends State<ManageMembers> {
           trailing: TextButton(
             onPressed: () => _unban(b),
             style: TextButton.styleFrom(
-              foregroundColor: Colors.black87,
-              backgroundColor: Colors.grey[100],
+              foregroundColor: Colors.cyan[800],
+              backgroundColor: Colors.cyan.withOpacity(0.1),
               padding: const EdgeInsets.symmetric(horizontal: 14),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18)),
@@ -482,23 +485,25 @@ class _ManageMembersState extends State<ManageMembers> {
     );
   }
 
-  Widget _tagChip(String label, IconData icon) {
+  /// Owner / Moderator tags get the cyan accent; others stay grey.
+  Widget _tagChip(String label, IconData icon, {bool accent = false}) {
+    final color = accent ? Colors.cyan[700]! : Colors.grey[700]!;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: accent ? Colors.cyan.withOpacity(0.1) : Colors.grey[100],
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: Colors.grey[700]),
+          Icon(icon, size: 12, color: color),
           const SizedBox(width: 3),
           Text(label,
               style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
-                  color: Colors.grey[700])),
+                  color: color)),
         ],
       ),
     );
@@ -506,7 +511,7 @@ class _ManageMembersState extends State<ManageMembers> {
 
   PopupMenuItem<String> _menuItem(String value, IconData icon, String label,
       {bool danger = false}) {
-    final color = danger ? Colors.red : Colors.black87;
+    final color = danger ? Colors.red : kManageInk;
     return PopupMenuItem<String>(
       value: value,
       child: Row(

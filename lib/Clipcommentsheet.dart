@@ -145,9 +145,12 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
                   );
                 }
 
-                // Comments from people blocked either way don't show.
+                // Comments from people blocked either way, or removed by
+                // moderation, don't show.
                 final docs = (snapshot.data?.docs ?? []).where((d) {
-                  final a = (d.data() as Map<String, dynamic>)['authorUid'];
+                  final data = d.data() as Map<String, dynamic>;
+                  if (data['hidden'] == true) return false;
+                  final a = data['authorUid'];
                   return a is! String || !SafetyService.instance.isHidden(a);
                 }).toList();
 

@@ -4,7 +4,7 @@ import 'DailyData.dart';
 import 'DailyModeration.dart';
 import 'DailyList.dart';
 import 'DailyScheduleEditor.dart';
-import 'ManageDaily.dart' show DailyTagPicker, kDailyTags;
+import 'ManageDaily.dart' show DailyTagPicker, kDailyTags, kManageInk;
 
 /// Settings tab of Manage Daily.
 ///   Owner      everything here
@@ -41,7 +41,8 @@ class _EditDailyState extends State<EditDaily> {
   // Covers and prompts: owner and moderators.
   bool get _canSchedule => _perms?.canSchedule == true;
 
-  Color get _dailyColor => Colors.black;
+  // Accent for buttons, selections and the schedule editor.
+  Color get _dailyColor => Colors.cyan;
 
   @override
   void initState() {
@@ -159,7 +160,7 @@ class _EditDailyState extends State<EditDaily> {
                   enabled: _isOwner,
                   maxLines: 4,
                   maxLength: 200,
-                  style: const TextStyle(fontSize: 16, color: Colors.black87),
+                  style: const TextStyle(fontSize: 16, color: kManageInk),
                   decoration: _inputDeco('Enter description...'),
                 ),
                 const SizedBox(height: 24),
@@ -295,7 +296,7 @@ class _EditDailyState extends State<EditDaily> {
                 style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87)),
+                    color: kManageInk)),
           ],
         ),
       ),
@@ -305,7 +306,7 @@ class _EditDailyState extends State<EditDaily> {
   Widget _sectionLabel(String text) => Text(
     text,
     style: const TextStyle(
-        fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87),
+        fontSize: 16, fontWeight: FontWeight.w600, color: kManageInk),
   );
 
   InputDecoration _inputDeco(String hint) => InputDecoration(

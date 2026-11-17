@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'DailyFonts.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 import 'DailyModeration.dart';
@@ -10,6 +11,9 @@ export 'DailyIcon.dart' show DailyIconTile;
 import 'EditDaily.dart' as edit_daily;
 import 'ManageMembers.dart' as manage_members;
 import 'dart:io';
+
+/// Dark grey used instead of black on the Manage Daily screens.
+const Color kManageInk = Color(0xFF2E2E2E);
 
 const List<Map<String, dynamic>> kDailyTags = [
   {'label': 'Sports',      'emoji': '🏆'},
@@ -29,24 +33,6 @@ const List<Map<String, dynamic>> kDailyTags = [
   {'label': 'Science',     'emoji': '🔬'},
   {'label': 'Comedy',      'emoji': '😂'},
 ];
-
-/// Fonts a Daily's title can use (shared by the edit sheet and anything
-/// that shows the title).
-TextStyle dailyTitleFont(String? font) {
-  switch (font ?? 'Default') {
-    case 'Roboto':           return GoogleFonts.roboto();
-    case 'Playfair Display': return GoogleFonts.playfairDisplay();
-    case 'Pacifico':         return GoogleFonts.pacifico();
-    case 'Bebas Neue':       return GoogleFonts.bebasNeue();
-    case 'Caveat':           return GoogleFonts.caveat();
-    case 'Permanent Marker': return GoogleFonts.permanentMarker();
-    case 'Righteous':        return GoogleFonts.righteous();
-    case 'Lobster':          return GoogleFonts.lobster();
-    case 'Dancing Script':   return GoogleFonts.dancingScript();
-    case 'Bangers':          return GoogleFonts.bangers();
-    default:                 return const TextStyle();
-  }
-}
 
 class ManageDailyScreen extends StatefulWidget {
   final DailyData daily;
@@ -129,19 +115,19 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: const Icon(Icons.arrow_back, color: kManageInk, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Manage Daily',
             style: TextStyle(
-                color: Colors.black,
+                color: kManageInk,
                 fontSize: 18,
                 fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: perms == null
           ? const Center(
-          child: CircularProgressIndicator(color: Colors.black54))
+          child: CircularProgressIndicator(color: Colors.cyan))
           : Column(
         children: [
           _header(perms),
@@ -177,7 +163,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: Colors.black,
+                        color: Colors.cyan,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2.5),
                       ),
@@ -194,10 +180,12 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
             child: Text(
               _currentDaily.title,
               textAlign: TextAlign.center,
-              style: dailyTitleFont(_currentDaily.titleFont).copyWith(
+              // Plain here: the Daily's own font is only for its card and
+              // the inside of the Daily.
+              style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
-                color: Colors.black87,
+                color: kManageInk,
               ),
             ),
           ),
@@ -264,7 +252,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                   width: w,
                   top: 0,
                   bottom: 0,
-                  child: Container(color: Colors.black),
+                  child: Container(color: Colors.cyan),
                 ),
               ],
             ),
@@ -276,7 +264,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
 
   Widget _buildTab(int index, IconData icon, String label) {
     final active = _selectedTabIndex == index;
-    final color = active ? Colors.black : Colors.grey[500];
+    final color = active ? kManageInk : Colors.grey[500];
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -326,7 +314,7 @@ class DailyTagPicker extends StatelessWidget {
     Key? key,
     required this.selected,
     required this.onToggle,
-    this.accentColor = Colors.black,
+    this.accentColor = Colors.cyan,
   }) : super(key: key);
 
   @override
@@ -360,7 +348,7 @@ class DailyTagPicker extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: sel ? Colors.white : Colors.black87)),
+                        color: sel ? Colors.white : kManageInk)),
               ],
             ),
           ),
@@ -388,18 +376,13 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
   late final TextEditingController _title =
   TextEditingController(text: widget.daily.title);
   late IconData _icon = widget.daily.icon;
-  late String _font = widget.daily.titleFont ?? 'Default';
+  late String _font = DailyFonts.normalize(widget.daily.titleFont);
   // The custom picture: its Storage URL, or a file just picked from the
   // phone (uploaded on Save). Null = a preset icon.
   late String? _custom = _usable(widget.daily.customIconPath);
   bool _saving = false;
   final ImagePicker _picker = ImagePicker();
 
-  static const List<String> _fonts = [
-    'Default', 'Roboto', 'Playfair Display', 'Pacifico',
-    'Bebas Neue', 'Caveat', 'Permanent Marker', 'Righteous',
-    'Lobster', 'Dancing Script', 'Bangers',
-  ];
 
   static const List<IconData> _icons = [
     Icons.star, Icons.favorite, Icons.camera_alt, Icons.music_note,
@@ -476,6 +459,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
     );
     try {
       await DailyList.updateDaily(updated);
+      await _syncPublicCopy(updated);
       if (mounted) Navigator.pop(context, updated);
     } catch (e) {
       print('ManageDaily: save failed: $e');
@@ -532,12 +516,14 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                           title.isEmpty ? 'Daily name' : title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: dailyTitleFont(_font).copyWith(
+                          style: DailyFonts.style(_font,
+                              fontWeight: FontWeight.w700)
+                              .copyWith(
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
                             color: title.isEmpty
                                 ? Colors.grey[400]
-                                : Colors.black87,
+                                : kManageInk,
                           ),
                         ),
                       ),
@@ -577,11 +563,11 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                           height: 40,
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
-                            itemCount: _fonts.length,
+                            itemCount: DailyFonts.options.length,
                             separatorBuilder: (_, __) =>
                             const SizedBox(width: 8),
                             itemBuilder: (_, i) {
-                              final f = _fonts[i];
+                              final f = DailyFonts.options[i];
                               final sel = f == _font;
                               return GestureDetector(
                                 onTap: () => setState(() => _font = f),
@@ -591,14 +577,14 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                                       horizontal: 14),
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: sel ? Colors.black : Colors.grey[100],
+                                    color: sel ? Colors.cyan : Colors.grey[100],
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Text(
                                     f,
-                                    style: dailyTitleFont(f).copyWith(
+                                    style: DailyFonts.style(f).copyWith(
                                       fontSize: 15,
-                                      color: sel ? Colors.white : Colors.black87,
+                                      color: sel ? Colors.white : kManageInk,
                                     ),
                                   ),
                                 ),
@@ -622,9 +608,9 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                     child: ElevatedButton(
                       onPressed: title.isEmpty || _saving ? null : _save,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
+                        backgroundColor: Colors.cyan,
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: Colors.grey[300],
+                        disabledBackgroundColor: Colors.cyan.withOpacity(0.4),
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 15),
                         shape: RoundedRectangleBorder(
@@ -649,6 +635,22 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
         ),
       ),
     );
+  }
+
+  /// For You cards are drawn from the Daily's public copy
+  /// (public_dailies), so a new name, font or icon goes there too and
+  /// everyone sees it. update() fails on purpose for a Daily that isn't
+  /// public (no copy), so a private Daily never gets one.
+  Future<void> _syncPublicCopy(DailyData d) async {
+    try {
+      final data = d.toFirestoreJson()..removeWhere((_, v) => v == null);
+      await FirebaseFirestore.instance
+          .collection('public_dailies')
+          .doc(d.id)
+          .update(data);
+    } catch (_) {
+      // Not a public Daily: nothing to update.
+    }
   }
 
   /// Your own picture first, then the preset icons. Every cell is the same
@@ -708,7 +710,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
           color: Colors.grey[100],
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected ? Colors.black : Colors.transparent,
+            color: selected ? Colors.cyan : Colors.transparent,
             width: 2,
           ),
         ),

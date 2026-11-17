@@ -227,6 +227,8 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
         for (final doc in snap.docs) {
           final dailyId = doc.reference.parent.parent?.id;
           if (dailyId == null) continue;
+          // Removed by moderation: not shown on profiles either.
+          if (doc.data()['hidden'] == true) continue;
           try {
             final m = DailyMessage.fromJson(doc.data());
             if (m.hasContent) entries.add(MapEntry(m, dailyId));
@@ -1165,7 +1167,7 @@ class DailyPostVideoCache {
           .get();
       for (final doc in snap.docs) {
         final dailyId = doc.reference.parent.parent?.id;
-        if (dailyId == null) continue;
+        if (dailyId == null || doc.data()['hidden'] == true) continue;
         final m = DailyMessage.fromJson(doc.data());
         if (!m.hasContent || !await isPublic(dailyId)) continue;
         keepTop(_firstVideo(m));
