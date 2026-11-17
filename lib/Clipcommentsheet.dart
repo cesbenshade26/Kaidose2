@@ -3,6 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
 import 'GroupAvatar.dart';
+import 'Moderation.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
 
 class ClipCommentSheet extends StatefulWidget {
   final String clipId;
@@ -41,6 +44,8 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
   Future<void> _postComment() async {
     final text = _commentController.text.trim();
     if (text.isEmpty || _uid == null || _posting) return;
+    // Community Guidelines agreed + no blocked language.
+    if (!await TermsGate.readyToPost(context, text)) return;
 
     setState(() => _posting = true);
     try {
@@ -140,7 +145,11 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                // Comments from people blocked either way don't show.
+                final docs = (snapshot.data?.docs ?? []).where((d) {
+                  final a = (d.data() as Map<String, dynamic>)['authorUid'];
+                  return a is! String || !SafetyService.instance.isHidden(a);
+                }).toList();
 
                 if (docs.isEmpty) {
                   return Center(
@@ -359,73 +368,126 @@ class _CommentTileState extends State<_CommentTile> {
     return count.toString();
   }
 
+  /// Long-press: delete your own comment, or report / block.
+  void _openMenu() {
+    final author = (widget.data['authorUid'] as String?) ?? '';
+    final username = widget.data['authorUsername'] as String? ?? '';
+    final text = widget.data['text'] as String? ?? '';
+    final ref = _firestore
+        .collection('clips')
+        .doc(widget.clipId)
+        .collection('comments')
+        .doc(widget.commentId);
+    SafetyMenu.show(
+      context,
+      author == _uid
+          ? [
+        SafetyMenuItem(
+          icon: Icons.delete_outline_rounded,
+          label: 'Delete comment',
+          destructive: true,
+          onTap: () => ref.delete().catchError((e) {
+            print('_CommentTile: delete error: $e');
+          }),
+        ),
+      ]
+          : [
+        SafetyMenuItem(
+          icon: Icons.flag_outlined,
+          label: 'Report comment',
+          destructive: true,
+          onTap: () => ReportSheet.show(
+            context,
+            target: ReportTarget.comment,
+            targetId: widget.commentId,
+            ownerUid: author,
+            ownerName: username,
+            path: ref.path,
+            preview: text,
+          ),
+        ),
+        SafetyMenuItem(
+          icon: Icons.block_rounded,
+          label: username.isEmpty ? 'Block' : 'Block $username',
+          destructive: true,
+          onTap: () =>
+              BlockFlow.confirmAndBlock(context, author, username: username),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final username = widget.data['authorUsername'] ?? 'Unknown';
     final text = widget.data['text'] ?? '';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Avatar
-          MemberAvatar(
-            userId: (widget.data['authorUid'] as String?) ?? '',
-            username: username,
-            size: 36,
-            openProfileOnTap: true,
-          ),
-          const SizedBox(width: 10),
-
-          // Username + comment text
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  username,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  text,
-                  style: const TextStyle(
-                      fontSize: 14, color: Colors.black87),
-                ),
-              ],
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: _openMenu,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Avatar
+            MemberAvatar(
+              userId: (widget.data['authorUid'] as String?) ?? '',
+              username: username,
+              size: 36,
+              openProfileOnTap: true,
             ),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 10),
 
-          // Like button + count
-          GestureDetector(
-            onTap: _toggleLike,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _liked ? Icons.favorite : Icons.favorite_border,
-                  color: _liked ? Colors.red : Colors.grey[400],
-                  size: 18,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _formatCount(_likeCount),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[500],
-                    fontWeight: FontWeight.w500,
+            // Username + comment text
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    username,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  Text(
+                    text,
+                    style: const TextStyle(
+                        fontSize: 14, color: Colors.black87),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+
+            // Like button + count
+            GestureDetector(
+              onTap: _toggleLike,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _liked ? Icons.favorite : Icons.favorite_border,
+                    color: _liked ? Colors.red : Colors.grey[400],
+                    size: 18,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _formatCount(_likeCount),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[500],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'DailyData.dart';
 import 'DailyList.dart';
 import 'clip_service.dart';
 import 'GroupChatService.dart';
+import 'SafetyService.dart';
 
 /// Things a user can do that tell the feed what they like. Each has a
 /// weight (see FeedService._eventWeights); positive ones pull similar
@@ -15,7 +16,7 @@ enum FeedEvent { open, add, post, react, comment, interested, notInterested, lea
 /// user likes (users/{uid}/creator_affinity) and which TOPICS (taste).
 /// Watching is reported through [FeedService.recordClipView] instead, which
 /// knows how much of the clip was watched.
-enum ClipEvent { like, comment, share, watched, skipped }
+enum ClipEvent { like, comment, share, watched, skipped, notInterested }
 
 /// A scored Daily ready for display in a feed.
 class ScoredDaily {
@@ -103,8 +104,36 @@ class _ClipViewer {
   final Map<String, double> affinity; // creatorUid -> decayed score
   final Map<String, double> seen;     // clipId -> how much of it they watched
   final Map<String, String> friendNames; // uid -> username
-  const _ClipViewer(
-      this.taste, this.friends, this.affinity, this.seen, this.friendNames);
+  final Map<String, int> fof; // friend-of-friend uid -> friends in common
+  const _ClipViewer(this.taste, this.friends, this.affinity, this.seen,
+      this.friendNames, [this.fof = const {}]);
+}
+
+/// People your friends are friends with (not you, not your friends yet).
+class FriendsOfFriends {
+  /// uid -> which of YOUR friends know them
+  final Map<String, Set<String>> via;
+
+  /// your friends: uid -> username
+  final Map<String, String> friendNames;
+
+  const FriendsOfFriends(this.via, this.friendNames);
+
+  int count(String uid) => via[uid]?.length ?? 0;
+
+  /// Usernames of your friends who know [uid], most familiar order kept.
+  List<String> namesFor(String uid) => (via[uid] ?? const <String>{})
+      .map((f) => friendNames[f] ?? '')
+      .where((n) => n.isNotEmpty)
+      .toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+  /// Most-connected first.
+  List<String> top(int n) => (via.entries.toList()
+    ..sort((a, b) => b.value.length.compareTo(a.value.length)))
+      .take(n)
+      .map((e) => e.key)
+      .toList();
 }
 
 /// A clip found through a group (friends, a Daily, a group chat).
@@ -240,6 +269,8 @@ class FeedService {
     ClipEvent.share: 4,
     ClipEvent.watched: 2,
     ClipEvent.skipped: -1,
+    // "Not interested": a strong push away from its topics and creator.
+    ClipEvent.notInterested: -8,
   };
 
   // ─── Keyword terms ──────────────────────────────────────────────────────────
@@ -289,12 +320,15 @@ class FeedService {
 
     // dailyId -> number of friends who are members / were active in it
     final friendCounts = await _getFriendDailyCounts(friends);
+    // Same for people your friends know (mutual friends), weighted lower.
+    final fof = await friendsOfFriends();
+    final fofCounts = await _getFriendDailyCounts(fof.top(60));
 
     final candidates = await _getCandidates(
       uid: uid,
       interests: interests,
       taste: taste,
-      friendDailyIds: friendCounts.keys.toList(),
+      friendDailyIds: {...friendCounts.keys, ...fofCounts.keys}.toList(),
       hidden: hidden,
     );
     if (candidates.isEmpty) return [];
@@ -303,7 +337,11 @@ class FeedService {
       final daily = c.daily;
       final interest = _scoreInterest(daily, c.terms, interests, taste);
       final quality  = _scoreQuality(c.stats);
-      final social   = _scoreSocial(daily, friendCounts);
+      final social   = math.max(
+          _scoreSocial(daily, friendCounts),
+          math.max(
+              0.5 * _scoreSocial(daily, fofCounts),
+              fof.count(daily.creatorUid ?? '') > 0 ? 0.4 : 0.0));
       final alive    = _scoreAlive(daily, c.stats);
 
       var total = interest * _wInterest +
@@ -478,9 +516,12 @@ class FeedService {
     final out = <String, _Candidate>{};
     for (final d in docs) {
       if (out.containsKey(d.id) || hidden.contains(d.id)) continue;
+      if (d.data()['hidden'] == true) continue; // removed after reports
       try {
         final daily = DailyData.fromFirestore(d);
         if (daily.creatorUid == uid) continue;
+        final creator = daily.creatorUid;
+        if (creator != null && SafetyService.instance.isHidden(creator)) continue;
         out[d.id] = _Candidate(
             daily, _DailyStats.fromMap(d.data()), _readTerms(d.data()));
       } catch (e) {
@@ -1109,13 +1150,91 @@ class FeedService {
           .catchError((_) => <String, double>{}),
     ]);
     final friendNames = results[1] as Map<String, String>;
+    final fof = await friendsOfFriends();
     return _ClipViewer(
       results[0] as Map<String, double>,
       friendNames.keys.toSet(),
       results[2] as Map<String, double>,
       results[3] as Map<String, double>,
       friendNames,
+      {for (final e in fof.via.entries) e.key: e.value.length},
     );
+  }
+
+  static FriendsOfFriends? _fof;
+  static String? _fofFor;
+  static DateTime? _fofAt;
+  static Future<FriendsOfFriends>? _fofLoading;
+
+  /// Friends of your friends (mutual friends), cached for 10 minutes.
+  /// Used by Search ("Alex knows them"), and by both feeds: their clips and
+  /// the Dailies they're in get a social boost, a little under your own
+  /// friends'.
+  static Future<FriendsOfFriends> friendsOfFriends() {
+    final uid = _uid;
+    if (uid == null) return Future.value(const FriendsOfFriends({}, {}));
+    final fresh = _fof != null &&
+        _fofFor == uid &&
+        _fofAt != null &&
+        DateTime.now().difference(_fofAt!) < const Duration(minutes: 10);
+    if (fresh) return Future.value(_fof!);
+    return _fofLoading ??= _loadFriendsOfFriends(uid).then((v) {
+      _fof = v;
+      _fofFor = uid;
+      _fofAt = DateTime.now();
+      _fofLoading = null;
+      return v;
+    }).catchError((e) {
+      _fofLoading = null;
+      print('FeedService: friends of friends error: $e');
+      return const FriendsOfFriends({}, {});
+    });
+  }
+
+  /// Forget the cached mutual friends (after adding/removing a friend).
+  static void clearFriendsOfFriends() {
+    _fof = null;
+    _fofAt = null;
+  }
+
+  static Future<FriendsOfFriends> _loadFriendsOfFriends(String uid) async {
+    final names = await _getFriendNames(uid);
+    final friends = names.keys.toList();
+    final via = <String, Set<String>>{};
+    final col = _firestore.collection('friend_requests');
+    // Up to 90 friends looked at (3 rounds of 2 queries).
+    for (final chunk in _chunk(friends.take(90).toList(), 30)) {
+      final res = await Future.wait([
+        col
+            .where('status', isEqualTo: 'accepted')
+            .where('fromUserId', whereIn: chunk)
+            .get(),
+        col
+            .where('status', isEqualTo: 'accepted')
+            .where('toUserId', whereIn: chunk)
+            .get(),
+      ]);
+      for (final d in res[0].docs) {
+        final friend = d.data()['fromUserId'] as String?;
+        final other = d.data()['toUserId'] as String?;
+        if (friend != null && other != null) {
+          via.putIfAbsent(other, () => {}).add(friend);
+        }
+      }
+      for (final d in res[1].docs) {
+        final friend = d.data()['toUserId'] as String?;
+        final other = d.data()['fromUserId'] as String?;
+        if (friend != null && other != null) {
+          via.putIfAbsent(other, () => {}).add(friend);
+        }
+      }
+    }
+    via.remove(uid);
+    for (final f in friends) {
+      via.remove(f);
+    }
+    via.removeWhere((k, _) => SafetyService.instance.isHidden(k));
+    return FriendsOfFriends(via, names);
   }
 
   /// The For You clips feed (no labels). Kept for older callers; the Clips
@@ -1156,6 +1275,7 @@ class FeedService {
     final now = DateTime.now();
     for (final h in hits.values) {
       if (exclude.contains(h.clip.id) || h.clip.creatorUid == uid) continue;
+      if (_safetySkips(h.clip.id, h.clip.creatorUid, null)) continue;
       final likers = h.likers.toList();
       final lastAt = h.lastLikeAt ?? h.clip.createdAt;
       final recency = math.exp(-now.difference(lastAt).inHours / 24.0 / 5);
@@ -1210,6 +1330,16 @@ class FeedService {
     );
   }
 
+  /// Clips nobody should see here: taken down (moderation / reports),
+  /// "Not interested", or from someone blocked (either way) or muted.
+  static bool _safetySkips(
+      String clipId, String creatorUid, Map<String, dynamic>? data) {
+    final s = SafetyService.instance;
+    if (data != null && data['hidden'] == true) return true;
+    if (s.notInterested.contains(clipId)) return true;
+    return creatorUid.isNotEmpty && s.hidesCreator(creatorUid);
+  }
+
   static Future<ClipFeedPage> _forYouPage(
       String uid,
       _ClipViewer viewer,
@@ -1231,6 +1361,12 @@ class FeedService {
     final terms = _topTerms(viewer.taste);
     final moreTerms = boostTerms.take(10).toList();
     final moreCreators = boostCreators.take(30).toList();
+    // People your friends know (most mutual friends first).
+    final fofCreators = (viewer.fof.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value)))
+        .take(10)
+        .map((e) => e.key)
+        .toList();
 
     final results = await Future.wait([
       _friendLikes(friends), // clipId -> friend uids who liked it
@@ -1270,6 +1406,12 @@ class FeedService {
             .orderBy('createdAt', descending: true)
             .limit(_clipSourceLimit)
             .get()),
+      if (fofCreators.isNotEmpty)
+        _safe('clips-friends-of-friends', () => col
+            .where('creatorUid', whereIn: fofCreators)
+            .orderBy('createdAt', descending: true)
+            .limit(_clipSourceLimit)
+            .get()),
     ]);
 
     final friendLikes = results[0] as Map<String, Set<String>>;
@@ -1280,6 +1422,7 @@ class FeedService {
         return;
       }
       if (data['creatorUid'] == uid) return;
+      if (_safetySkips(d.id, data['creatorUid'] as String? ?? '', data)) return;
       try {
         byId[d.id] = ClipData.fromFirestore(data, d.id);
       } catch (e) {
@@ -1355,8 +1498,13 @@ class FeedService {
       final aff = ((v.affinity[c.creatorUid] ?? 0) / _tasteCap).clamp(-1.0, 1.0);
       // Friend posted it, or friends liked it (2+ likes = full).
       final likedBy = friendLikes[c.id]?.length ?? 0;
-      final social = math.max(v.friends.contains(c.creatorUid) ? 1.0 : 0.0,
-          math.min(1.0, likedBy / 2));
+      // Someone your friends know: a smaller boost (more mutuals = more).
+      final mutual = v.fof[c.creatorUid] ?? 0;
+      final mutualBoost = mutual > 0 ? math.min(0.6, 0.3 + 0.1 * mutual) : 0.0;
+      final social = math.max(
+          math.max(v.friends.contains(c.creatorUid) ? 1.0 : 0.0,
+              math.min(1.0, likedBy / 2)),
+          mutualBoost);
       final ageDays = now.difference(c.createdAt).inHours / 24.0;
       final recency = math.exp(-ageDays / 4); // about half after 3 days
       final quality = clipQuality(c);
@@ -1588,6 +1736,7 @@ class FeedService {
       }
     }
     for (final d in results.skip(chunks.length).expand((l) => l)) {
+      if (d.data()['hidden'] == true) continue;
       try {
         hits[d.id] = _LensHit(ClipData.fromFirestore(d.data(), d.id));
       } catch (_) {}
@@ -1596,7 +1745,7 @@ class FeedService {
     likers.keys.where((id) => !hits.containsKey(id)).take(90).toList();
     for (final d in await _clipsByIds(missing)) {
       final data = d.data();
-      if (data == null) continue;
+      if (data == null || data['hidden'] == true) continue;
       try {
         hits[d.id] = _LensHit(ClipData.fromFirestore(data, d.id));
       } catch (_) {}

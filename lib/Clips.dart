@@ -382,7 +382,26 @@ class _ClipsWidgetState extends State<ClipsWidget> {
     return _buildPager(_feed);
   }
 
+  // Clips taken out of this session's feed: "Not interested", or every
+  // clip by someone just blocked.
+  final Set<String> _hiddenIds = {};
+  final Set<String> _hiddenCreators = {};
+
+  void _hideClip(ClipData clip, bool wholeCreator) {
+    setState(() {
+      if (wholeCreator) {
+        _hiddenCreators.add(clip.creatorUid);
+      } else {
+        _hiddenIds.add(clip.id);
+      }
+    });
+  }
+
   Widget _buildPager(List<ClipData> clips) {
+    clips = clips
+        .where((c) =>
+    !_hiddenIds.contains(c.id) && !_hiddenCreators.contains(c.creatorUid))
+        .toList();
     // First build, or clips were added/removed: (re)start the preload window.
     if (clips.length != _preloadedCount) {
       _preloadedCount = clips.length;
@@ -413,6 +432,7 @@ class _ClipsWidgetState extends State<ClipsWidget> {
           proof: _proof[clip.id],
           moreLikeThis: clip.id == _moreId,
           onOpenProfile: () => _openProfile(clip, clips),
+          onHidden: (whole) => _hideClip(clip, whole),
         );
       },
     );
@@ -442,6 +462,9 @@ class _ClipPage extends StatefulWidget {
   /// on return).
   final Future<void> Function()? onOpenProfile;
 
+  /// "Not interested" / creator blocked: take it out of the feed.
+  final void Function(bool wholeCreator)? onHidden;
+
   const _ClipPage({
     Key? key,
     required this.clip,
@@ -449,6 +472,7 @@ class _ClipPage extends StatefulWidget {
     this.proof,
     this.moreLikeThis = false,
     this.onOpenProfile,
+    this.onHidden,
   }) : super(key: key);
 
   @override
@@ -819,6 +843,8 @@ class _ClipPageState extends State<_ClipPage>
               creatorUid: widget.clip.creatorUid,
               onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
               onCommentTap: _openComments,
+              caption: widget.clip.caption,
+              onHidden: widget.onHidden,
             ),
           ),
 

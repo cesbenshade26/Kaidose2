@@ -5,6 +5,10 @@ import 'package:flutter/services.dart';
 import 'DailyShare.dart';
 import 'MessageStorage.dart';
 import 'NetworkVideoPlayer.dart';
+import 'MediaAspect.dart';
+import 'package:video_player/video_player.dart';
+import 'dart:async';
+import 'dart:io';
 import 'PinnedPosts.dart';
 import 'SendDailyMessage.dart';
 
@@ -71,6 +75,32 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
 
   int get _pinnedCount => _posts.where((p) => p.pinned).length;
 
+  /// Gets the videos (and card shapes) of the next few posts ready, so
+  /// they're already playing when they scroll in.
+  void _warmAhead(int index) {
+    for (var j = index; j <= index + 3 && j < _posts.length; j++) {
+      for (final item in _posts[j].message.media.take(2)) {
+        if (!item.path.startsWith('http')) continue;
+        MediaAspect.of(item.path, isVideo: item.isVideo, thumb: item.thumb);
+        if (item.isVideo) DailyPostVideoCache.warm(item.path);
+      }
+    }
+  }
+
+  /// Your own top post's video stays ready for the next time Profile opens.
+  void _keepTopReady() {
+    if (!_isOwn) return;
+    DailyPostVideoCache.keepTop(_topVideoUrl(_posts));
+  }
+
+  static String? _topVideoUrl(List<_Post> posts) {
+    if (posts.isEmpty) return null;
+    final media = posts.first.message.media;
+    if (media.isEmpty || !media.first.isVideo) return null;
+    final url = media.first.path;
+    return url.startsWith('http') ? url : null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -85,6 +115,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
     if (mounted) setState(() => _loading = true);
     await _loadPinned();
     await _loadMore();
+    _keepTopReady();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -460,6 +491,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
             );
           }
           final post = _posts[i];
+          _warmAhead(i);
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _PostCard(
@@ -621,18 +653,18 @@ class _MediaStripState extends State<_MediaStrip> {
 
   bool _isRemote(String p) => p.startsWith('http://') || p.startsWith('https://');
 
-  Widget _tile(DailyMediaItem item) {
+  Widget _tile(DailyMediaItem item, {bool active = true}) {
     final remote = _isRemote(item.path);
     Widget child;
     if (!remote) {
       child = _placeholder(Icons.image_not_supported_outlined);
     } else if (item.isVideo) {
-      child = Container(
-        color: const Color(0xFF14181C),
-        child: const Center(
-          child: Icon(Icons.play_circle_fill_rounded,
-              size: 54, color: Colors.white70),
-        ),
+      // Plays right here in the list (no extra screen).
+      return InlineVideo(
+        key: ValueKey(item.path),
+        url: item.path,
+        thumb: item.thumb,
+        active: active,
       );
     } else {
       child = Image.network(
@@ -666,6 +698,39 @@ class _MediaStripState extends State<_MediaStrip> {
   @override
   Widget build(BuildContext context) {
     final items = widget.items;
+    if (items.length == 1) return _single(items.first);
+    return _strip(items);
+  }
+
+  /// One photo/video: shown in its own shape. Tall ones get narrower (and
+  /// sit on the left) instead of being cropped to a wide box.
+  Widget _single(DailyMediaItem item) {
+    final maxH = MediaQuery.of(context).size.height * 0.5;
+    return LayoutBuilder(builder: (context, box) {
+      return MediaAspectBuilder(
+        path: item.path,
+        isVideo: item.isVideo,
+        thumb: item.thumb,
+        builder: (context, aspect) {
+          final size = MediaAspect.box(aspect,
+              maxW: box.maxWidth, maxH: maxH, minW: box.maxWidth * 0.5);
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: size.width,
+                height: size.height,
+                child: _tile(item),
+              ),
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  Widget _strip(List<DailyMediaItem> items) {
     final many = items.length > 1;
 
     return ClipRRect(
@@ -679,7 +744,7 @@ class _MediaStripState extends State<_MediaStrip> {
                 ? PageView.builder(
               itemCount: items.length,
               onPageChanged: (p) => setState(() => _page = p),
-              itemBuilder: (_, i) => _tile(items[i]),
+              itemBuilder: (_, i) => _tile(items[i], active: i == _page),
             )
                 : _tile(items.first),
             if (many)
@@ -740,5 +805,380 @@ class _FullScreenMedia extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// A video that plays inline in a list (profile posts, Daily messages):
+/// starts (muted) when it's mostly on screen, pauses when it scrolls away
+/// or another screen covers it. Tap for sound; the speaker in the corner
+/// shows which. Always fills its box edge to edge (cropping a hair if the
+/// box's shape is slightly off), so there are never black bars.
+/// [url] can be a download URL or a local file path (a video still
+/// uploading).
+class InlineVideo extends StatefulWidget {
+  final String url;
+  final String? thumb;
+  final bool active; // false for a page of a strip that isn't showing
+
+  const InlineVideo({Key? key, required this.url, this.thumb, this.active = true})
+      : super(key: key);
+
+  @override
+  State<InlineVideo> createState() => _InlineVideoState();
+}
+
+class _InlineVideoState extends State<InlineVideo> with WidgetsBindingObserver {
+  VideoPlayerController? _c;
+  bool _failed = false;
+  bool _muted = true;
+  bool _visible = false;
+  ScrollPosition? _position;
+  // Read during build (where these lookups belong), used by _checkVisible.
+  Size _screen = Size.zero;
+  bool _onTop = true;
+  bool _ticking = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _init();
+  }
+
+  bool get _local => !widget.url.startsWith('http');
+
+  Future<void> _init() async {
+    if (_local) {
+      final c = VideoPlayerController.file(File(widget.url));
+      try {
+        await c.initialize();
+        await c.setLooping(true);
+        await c.setVolume(0);
+      } catch (_) {
+        c.dispose();
+        if (mounted) setState(() => _failed = true);
+        return;
+      }
+      if (!mounted) {
+        c.dispose();
+        return;
+      }
+      setState(() => _c = c);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisible());
+      return;
+    }
+    // Usually already loaded by the preloader, so it starts instantly.
+    final c = await DailyPostVideoCache.take(widget.url);
+    if (!mounted) {
+      if (c != null) DailyPostVideoCache.giveBack(widget.url, c);
+      return;
+    }
+    if (c == null) {
+      setState(() => _failed = true);
+      return;
+    }
+    await c.setVolume(_muted ? 0 : 1);
+    setState(() => _c = c);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisible());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final pos = Scrollable.maybeOf(context)?.position;
+    if (pos != _position) {
+      _position?.removeListener(_checkVisible);
+      _position = pos;
+      _position?.addListener(_checkVisible);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisible());
+  }
+
+  @override
+  void didUpdateWidget(InlineVideo old) {
+    super.didUpdateWidget(old);
+    if (old.active != widget.active) _checkVisible();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _c?.pause();
+    } else {
+      _checkVisible();
+    }
+  }
+
+  /// Plays when at least 60% of it is on screen, this page is the one
+  /// showing, and nothing is pushed on top (e.g. a profile opened).
+  void _checkVisible() {
+    if (!mounted) return;
+    final c = _c;
+    final box = context.findRenderObject() as RenderBox?;
+    if (c == null || box == null || !box.attached || !box.hasSize) return;
+    final topLeft = box.localToGlobal(Offset.zero);
+    final rect = topLeft & box.size;
+    final shown = rect.intersect(Offset.zero & _screen);
+    final fraction = (shown.width <= 0 || shown.height <= 0)
+        ? 0.0
+        : (shown.width * shown.height) / (rect.width * rect.height);
+    final visible = fraction >= 0.6 && widget.active && _onTop && _ticking;
+    if (visible == _visible && visible == c.value.isPlaying) return;
+    _visible = visible;
+    visible ? c.play() : c.pause();
+  }
+
+  void _toggleSound() {
+    final c = _c;
+    if (c == null) return;
+    setState(() => _muted = !_muted);
+    c.setVolume(_muted ? 0 : 1);
+    if (!c.value.isPlaying) c.play();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _position?.removeListener(_checkVisible);
+    final c = _c;
+    _c = null;
+    // After this frame (the player may still be painting this one), hand
+    // it back so scrolling back up doesn't load it again.
+    final url = widget.url;
+    final local = _local;
+    Future.microtask(() {
+      if (c == null) return;
+      local ? c.dispose() : DailyPostVideoCache.giveBack(url, c);
+    });
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _screen = MediaQuery.of(context).size;
+    _onTop = ModalRoute.of(context)?.isCurrent ?? true;
+    _ticking = TickerMode.of(context);
+    // Re-check after any rebuild (e.g. coming back from another screen).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisible());
+    final c = _c;
+    final thumb = widget.thumb;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _toggleSound,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: const Color(0xFF14181C)),
+          if (c == null && thumb != null && thumb.isNotEmpty)
+            Image.network(thumb,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          if (c != null)
+            FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: c.value.size.width,
+                height: c.value.size.height,
+                child: VideoPlayer(c),
+              ),
+            ),
+          if (c == null && !_failed)
+            const Center(
+              child: SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.4, color: Colors.white70),
+              ),
+            ),
+          if (_failed)
+            const Center(
+              child: Icon(Icons.error_outline, color: Colors.white54, size: 36),
+            ),
+          if (c != null)
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ready-to-play videos for Daily posts on profiles, the same idea as the
+/// Clips preloader: the next few posts' videos load while you scroll, the
+/// ones you scroll past stay ready for a bit, and your own top post's video
+/// is kept ready at all times (warmed at sign-in) so it plays the moment
+/// you open Profile.
+class DailyPostVideoCache {
+  DailyPostVideoCache._();
+
+  static const int _max = 4; // besides the top post's video
+
+  // url -> ready controller (oldest first). Not in here = in use or unloaded.
+  static final Map<String, VideoPlayerController> _ready = {};
+  static final Map<String, Future<VideoPlayerController?>> _loading = {};
+  static final Set<String> _inUse = {};
+  static String? _top;
+
+  static Future<VideoPlayerController?> _load(String url) {
+    return _loading[url] ??= () async {
+      final c = VideoPlayerController.networkUrl(Uri.parse(url));
+      try {
+        await c.initialize();
+        await c.setLooping(true);
+        await c.setVolume(0);
+        return c;
+      } catch (e) {
+        c.dispose();
+        return null;
+      } finally {
+        _loading.remove(url);
+      }
+    }();
+  }
+
+  /// Start loading [url] if it isn't ready or playing already.
+  static void warm(String url) {
+    if (_ready.containsKey(url) || _inUse.contains(url) || _loading.containsKey(url)) {
+      return;
+    }
+    _load(url).then((c) {
+      if (c == null) return;
+      if (_inUse.contains(url) || _ready.containsKey(url)) {
+        c.dispose(); // someone already has one
+        return;
+      }
+      _ready[url] = c;
+      _trim();
+    });
+  }
+
+  /// A ready controller for [url] (loaded now if needed). Hand it back
+  /// with [giveBack] when done.
+  static Future<VideoPlayerController?> take(String url) async {
+    _inUse.add(url);
+    final ready = _ready.remove(url);
+    if (ready != null) return ready;
+    final c = await _load(url);
+    // warm() may have parked the same load in _ready meanwhile.
+    final parked = _ready.remove(url);
+    if (parked != null && parked != c) {
+      c?.dispose();
+      return parked;
+    }
+    if (c == null) _inUse.remove(url);
+    return c;
+  }
+
+  static void giveBack(String url, VideoPlayerController c) {
+    _inUse.remove(url);
+    try {
+      c.pause();
+      c.setVolume(0);
+      c.seekTo(Duration.zero);
+    } catch (_) {
+      return;
+    }
+    final old = _ready.remove(url);
+    if (old != null && old != c) old.dispose();
+    _ready[url] = c; // newest
+    _trim();
+  }
+
+  /// The video at the top of YOUR posts: always kept ready.
+  static void keepTop(String? url) {
+    _top = url;
+    if (url != null) warm(url);
+    _trim();
+  }
+
+  static void _trim() {
+    while (_ready.keys.where((k) => k != _top).length > _max) {
+      final oldest = _ready.keys.firstWhere((k) => k != _top);
+      _ready.remove(oldest)?.dispose();
+    }
+  }
+
+  /// Sign-out: drop everything.
+  static void clear() {
+    for (final c in _ready.values) {
+      c.dispose();
+    }
+    _ready.clear();
+    _top = null;
+  }
+
+  static StreamSubscription<User?>? _auth;
+
+  /// Call once at launch: whenever someone signs in, finds the top post on
+  /// their profile and, if it's a video, gets it ready in the background.
+  static void startWarmingTopPost() {
+    _auth ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      clear();
+      if (user != null) _warmTopFor(user.uid);
+    });
+  }
+
+  static Future<void> _warmTopFor(String uid) async {
+    try {
+      final db = FirebaseFirestore.instance;
+      Future<bool> isPublic(String dailyId) async {
+        final d = await db.collection('public_dailies').doc(dailyId).get();
+        return d.exists && (d.data()?['privacy'] ?? 'Public') == 'Public';
+      }
+
+      // Pinned posts come first on the profile...
+      for (final pin in await PinnedPosts.load(uid)) {
+        final doc = await db
+            .collection('dailies')
+            .doc(pin.dailyId)
+            .collection('daily_messages')
+            .doc(pin.messageId)
+            .get();
+        final data = doc.data();
+        if (data == null || data['user_id'] != uid) continue;
+        if (!await isPublic(pin.dailyId)) continue;
+        keepTop(_firstVideo(DailyMessage.fromJson(data)));
+        return;
+      }
+      // ...then the newest post in a public Daily.
+      final snap = await db
+          .collectionGroup('daily_messages')
+          .where('user_id', isEqualTo: uid)
+          .orderBy('timestamp', descending: true)
+          .limit(10)
+          .get();
+      for (final doc in snap.docs) {
+        final dailyId = doc.reference.parent.parent?.id;
+        if (dailyId == null) continue;
+        final m = DailyMessage.fromJson(doc.data());
+        if (!m.hasContent || !await isPublic(dailyId)) continue;
+        keepTop(_firstVideo(m));
+        return;
+      }
+    } catch (e) {
+      print('DailyPostVideoCache: top post warm-up skipped: $e');
+    }
+  }
+
+  static String? _firstVideo(DailyMessage m) {
+    if (m.media.isEmpty || !m.media.first.isVideo) return null;
+    final url = m.media.first.path;
+    return url.startsWith('http') ? url : null;
   }
 }

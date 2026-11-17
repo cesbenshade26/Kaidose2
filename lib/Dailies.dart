@@ -21,6 +21,7 @@ import 'dart:io';
 import 'FriendStoryBar.dart';
 import 'StoryRing.dart';
 import 'CircleRevealTransition.dart';
+import 'DailiesPreload.dart';
 
 
 class DailiesWidget extends StatefulWidget {
@@ -53,8 +54,14 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   // The whole screen is one scroll view (header, story bar, tabs and the
   // list scroll together).
-  final ScrollController _scroll = ScrollController();
-  final DailyForYouController _forYou = DailyForYouController();
+  // Starts where you left off (see DailiesScrollMemory).
+  late final ScrollController _scroll = ScrollController(
+    initialScrollOffset:
+    DailiesScrollMemory.offsets[DailiesScrollMemory.showForYou] ?? 0,
+  );
+  // Shared for the session and preloaded at sign-in (never disposed here).
+  DailyForYouController get _forYou => DailyForYouController.shared;
+  MyDailiesStore get _store => MyDailiesStore.instance;
   final GlobalKey _headerKey = GlobalKey();
   double _headerHeight = 330;
 
@@ -63,8 +70,13 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   bool _showBar = false;
   double _upAccum = 0;
 
-  // Each tab remembers its own scroll position.
-  final Map<bool, double> _tabOffsets = {true: 0, false: 0};
+  // How far past the screen cards are built (and their covers loaded), so
+  // they're ready before you scroll to them.
+  static const double _buildAhead = 1600;
+
+  // Each tab remembers its own scroll position (kept outside the screen so
+  // it survives leaving Dailies).
+  Map<bool, double> get _tabOffsets => DailiesScrollMemory.offsets;
 
   // Where the user was when they opened Add / Notifications.
   double _savedOffset = 0;
@@ -119,6 +131,11 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     ));
 
     _scroll.addListener(_onScrollPosition);
+    // Normally already running since sign-in (main.dart); safe to repeat.
+    DailiesPreload.start();
+    _store.ensureStarted();
+    // Back where you were, once the cards are laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreScroll());
 
     _initializeSystems();
 
@@ -184,7 +201,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     _fade.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
-    _forYou.dispose();
+    _saveScroll();
     _slideController.dispose();
     if (_dailyPhotoListener != null) {
       DailyPhotoManager.removeListener(_dailyPhotoListener!);
@@ -207,6 +224,13 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     if (state == AppLifecycleState.resumed) {
       _checkForNewDay();
       SkipCount.checkAndResetIfNewWeek();
+      // Back from another app: you stay exactly where you were. Only if
+      // you're at the top of For You does an old feed quietly refresh.
+      if (_showForYou && _scroll.hasClients && _scroll.offset < 50) {
+        _forYou.refreshIfStale();
+      }
+    } else if (state == AppLifecycleState.paused) {
+      _saveScroll();
     }
   }
 
@@ -214,6 +238,29 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   void didChangeDependencies() {
     super.didChangeDependencies();
     _loadPhotos();
+  }
+
+  /// Remembers where you are on the current tab.
+  void _saveScroll() {
+    if (_scroll.hasClients && !_restoring) {
+      _tabOffsets[_showForYou] = _scroll.offset;
+    }
+    DailiesScrollMemory.showForYou = _showForYou;
+  }
+
+  /// Puts you back where you were (the list may have changed size since).
+  // True while a saved position is being put back (don't overwrite it).
+  bool _restoring = true;
+  late final double _openedAt = _tabOffsets[_showForYou] ?? 0;
+
+  void _restoreScroll() {
+    _restoring = false;
+    if (!mounted || !_scroll.hasClients) return;
+    final want = _openedAt;
+    final target = want.clamp(0.0, _scroll.position.maxScrollExtent);
+    if ((_scroll.offset - target).abs() > 1) _scroll.jumpTo(target);
+    // At the top of For You with an old feed: quietly refresh it.
+    if (_showForYou && target < 50) _forYou.refreshIfStale();
   }
 
   Future<void> _initializeSystems() async {
@@ -363,7 +410,9 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
   /// Pages the For You feed in as the user nears the bottom.
   void _onScrollPosition() {
-    if (!_scroll.hasClients || !_showForYou) return;
+    if (!_scroll.hasClients) return;
+    if (!_restoring) _tabOffsets[_showForYou] = _scroll.offset;
+    if (!_showForYou) return;
     final pos = _scroll.position;
     if (pos.pixels >= pos.maxScrollExtent - 400) {
       _forYou.loadMoreIfNeeded();
@@ -379,6 +428,15 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
     final offset = n.metrics.pixels;
     final delta = n.scrollDelta ?? 0;
+
+    // Back at the top with the story bar in view: re-sort it (watched
+    // stories to the end), like Instagram does when you come back up.
+    if (offset > 150) {
+      _awayFromTop = true;
+    } else if (offset <= 0 && _awayFromTop) {
+      _awayFromTop = false;
+      StoryBar.reorder.value++;
+    }
 
     // Real tabs/buttons are visible again.
     if (offset <= _headerHeight) {
@@ -427,6 +485,10 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     if (forYou == _showForYou) return;
     if (_searchOpen) _closeSearch();
     _tabOffsets[_showForYou] = _scroll.hasClients ? _scroll.offset : 0;
+    // Read before the swap: the list changing size can move the scroll
+    // position, which mustn't overwrite where this tab was.
+    final saved = _tabOffsets[forYou] ?? 0;
+    _restoring = true;
 
     // Hide the list, swap tabs and restore that tab's scroll spot while it is
     // invisible, then fade it back in. No visible jump.
@@ -435,27 +497,35 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       _showForYou = forYou;
       _showBar = false;
     });
+    DailiesScrollMemory.showForYou = forYou;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _restoring = false;
       if (_scroll.hasClients) {
-        final target = (_tabOffsets[forYou] ?? 0)
-            .clamp(0.0, _scroll.position.maxScrollExtent);
+        final target = saved.clamp(0.0, _scroll.position.maxScrollExtent);
         _scroll.jumpTo(target);
+        _tabOffsets[forYou] = target;
+        if (forYou && target < 50) _forYou.refreshIfStale();
       }
       _fade.forward();
     });
   }
 
   Future<void> _onRefresh() async {
+    // Watched stories move to the end of the story bar.
+    StoryBar.reorder.value++;
     if (_showForYou) await _forYou.loadFeed(silent: true);
   }
+
+  // Scrolled back up to the very top after being further down.
+  bool _awayFromTop = false;
 
   // ---------------------------------------------------------------------
   // Tabs
   // ---------------------------------------------------------------------
 
-  // For You is always the tab the screen opens on.
-  bool _showForYou = true;
+  // The tab you were last on (For You on a fresh app open).
+  bool _showForYou = DailiesScrollMemory.showForYou;
 
   // My Dailies search (icon at the right edge that expands into a bar).
   // Quick fade for the list when switching tabs.
@@ -521,7 +591,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     // nothing on the screen moves).
     if (_searchOpen && !_showForYou) {
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         child: Container(
           height: 40,
           decoration: BoxDecoration(
@@ -562,7 +632,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Container(
         height: 40,
         padding: const EdgeInsets.all(3),
@@ -719,126 +789,138 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
   /// The original Dailies list (the Dailies the viewer created or joined),
   /// now a sliver so it scrolls with the rest of the screen.
   Widget _buildMyDailiesSliver() {
-    if (_isLoading) {
+    // Rebuilds as My Dailies change (kept live by MyDailiesStore).
+    return ListenableBuilder(
+      listenable: _store,
+      builder: (context, _) => _myDailiesSliver(),
+    );
+  }
+
+  Widget _myDailiesSliver() {
+    // Not listening (e.g. after a hot reload): start now.
+    if (!_store.isListening) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _store.ensureStarted());
+    }
+    // Only the very first load ever shows a spinner; it's normally done
+    // long before (it starts at sign-in).
+    final allDailies = _store.dailies;
+    if (allDailies == null) {
       return SliverToBoxAdapter(
-        child: _centered(const CircularProgressIndicator(color: Colors.cyan)),
+        child: _store.error != null
+            ? _centered(Text('Error: ${_store.error}'))
+            : _centered(const CircularProgressIndicator(color: Colors.cyan)),
       );
     }
 
-    return SliverToBoxAdapter(
-      child: StreamBuilder<List<DailyData>>(
-        stream: DailyList.getDailiesStream(),
-        builder: (context, dailiesSnapshot) {
-          if (dailiesSnapshot.connectionState == ConnectionState.waiting) {
-            return _centered(
-                const CircularProgressIndicator(color: Colors.cyan));
-          }
+    final q = _query.trim().toLowerCase();
+    final publishedDailies = q.isEmpty
+        ? allDailies
+        : allDailies
+        .where((d) => d.title.toLowerCase().contains(q))
+        .toList();
+    final viewedToday = _store.viewedToday;
 
-          if (dailiesSnapshot.hasError) {
-            return _centered(Text('Error: ${dailiesSnapshot.error}'));
-          }
+    if (q.isNotEmpty && publishedDailies.isEmpty) {
+      return SliverToBoxAdapter(
+        child: _centered(Text('No Dailies match "$_query"',
+            style: TextStyle(fontSize: 15, color: Colors.grey[600]))),
+      );
+    }
 
-          final allDailies = dailiesSnapshot.data ?? [];
-          final q = _query.trim().toLowerCase();
-          final publishedDailies = q.isEmpty
-              ? allDailies
-              : allDailies
-              .where((d) => d.title.toLowerCase().contains(q))
-              .toList();
+    if (publishedDailies.isEmpty && _todaysStoryItems.isEmpty) {
+      return SliverToBoxAdapter(child: _emptyMyDailies());
+    }
 
-          return StreamBuilder<Set<String>>(
-            stream: DailyList.getViewedDailiesStream(),
-            builder: (context, viewedSnapshot) {
-              final viewedToday = viewedSnapshot.data ?? {};
+    // A lazy list (like For You), so with the build-ahead distance only the
+    // cards near the screen are built, and they're ready before you get
+    // to them.
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+              (context, i) {
+            final daily = publishedDailies[i];
+            return DailyCover(
+              key: ValueKey('mine_${daily.id}'),
+              daily: daily,
+              hasBeenViewed: viewedToday.contains(daily.id),
+            );
+          },
+          childCount: publishedDailies.length,
+          findChildIndexCallback: (key) {
+            if (key is! ValueKey<String>) return null;
+            final i = publishedDailies
+                .indexWhere((d) => 'mine_${d.id}' == key.value);
+            return i < 0 ? null : i;
+          },
+        ),
+      ),
+    );
+  }
 
-              if (q.isNotEmpty && publishedDailies.isEmpty) {
-                return _centered(Text('No Dailies match "$_query"',
-                    style: TextStyle(fontSize: 15, color: Colors.grey[600])));
-              }
-
-              if (publishedDailies.isEmpty && _todaysStoryItems.isEmpty) {
-                return _centered(
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.photo_camera_outlined,
-                        size: 80,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No Dailies Yet!',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Start your day by posting your first daily',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      GestureDetector(
-                        onTap: _onAddPressed,
-                        child: Container(
-                          width: 70,
-                          height: 70,
-                          decoration: BoxDecoration(
-                            color: Colors.cyan,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.cyan.withOpacity(0.4),
-                                spreadRadius: 2,
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.add,
-                            color: Colors.white,
-                            size: 40,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Add a Daily!',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    ],
+  Widget _emptyMyDailies() {
+    return _centered(
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.photo_camera_outlined,
+            size: 80,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Dailies Yet!',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Start your day by posting your first daily',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: _onAddPressed,
+            child: Container(
+              width: 70,
+              height: 70,
+              decoration: BoxDecoration(
+                color: Colors.cyan,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.cyan.withOpacity(0.4),
+                    spreadRadius: 2,
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
                   ),
-                );
-              }
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    for (final daily in publishedDailies)
-                      DailyCover(
-                        key: ValueKey('mine_${daily.id}'),
-                        daily: daily,
-                        hasBeenViewed: viewedToday.contains(daily.id),
-                      ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+                ],
+              ),
+              child: const Icon(
+                Icons.add,
+                color: Colors.white,
+                size: 40,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Add a Daily!',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -871,6 +953,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               onRefresh: _onRefresh,
               child: CustomScrollView(
                 controller: _scroll,
+                cacheExtent: _buildAhead,
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(
@@ -880,7 +963,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                       children: [
                         Padding(
                           padding: const EdgeInsets.only(
-                              left: 16, right: 16, top: 60, bottom: 8),
+                              left: 14, right: 8, top: 56, bottom: 4),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -913,7 +996,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                           hasOwnPhotosToday: _todaysStoryItems.isNotEmpty,
                           hasViewedAllOwnPhotos: _hasViewedAllPhotos,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 4),
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 200),
                           child: KeyedSubtree(
@@ -921,7 +1004,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                             child: _buildToggle(),
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 10),
                       ],
                     ),
                   ),

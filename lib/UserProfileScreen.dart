@@ -11,6 +11,9 @@ import 'UserBubbleRow.dart';
 import 'StoryRing.dart';
 import 'DailyPostActivity.dart';
 import 'ClipsActivity.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
 
 /// Another person's profile, laid out exactly like your own Profile tab:
 /// banner photo, avatar on its lower edge, stats, bio, Daily Bubbles, then
@@ -74,13 +77,68 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   void initState() {
     super.initState();
     _username = widget.username.isEmpty ? null : widget.username;
+    SafetyService.instance.changes.addListener(_onSafety);
     _load();
   }
 
   @override
   void dispose() {
+    SafetyService.instance.changes.removeListener(_onSafety);
     _outer.dispose();
     super.dispose();
+  }
+
+  void _onSafety() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _isMe => widget.userId == FirebaseAuth.instance.currentUser?.uid;
+  bool get _iBlocked => SafetyService.instance.isBlocked(widget.userId);
+  bool get _blocksMe => SafetyService.instance.blocksMe(widget.userId);
+
+  void _openActions() =>
+      UserActions.show(context, uid: widget.userId, username: _username);
+
+  /// Shown instead of their stats, bio and posts while blocked.
+  Widget _blockedPanel() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 8, 32, 32),
+      child: Column(
+        children: [
+          Icon(Icons.block_rounded, size: 40, color: Colors.grey[350]),
+          const SizedBox(height: 10),
+          Text(
+            _iBlocked
+                ? 'You blocked ${_username ?? 'this account'}'
+                : "This account isn't available",
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _iBlocked
+                ? "They can't see your profile or message you."
+                : "You can't see their posts right now.",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13.5, color: Colors.grey[600]),
+          ),
+          if (_iBlocked) ...[
+            const SizedBox(height: 14),
+            OutlinedButton(
+              onPressed: () =>
+                  BlockFlow.unblock(context, widget.userId, username: _username),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.black87,
+                side: BorderSide(color: Colors.grey[300]!),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+              ),
+              child: const Text('Unblock'),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Uint8List? _decode(dynamic b64) {
@@ -236,6 +294,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             color: Colors.black87,
                           ),
                         ),
+                      ),
+                    if (!_isMe)
+                      IconButton(
+                        icon: const Icon(Icons.more_horiz_rounded,
+                            color: Colors.black87, size: 24),
+                        onPressed: _openActions,
                       ),
                   ],
                 ),
@@ -450,19 +514,21 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   child: Text('This account no longer exists',
                       style: TextStyle(color: Colors.grey[600])),
                 )
+              else if (_iBlocked || _blocksMe)
+                _blockedPanel()
               else ...[
-                ProfileStatsRow(
-                  userId: widget.userId,
-                  username: _username ?? '',
-                  showProgress: false,
-                ),
-                const SizedBox(height: 10),
-                _buildBioText(),
-                const SizedBox(height: 8),
-                UserBubbleRow(userId: widget.userId),
-                const SizedBox(height: 4),
-                _buildTabBar(),
-              ],
+                  ProfileStatsRow(
+                    userId: widget.userId,
+                    username: _username ?? '',
+                    showProgress: false,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildBioText(),
+                  const SizedBox(height: 8),
+                  UserBubbleRow(userId: widget.userId),
+                  const SizedBox(height: 4),
+                  _buildTabBar(),
+                ],
             ],
           ),
         ),
@@ -480,6 +546,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             onPressed: () => Navigator.maybePop(context),
           ),
         ),
+
+        // Mute, hide story, remove friend, report, block (top right)
+        if (!_isMe && !_notFound)
+          Positioned(
+            top: 50,
+            right: 4,
+            child: IconButton(
+              icon: const Icon(
+                Icons.more_horiz_rounded,
+                color: Colors.white,
+                size: 28,
+                shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+              ),
+              onPressed: _openActions,
+            ),
+          ),
       ],
     );
   }
@@ -513,6 +595,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     child: CircularProgressIndicator(color: Colors.cyan),
                   ),
                 )
+                    : (_iBlocked || _blocksMe)
+                    ? const SizedBox.shrink()
                     : _buildTabContent(),
               ),
             ),

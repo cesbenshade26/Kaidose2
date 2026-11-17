@@ -8,8 +8,10 @@ import 'ManageDaily.dart';
 import 'friend_request_service.dart';
 import 'FeedService.dart';
 import 'GroupAvatar.dart';
+import 'DailyIcon.dart';
 import 'UnifiedMediaPicker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Shared handling for the New Daily flow (3 screens). Every screen in the
 /// flow is pushed with [routeName], so closing it pops all of them at once
@@ -533,6 +535,17 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
 
     final dailyId = DateTime.now().millisecondsSinceEpoch.toString();
 
+    // Custom icon goes up to Storage so everyone sees it. If that fails it
+    // stays on this phone for now and is uploaded later (DailyIconStore).
+    String? iconPath = _customIcon?.path;
+    if (iconPath != null) {
+      try {
+        iconPath = await DailyIconStore.upload(dailyId, iconPath);
+      } catch (e) {
+        print('NewDaily: icon upload failed, will retry later: $e');
+      }
+    }
+
     final daily = DailyData(
       id: dailyId,
       title: widget.title,
@@ -542,7 +555,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
       managementTiers: widget.tiers,
       icon: _selectedIcon,
       iconColor: _selectedColor.value,
-      customIconPath: _customIcon?.path,
+      customIconPath: iconPath,
       invitedFriendIds: widget.selectedFriendIds,
       createdAt: DateTime.now(),
       dailyEntryPrompt: widget.dailyEntryPrompt,
@@ -554,6 +567,19 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
     // Mirror into public_dailies (with creatorUid set) so the
     // discover feed can find it
     final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // The shared Daily doc records who owns it: security rules use this to
+    // know who can choose moderators, ban, and remove posts.
+    if (uid != null) {
+      try {
+        await FirebaseFirestore.instance.collection('dailies').doc(dailyId).set(
+          {'ownerUid': uid, 'creatorUid': uid},
+          SetOptions(merge: true),
+        );
+      } catch (e) {
+        print('NewDaily: owner save failed: $e');
+      }
+    }
     final dailyWithCreator = DailyData(
       id: daily.id,
       title: daily.title,

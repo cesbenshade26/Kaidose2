@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'MediaAspect.dart';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -129,6 +130,8 @@ class MessageStorage {
         storageFileName: item.isVideo ? 'media_$i.mp4' : 'media_$i.jpg',
         contentType: item.isVideo ? 'video/mp4' : 'image/jpeg',
       );
+      // Keep showing the file already on this phone (no re-download).
+      LocalMediaAlias.remember(path, item.path);
       uploaded.add(DailyMediaItem(path: path, isVideo: item.isVideo, thumb: thumb));
     }
     return uploaded;
@@ -269,6 +272,14 @@ class MessageStorage {
   /// Starts loading a Daily's messages in the background, so opening that
   /// Daily moments later finds them already there. Used once, then thrown
   /// away, and discarded after 45 seconds so nothing stale lingers.
+  /// The messages being fetched ahead for [dailyId], without using them
+  /// up (opening the Daily still gets them). Null if none.
+  static Future<List<DailyMessage>>? peekPrefetched(String dailyId) {
+    final p = _prefetched[dailyId];
+    if (p == null || DateTime.now().difference(p.at) >= _prefetchTtl) return null;
+    return p.future;
+  }
+
   static void prefetch(String dailyId) {
     final existing = _prefetched[dailyId];
     if (existing != null &&

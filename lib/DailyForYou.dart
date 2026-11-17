@@ -9,12 +9,30 @@ import 'FeedService.dart';
 /// Holds the state of the For You tab of Dailies: a discovery feed of Public
 /// Dailies the viewer isn't in yet.
 ///
-/// It lives in the Dailies screen (not inside the feed widget) so the whole
-/// Dailies screen can be ONE scroll view. Switching tabs never reloads the
-/// feed, and ranking still comes entirely from FeedService.getRankedFeed(),
+/// One shared instance for the session ([shared]), started at sign-in by
+/// DailiesPreload, so the whole Dailies screen can be ONE scroll view and
+/// leaving or switching tabs never reloads the feed, and ranking still comes entirely from FeedService.getRankedFeed(),
 /// so swapping in a better feed later needs no changes here.
 class DailyForYouController extends ChangeNotifier {
   static const int pageSize = 10;
+
+  // One feed for the whole session, started at sign-in by DailiesPreload,
+  // so the tab is ready (cards, position, pages loaded) whenever it's shown.
+  static DailyForYouController? _shared;
+  static DailyForYouController get shared =>
+      _shared ??= DailyForYouController();
+  static DailyForYouController? get sharedOrNull => _shared;
+
+  /// Signed out / switched accounts: the next [shared] starts fresh.
+  static void resetShared() {
+    _shared?.dispose();
+    _shared = null;
+  }
+
+  // Older than this, the feed quietly refreshes the next time you're at
+  // the top of For You (never while you're scrolled down in it).
+  static const Duration _stale = Duration(minutes: 10);
+  DateTime? _loadedAt;
 
   List<DailyData> _feed = [];
   bool isLoading = true;
@@ -35,6 +53,10 @@ class DailyForYouController extends ChangeNotifier {
   Set<String> _mineIds = {};
   StreamSubscription<List<DailyData>>? _mineSub;
   bool _disposed = false;
+  bool get isDisposed => _disposed;
+
+  /// Whose feed this is (a different account gets a new one).
+  final String? ownerUid = FirebaseAuth.instance.currentUser?.uid;
 
   DailyForYouController() {
     loadFeed();
@@ -45,6 +67,14 @@ class DailyForYouController extends ChangeNotifier {
     }, onError: (e) {
       print('DailyForYouController: My Dailies stream error: $e');
     });
+  }
+
+  /// Refreshes quietly if the feed is old. Only call when the viewer is at
+  /// the top of For You, so cards never shuffle under them.
+  void refreshIfStale() {
+    final at = _loadedAt;
+    if (isLoading || at == null) return;
+    if (DateTime.now().difference(at) > _stale) loadFeed(silent: true);
   }
 
   @override
@@ -67,6 +97,7 @@ class DailyForYouController extends ChangeNotifier {
       final ranked = await FeedService.getRankedFeed();
       if (_disposed) return;
       _feed = ranked.map((s) => s.daily).toList();
+      _loadedAt = DateTime.now();
       visibleCount = pageSize;
       addedHere.clear();
       hiddenHere.clear();
@@ -161,7 +192,7 @@ class DailyForYouSliver extends StatelessWidget {
         });
 
         return SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          padding: const EdgeInsets.fromLTRB(10, 2, 10, 24),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
                   (context, index) {

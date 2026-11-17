@@ -44,7 +44,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>Kaidose uses your contacts to find friends who are already on Kaidose.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Kaidose uses your location to fill in your country code and show you content near you.</string>
+	<string>Kaidose uses your general location to fill in your country code, show you content near you, and, if you turn it on, suggest people near you. Your exact location is never shared.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>This app needs access to save photos to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

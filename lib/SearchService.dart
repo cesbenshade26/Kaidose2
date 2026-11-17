@@ -5,6 +5,8 @@ import 'DailyList.dart';
 import 'FeedService.dart';
 import 'clip_service.dart';
 import 'user_service.dart';
+import 'SafetyService.dart';
+import 'Nearby.dart';
 
 /// A Daily matched by a search, with how well it matched.
 class DailySearchResult {
@@ -20,13 +22,42 @@ class PersonResult {
   final int mutualCount; // friends you have in common
   final bool isVerified;
   final double score;
+
+  /// Usernames of your friends who know them (A–Z).
+  final List<String> knownBy;
+
+  /// Found through "Near you".
+  final bool nearby;
+
   const PersonResult({
     required this.user,
     required this.isFriend,
     required this.mutualCount,
     required this.isVerified,
     required this.score,
+    this.knownBy = const [],
+    this.nearby = false,
   });
+
+  /// "Alex knows them" / "Alex and Sam know them" /
+  /// "Alex, Sam and 10 others know them". Null with no mutual friends.
+  String? get knownByLabel {
+    final n = mutualCount;
+    if (n <= 0) return null;
+    final names = knownBy.take(2).toList();
+    if (names.isEmpty) {
+      return n == 1 ? '1 mutual friend' : '$n mutual friends';
+    }
+    if (n == 1) return '${names[0]} knows them';
+    if (n == 2 && names.length == 2) return '${names[0]} and ${names[1]} know them';
+    final rest = n - names.length;
+    if (names.length == 1) {
+      return '${names[0]} and $rest ${rest == 1 ? 'other' : 'others'} know them';
+    }
+    return rest == 1
+        ? '${names[0]}, ${names[1]} and 1 other know them'
+        : '${names[0]}, ${names[1]} and $rest others know them';
+  }
 }
 
 class _DailyEntry {
@@ -41,7 +72,9 @@ class _PeopleContext {
   final Set<String> friends;
   final Map<String, int> mutuals; // uid → friends in common
   final Set<String> verified;
-  const _PeopleContext(this.users, this.friends, this.mutuals, this.verified);
+  final FriendsOfFriends? fof; // who knows whom, for "Alex knows them"
+  const _PeopleContext(this.users, this.friends, this.mutuals, this.verified,
+      [this.fof]);
 }
 
 /// Ranking for the Search tab. Dailies are scored on how well they match the
@@ -73,6 +106,7 @@ class SearchService {
 
   /// Forget cached results (call after the user joins/leaves something).
   static void invalidate() {
+    FeedService.clearFriendsOfFriends();
     _poolFuture = null;
     _poolAt = null;
     _peopleFuture = null;
@@ -237,7 +271,8 @@ class SearchService {
     final friends = (results[0] as List<String>).toSet();
     final verifiedUsers = results[1] as List<KaidoseUser>;
     final verified = verifiedUsers.map((u) => u.uid).toSet();
-    final mutuals = await _mutualCounts(me, friends);
+    final fof = await FeedService.friendsOfFriends();
+    final mutuals = {for (final e in fof.via.entries) e.key: e.value.length};
 
     // Friends, plus the friends-of-friends with the most mutuals.
     final topMutuals = (mutuals.entries.toList()
@@ -254,7 +289,8 @@ class SearchService {
       known[u.uid] = u;
     }
     known.remove(me);
-    return _PeopleContext(known.values.toList(), friends, mutuals, verified);
+    return _PeopleContext(
+        known.values.toList(), friends, mutuals, verified, fof);
   }
 
   /// User profiles by uid, 30 per query.
@@ -319,52 +355,6 @@ class SearchService {
     }
   }
 
-  /// uid → how many of MY friends they're friends with (friends-of-friends).
-  static Future<Map<String, int>> _mutualCounts(
-      String? me, Set<String> friends) async {
-    if (me == null || friends.isEmpty) return {};
-    final byPerson = <String, Set<String>>{};
-    final list = friends.toList();
-    final db = FirebaseFirestore.instance.collection('friend_requests');
-    try {
-      for (var i = 0; i < list.length; i += 30) {
-        final chunk = list.sublist(i, i + 30 > list.length ? list.length : i + 30);
-        final res = await Future.wait([
-          db
-              .where('status', isEqualTo: 'accepted')
-              .where('fromUserId', whereIn: chunk)
-              .get(),
-          db
-              .where('status', isEqualTo: 'accepted')
-              .where('toUserId', whereIn: chunk)
-              .get(),
-        ]);
-        for (final d in res[0].docs) {
-          final friend = d.data()['fromUserId'] as String?;
-          final other = d.data()['toUserId'] as String?;
-          if (friend != null && other != null) {
-            byPerson.putIfAbsent(other, () => {}).add(friend);
-          }
-        }
-        for (final d in res[1].docs) {
-          final friend = d.data()['toUserId'] as String?;
-          final other = d.data()['fromUserId'] as String?;
-          if (friend != null && other != null) {
-            byPerson.putIfAbsent(other, () => {}).add(friend);
-          }
-        }
-      }
-    } catch (e) {
-      print('SearchService: mutual friends error: $e');
-    }
-    byPerson.remove(me);
-    for (final f in friends) {
-      byPerson.remove(f);
-    }
-    return {for (final e in byPerson.entries) e.key: e.value.length};
-  }
-
-  /// Closeness 0..1: friends > friends-of-friends > verified > strangers.
   static double _closeness(bool friend, int mutual, bool verified) {
     if (friend) return 1.0;
     final m = mutual > 0 ? 0.4 + 0.12 * mutual.clamp(0, 5) : 0.0;
@@ -382,7 +372,52 @@ class SearchService {
       mutualCount: mutual,
       isVerified: verified,
       score: 0.55 * match + 0.45 * _closeness(friend, mutual, verified),
+      knownBy: friend ? const [] : (c.fof?.namesFor(u.uid) ?? const []),
     );
+  }
+
+  /// People near you (same area, roughly a city) who also turned on
+  /// "Near you" in Search. Most mutual friends first. Empty if you haven't
+  /// turned it on.
+  static Future<List<PersonResult>> nearbyPeople({int limit = 15}) async {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    if (me == null) return [];
+    final cell = await NearbyService.myCell();
+    if (cell == null) return [];
+    final c = await _people();
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('geoCell', isEqualTo: cell)
+          .where('nearbyVisible', isEqualTo: true)
+          .limit(60)
+          .get();
+      final out = <PersonResult>[];
+      for (final d in snap.docs) {
+        if (d.id == me || c.friends.contains(d.id)) continue;
+        if (SafetyService.instance.isHidden(d.id)) continue;
+        final data = Map<String, dynamic>.from(d.data());
+        data['uid'] ??= d.id;
+        final u = KaidoseUser.fromFirestore(data);
+        final p = _person(c, u, 1);
+        out.add(PersonResult(
+          user: p.user,
+          isFriend: false,
+          mutualCount: p.mutualCount,
+          isVerified: p.isVerified,
+          score: p.score,
+          knownBy: p.knownBy,
+          nearby: true,
+        ));
+      }
+      out.sort((a, b) => b.mutualCount != a.mutualCount
+          ? b.mutualCount.compareTo(a.mutualCount)
+          : b.score.compareTo(a.score));
+      return out.take(limit).toList();
+    } catch (e) {
+      print('SearchService: nearby error: $e');
+      return [];
+    }
   }
 
   /// Your accepted friends, A–Z.
@@ -405,6 +440,7 @@ class SearchService {
     final out = c.users
         .where((u) =>
     !c.friends.contains(u.uid) &&
+        !SafetyService.instance.isHidden(u.uid) &&
         ((c.mutuals[u.uid] ?? 0) > 0 || c.verified.contains(u.uid)))
         .map((u) => _person(c, u, 1))
         .toList()
@@ -432,6 +468,8 @@ class SearchService {
 
     final out = <PersonResult>[];
     for (final u in pool.values) {
+      // Blocked either way: they can't find each other.
+      if (SafetyService.instance.isHidden(u.uid)) continue;
       final name = u.username.toLowerCase();
       double match = 0;
       if (name == q) {
@@ -469,8 +507,13 @@ class SearchService {
         return <ClipData>[];
       });
     }
-    return _clipPoolFuture!;
+    // Blocked / muted creators and "Not interested" clips never show.
+    return _clipPoolFuture!.then((l) => l.where(_clipOk).toList());
   }
+
+  static bool _clipOk(ClipData c) =>
+      !SafetyService.instance.notInterested.contains(c.id) &&
+          !SafetyService.instance.hidesCreator(c.creatorUid);
 
   static Future<List<ClipData>> _loadClipPool() async {
     final me = FirebaseAuth.instance.currentUser?.uid;
@@ -480,7 +523,8 @@ class SearchService {
         .limit(150)
         .get();
     final clips = snap.docs
-        .where((d) => d.data()['creatorUid'] != me)
+        .where((d) =>
+    d.data()['creatorUid'] != me && d.data()['hidden'] != true)
         .map((d) => ClipData.fromFirestore(d.data(), d.id))
         .toList();
     final order = await FeedService.rankClipIds(clips);
@@ -526,8 +570,10 @@ class SearchService {
             .limit(40)
             .get();
         for (final d in snap.docs) {
-          if (d.data()['creatorUid'] == me) continue;
-          byId.putIfAbsent(d.id, () => ClipData.fromFirestore(d.data(), d.id));
+          if (d.data()['creatorUid'] == me || d.data()['hidden'] == true) continue;
+          final c = ClipData.fromFirestore(d.data(), d.id);
+          if (!_clipOk(c)) continue;
+          byId.putIfAbsent(d.id, () => c);
         }
       } catch (e) {
         print('SearchService: clip keyword query failed: $e');

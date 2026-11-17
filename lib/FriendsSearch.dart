@@ -6,11 +6,13 @@ import 'friend_request_service.dart';
 import 'SearchService.dart';
 import 'UserProfileScreen.dart';
 import 'GroupAvatar.dart';
+import 'Nearby.dart';
 
 /// People in Search.
 ///
-/// Nothing typed: your friends, then "People you may know" (friends of your
-/// friends and verified accounts), then your phone contacts. Typed: matching
+/// Nothing typed: "People you may know" (friends of your friends, with who
+/// knows them, and verified accounts), "Near you" (opt-in, rough area
+/// only), your friends, then your phone contacts. Typed: matching
 /// people ranked so friends, friends-of-friends and verified accounts come
 /// before strangers, plus matching phone contacts.
 ///
@@ -39,6 +41,9 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
   List<PersonResult> _friends = [];
   List<PersonResult> _suggested = [];
   List<PersonResult> _results = [];
+  List<PersonResult> _nearby = [];
+  bool? _nearbyOn; // null until known
+  bool _turningOnNearby = false;
   bool _isLoadingContacts = false;
   bool _isLoadingPeople = true;
   int _requestId = 0;
@@ -95,14 +100,25 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
           _isLoadingPeople = false;
         });
       } else {
-        final both = await Future.wait([
+        final results = await Future.wait<Object>([
           SearchService.myFriends(),
-          SearchService.suggestedPeople(limit: 10),
+          SearchService.suggestedPeople(limit: 15),
+          NearbyService.isOn(),
         ]);
+        final on = results[2] as bool;
+        final nearby = on
+            ? await SearchService.nearbyPeople()
+            : const <PersonResult>[];
         if (!mounted || id != _requestId) return;
+        // Someone who's both nearby and a friend-of-friend shows once, in
+        // "People you may know".
+        final suggested = results[1] as List<PersonResult>;
+        final shown = suggested.map((p) => p.user.uid).toSet();
         setState(() {
-          _friends = both[0];
-          _suggested = both[1];
+          _friends = results[0] as List<PersonResult>;
+          _suggested = suggested;
+          _nearbyOn = on;
+          _nearby = nearby.where((p) => !shown.contains(p.user.uid)).toList();
           _isLoadingPeople = false;
         });
       }
@@ -121,11 +137,131 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
 
   String _subtitle(PersonResult p) {
     if (p.isFriend) return 'Friend';
-    if (p.mutualCount > 0) {
-      return p.mutualCount == 1 ? '1 mutual friend' : '${p.mutualCount} mutual friends';
-    }
+    final known = p.knownByLabel;
+    if (known != null) return known;
+    if (p.nearby) return 'Near you';
     if (p.isVerified) return 'Verified';
     return 'Kaidose User';
+  }
+
+  Future<void> _turnOnNearby() async {
+    setState(() => _turningOnNearby = true);
+    final problem = await NearbyService.turnOn();
+    if (!mounted) return;
+    setState(() => _turningOnNearby = false);
+    if (problem != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(problem),
+        duration: const Duration(seconds: 3),
+      ));
+      return;
+    }
+    _loadPeople();
+  }
+
+  Future<void> _turnOffNearby() async {
+    await NearbyService.turnOff();
+    if (!mounted) return;
+    setState(() {
+      _nearbyOn = false;
+      _nearby = [];
+    });
+  }
+
+  /// Off: an invite to turn it on (explains exactly what's shared).
+  /// On: a header with a quiet "Turn off".
+  Widget _nearbySection() {
+    if (_nearbyOn == null) return const SizedBox.shrink();
+    if (_nearbyOn == false) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.cyan.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.cyan.withOpacity(0.25)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.cyan.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.near_me_outlined, color: Colors.cyan[700]),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Find people near you',
+                      style:
+                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Only your general area (about a city) is shared, and only '
+                        'with people who turn this on too.',
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey[700]),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _turningOnNearby
+                ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.2, color: Colors.cyan))
+                : TextButton(
+              onPressed: _turnOnNearby,
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.cyan,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18)),
+              ),
+              child: const Text('Turn on',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+                child: _header(Icons.near_me_outlined, Colors.cyan, 'Near You')),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextButton(
+                onPressed: _turnOffNearby,
+                child: Text('Turn off',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+              ),
+            ),
+          ],
+        ),
+        if (_nearby.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 24),
+            child: Text(
+              "No one nearby has turned this on yet. Check back later.",
+              style: TextStyle(fontSize: 13.5, color: Colors.grey[600]),
+            ),
+          )
+        else ...[
+          ..._nearby.map(_buildKaidoseUserCard),
+          const SizedBox(height: 24),
+        ],
+      ],
+    );
   }
 
   Widget _header(IconData icon, Color color, String text) => Padding(
@@ -161,7 +297,11 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
     final people = _typed ? _results : const <PersonResult>[];
     final nothing = _typed
         ? people.isEmpty && contacts.isEmpty
-        : _friends.isEmpty && _suggested.isEmpty && contacts.isEmpty;
+        : _friends.isEmpty &&
+        _suggested.isEmpty &&
+        _nearby.isEmpty &&
+        _nearbyOn != false &&
+        contacts.isEmpty;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -171,14 +311,15 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
           ...people.map(_buildKaidoseUserCard),
           const SizedBox(height: 24),
         ],
-        if (!_typed && _friends.isNotEmpty) ...[
-          _header(Icons.people, Colors.cyan, 'Your Friends'),
-          ..._friends.map(_buildKaidoseUserCard),
-          const SizedBox(height: 24),
-        ],
         if (!_typed && _suggested.isNotEmpty) ...[
           _header(Icons.person_add_alt_1, Colors.cyan, 'People You May Know'),
           ..._suggested.map(_buildKaidoseUserCard),
+          const SizedBox(height: 24),
+        ],
+        if (!_typed) _nearbySection(),
+        if (!_typed && _friends.isNotEmpty) ...[
+          _header(Icons.people, Colors.cyan, 'Your Friends'),
+          ..._friends.map(_buildKaidoseUserCard),
           const SizedBox(height: 24),
         ],
         if (contacts.isNotEmpty) ...[
@@ -305,6 +446,8 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                   ),
                   Text(
                     _subtitle(person),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.cyan[700],

@@ -1007,6 +1007,10 @@ class _MyClipPageState extends State<_MyClipPage>
               creatorUid: widget.clip.creatorUid,
               onLikeTriggerReady: (trigger) => _likeTrigger = trigger,
               onCommentTap: _openComments,
+              caption: widget.clip.caption,
+              // On someone's profile: blocking them or "Not interested"
+              // just closes the viewer.
+              onHidden: (_) => Navigator.of(context).maybePop(),
             ),
           ),
 

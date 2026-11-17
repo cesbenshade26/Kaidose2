@@ -7,8 +7,6 @@ import 'MessageComments.dart';
 import 'chat_reactions.dart';
 import 'message_service.dart';
 import 'package:video_player/video_player.dart';
-import 'VideoClipPlayer.dart';
-import 'NetworkVideoPlayer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
 import 'DailyShare.dart';
@@ -17,6 +15,11 @@ import 'AddToMyDaily.dart';
 import 'UserProfileScreen.dart';
 import 'MessageStorage.dart';
 import 'GroupAvatar.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
+import 'MediaAspect.dart';
+import 'DailyPostActivity.dart' show InlineVideo;
+import 'DailyBan.dart';
 
 /// One photo or video attached to a message. A message can carry several
 /// of these — picking multiple items from the gallery grid at once
@@ -269,17 +272,20 @@ class _DailyMessageMediaCarouselState extends State<_DailyMessageMediaCarousel> 
   }
 
   Widget _buildItem(DailyMediaItem item, bool isActive) {
+    final path = LocalMediaAlias.resolve(item.path);
     if (item.isVideo) {
       return _CarouselVideoPage(
-        path: item.path,
-        isNetwork: _isNetworkVideoPath(item.path),
+        key: ValueKey(path),
+        path: path,
+        isNetwork: _isNetworkVideoPath(path),
         isActive: isActive,
       );
     }
 
-    return _isNetworkVideoPath(item.path)
+    return _isNetworkVideoPath(path)
         ? Image.network(
-      item.path,
+      path,
+      gaplessPlayback: true,
       fit: BoxFit.cover,
       loadingBuilder: (context, child, progress) {
         if (progress == null) return child;
@@ -294,8 +300,9 @@ class _DailyMessageMediaCarouselState extends State<_DailyMessageMediaCarousel> 
           _brokenMediaPlaceholder(widget.width),
     )
         : Image.file(
-      File(item.path),
+      File(path),
       fit: BoxFit.cover,
+      gaplessPlayback: true,
       errorBuilder: (context, error, stackTrace) =>
           _brokenMediaPlaceholder(widget.width),
     );
@@ -365,10 +372,11 @@ class _CarouselVideoPage extends StatefulWidget {
   final bool isActive;
 
   const _CarouselVideoPage({
+    Key? key,
     required this.path,
     required this.isNetwork,
     required this.isActive,
-  });
+  }) : super(key: key);
 
   @override
   State<_CarouselVideoPage> createState() => _CarouselVideoPageState();
@@ -506,6 +514,14 @@ class DailyMessageWidget extends StatefulWidget {
   final String? dailyTitle;
   final bool isPrivateDaily;
 
+  /// The viewer is this Daily's owner or a moderator: they can delete
+  /// anyone's post.
+  final bool canModerate;
+
+  /// ...and may ban this post's author (not the owner; moderators can't
+  /// ban other moderators).
+  final bool canBanAuthor;
+
   const DailyMessageWidget({
     Key? key,
     required this.message,
@@ -514,6 +530,8 @@ class DailyMessageWidget extends StatefulWidget {
     this.groupedWithPrevious = false,
     this.dailyTitle,
     this.isPrivateDaily = false,
+    this.canModerate = false,
+    this.canBanAuthor = false,
     this.onReply,
     this.onEdit,
     this.onSaveToggle,
@@ -848,10 +866,52 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     );
   }
 
+  /// Deletes this post for everyone, after a confirm. [asModerator] is the
+  /// owner / a moderator removing someone else's post.
+  Future<void> _confirmDelete({bool asModerator = false}) async {
+    final name = widget.message.username ?? 'this person';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(asModerator ? 'Remove this post?' : 'Delete this post?'),
+        content: Text(asModerator
+            ? "It'll be removed for everyone in this Daily. $name won't be told."
+            : "It'll be gone for everyone in this Daily."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.black87)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(asModerator ? 'Remove' : 'Delete',
+                style: const TextStyle(
+                    color: Colors.red, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final done = await MessageStorage.deleteMessage(
+        widget.message.dailyId, widget.message.messageId);
+    messenger.showSnackBar(SnackBar(
+      content: Text(done
+          ? (asModerator ? 'Post removed' : 'Post deleted')
+          : "Couldn't delete it. Try again."),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
   /// Long-press on a text message (the three-dot button only exists on
-  /// media cards now). Only the author gets anything to do.
+  /// media cards now). The author can edit or delete; anyone else gets
+  /// report / block (plus remove and ban for the owner and moderators).
   void _showMessageOptions() {
-    if (!widget.isCurrentUser) return;
+    if (!widget.isCurrentUser) {
+      _openSafetyMenu();
+      return;
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -870,8 +930,86 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                 widget.onEdit?.call(widget.message.messageId);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Delete', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _confirmDelete();
+              },
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Someone else's post: report it or block them. The owner and
+  /// moderators also get Remove post and Ban.
+  void _openSafetyMenu() {
+    final m = widget.message;
+    final name = m.username ?? '';
+    SafetyMenu.show(context, [
+      if (widget.canModerate)
+        SafetyMenuItem(
+          icon: Icons.delete_outline,
+          label: 'Remove post',
+          subtitle: 'As a moderator',
+          destructive: true,
+          onTap: () => _confirmDelete(asModerator: true),
+        ),
+      if (widget.canBanAuthor)
+        SafetyMenuItem(
+          icon: Icons.gavel_rounded,
+          label: name.isEmpty ? 'Ban from this Daily' : 'Ban $name from this Daily',
+          destructive: true,
+          onTap: () => DailyBanSheet.show(
+            context,
+            dailyId: m.dailyId,
+            dailyTitle: widget.dailyTitle ?? 'this Daily',
+            uid: m.userId,
+            username: name.isEmpty ? 'this person' : name,
+          ),
+        ),
+      SafetyMenuItem(
+        icon: Icons.flag_outlined,
+        label: 'Report post',
+        destructive: true,
+        onTap: () => ReportSheet.show(
+          context,
+          target: ReportTarget.dailyMessage,
+          targetId: m.messageId,
+          ownerUid: m.userId,
+          ownerName: name,
+          path: 'dailies/${m.dailyId}/daily_messages/${m.messageId}',
+          preview: m.text,
+          extra: {'dailyId': m.dailyId},
+        ),
+      ),
+      SafetyMenuItem(
+        icon: Icons.block_rounded,
+        label: name.isEmpty ? 'Block' : 'Block $name',
+        destructive: true,
+        onTap: () =>
+            BlockFlow.confirmAndBlock(context, m.userId, username: name),
+      ),
+    ]);
+  }
+
+  /// Someone you blocked: their post collapses to one quiet line.
+  Widget _blockedPlaceholder() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Row(
+        children: [
+          Icon(Icons.block_rounded, size: 14, color: Colors.grey[400]),
+          const SizedBox(width: 6),
+          Text('Post from someone you blocked',
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey[500])),
+        ],
       ),
     );
   }
@@ -1026,10 +1164,46 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.message.media.isEmpty) return _buildTextBubble(context);
+    return ValueListenableBuilder<int>(
+      valueListenable: SafetyService.instance.changes,
+      builder: (context, _, __) {
+        if (!widget.isCurrentUser &&
+            SafetyService.instance.isBlocked(widget.message.userId)) {
+          return _blockedPlaceholder();
+        }
+        return _buildCard(context);
+      },
+    );
+  }
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final messageWidth = screenWidth * 0.85;
+  Widget _buildCard(BuildContext context) {
+    final media = widget.message.media;
+    if (media.isEmpty) return _buildTextBubble(context);
+    if (media.length > 1) return _buildMediaCard(context, null);
+    // One photo or video: the card takes that photo's/video's shape.
+    final only = media.first;
+    return MediaAspectBuilder(
+      path: LocalMediaAlias.resolve(only.path),
+      isVideo: only.isVideo,
+      thumb: only.thumb,
+      builder: (context, aspect) => _buildMediaCard(context, aspect),
+    );
+  }
+
+  /// The first photo/video, as the local file if this phone just posted it.
+  String get _firstPath =>
+      LocalMediaAlias.resolve(widget.message.media.first.path);
+
+  Widget _buildMediaCard(BuildContext context, double? aspect) {
+    final screen = MediaQuery.of(context).size;
+    final maxWidth = screen.width * 0.85;
+    final single = widget.message.media.length == 1;
+    // A tall video/photo gets a narrower card instead of a huge one or one
+    // with empty space beside it; wide ones use the full width.
+    final mediaSize = MediaAspect.box(aspect,
+        maxW: maxWidth, maxH: screen.height * 0.55, minW: 210);
+    final messageWidth = single ? mediaSize.width : maxWidth;
+    final compact = messageWidth < 270;
 
     return Container(
       margin: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 2 : 6, 16, 2),
@@ -1060,51 +1234,55 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                     if (widget.message.media.length == 1 && !widget.message.media.first.isVideo)
                       ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                        child: _isNetworkVideoPath(widget.message.media.first.path)
-                            ? Image.network(
-                          widget.message.media.first.path,
-                          width: messageWidth,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              width: messageWidth,
-                              height: 200,
-                              color: Colors.grey[200],
-                              child: const Center(
-                                child: CircularProgressIndicator(color: Colors.cyan),
-                              ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) =>
-                              _brokenMediaPlaceholder(messageWidth),
-                        )
-                            : Image.file(
-                          File(widget.message.media.first.path),
-                          width: messageWidth,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              _brokenMediaPlaceholder(messageWidth),
+                        child: SizedBox(
+                          width: mediaSize.width,
+                          height: mediaSize.height,
+                          child: _isNetworkVideoPath(_firstPath)
+                              ? Image.network(
+                            _firstPath,
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return Container(
+                                color: Colors.grey[200],
+                                child: const Center(
+                                  child: CircularProgressIndicator(color: Colors.cyan),
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) =>
+                                _brokenMediaPlaceholder(messageWidth),
+                          )
+                              : Image.file(
+                            File(_firstPath),
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                            errorBuilder: (context, error, stackTrace) =>
+                                _brokenMediaPlaceholder(messageWidth),
+                          ),
                         ),
                       ),
                     if (widget.message.media.length == 1 && widget.message.media.first.isVideo)
                       ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                        // Sized to the video's own shape, so it fills the card
+                        // edge to edge (no bars beside a tall video).
                         child: SizedBox(
-                          width: messageWidth,
-                          child: AspectRatio(
-                            aspectRatio: 4 / 5,
+                          width: mediaSize.width,
+                          height: mediaSize.height,
+                          child: ColoredBox(
+                            color: Colors.black,
                             // A shared clip's videoPath is a remote Firebase
                             // Storage URL; a video recorded/picked directly in
                             // the Daily is a local file path. Route each to
                             // the player that can actually handle it.
-                            child: _isNetworkVideoPath(widget.message.media.first.path)
-                                ? NetworkVideoPlayer(url: widget.message.media.first.path)
-                                : VideoClipPlayer(
-                              videoFile: File(widget.message.media.first.path),
-                              autoPlay: true,
-                              looping: true,
-                              fit: BoxFit.contain,
+                            // Fills the box edge to edge (no black bars),
+                            // plays when on screen, ready ahead of time.
+                            child: InlineVideo(
+                              key: ValueKey(_firstPath),
+                              url: _firstPath,
+                              thumb: widget.message.media.first.thumb,
                             ),
                           ),
                         ),
@@ -1116,13 +1294,17 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                       ),
                     if (widget.message.text != null && widget.message.text!.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.all(16),
+                        // Narrow card (tall video): slightly smaller text and
+                        // padding so lines don't wrap after two words.
+                        padding: compact
+                            ? const EdgeInsets.fromLTRB(12, 12, 12, 10)
+                            : const EdgeInsets.all(16),
                         child: Text(
                           widget.message.text!,
-                          style: const TextStyle(
-                            fontSize: 16,
+                          style: TextStyle(
+                            fontSize: compact ? 14.5 : 16,
                             color: Colors.black87,
-                            height: 1.4,
+                            height: compact ? 1.35 : 1.4,
                           ),
                         ),
                       ),
@@ -1179,7 +1361,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                     borderRadius: BorderRadius.circular(8),
                     child: Column(
                       children: [
-                        if (widget.isCurrentUser)
+                        if (widget.isCurrentUser) ...[
                           InkWell(
                             onTap: () {
                               setState(() => _showOptionsMenu = false);
@@ -1188,6 +1370,32 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                             child: const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               child: Text("Edit"),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () {
+                              setState(() => _showOptionsMenu = false);
+                              _confirmDelete();
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Text("Delete",
+                                  style: TextStyle(color: Colors.red)),
+                            ),
+                          ),
+                        ] else
+                          InkWell(
+                            onTap: () {
+                              setState(() => _showOptionsMenu = false);
+                              _openSafetyMenu();
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Text(
+                                  widget.canModerate
+                                      ? "Moderate or report"
+                                      : "Report or block",
+                                  style: const TextStyle(color: Colors.red)),
                             ),
                           ),
                       ],

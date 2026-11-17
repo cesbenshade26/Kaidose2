@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'StoryMediaItem.dart';
+import 'SafetyService.dart';
 
 class FriendDailyService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -234,6 +235,8 @@ class FriendDailyService {
   /// True if the given user has a public story today.
   static Future<bool> userHasPublicStoryToday(String userId) async {
     if (currentUid == null) return false;
+    // They hid their story from me (or one of us blocked the other).
+    if (await SafetyService.instance.isStoryHiddenFromMe(userId)) return false;
     try {
       final doc = await _firestore
           .collection('users')
@@ -252,6 +255,7 @@ class FriendDailyService {
   static Future<bool> userHasSharedStoryWithMe(String userId) async {
     final uid = currentUid;
     if (uid == null) return false;
+    if (SafetyService.instance.isHidden(userId)) return false;
     try {
       final doc = await _firestore
           .collection('users')
@@ -307,18 +311,24 @@ class FriendDailyService {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final List<StoryMediaItem> items = [];
+      final safety = SafetyService.instance;
+      if (safety.isHidden(userId)) return [];
+      final publicHidden = await safety.isStoryHiddenFromMe(userId);
 
-      // 1. Public story items
-      final publicSnap = await _firestore
+      // 1. Public story items (unless they hid their story from me)
+      final publicDocs = publicHidden
+          ? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]
+          : (await _firestore
           .collection('users')
           .doc(userId)
           .collection('daily_story')
           .doc(_today)
           .collection('photos')
           .orderBy('timestamp', descending: false)
-          .get();
+          .get())
+          .docs;
 
-      for (final doc in publicSnap.docs) {
+      for (final doc in publicDocs) {
         final data = doc.data();
         final mediaType = data['mediaType'] as String? ?? 'photo';
 

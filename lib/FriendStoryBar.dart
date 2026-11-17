@@ -16,9 +16,21 @@ import 'VideoClipPlayer.dart';
 import 'CircleRevealTransition.dart';
 import 'StoryRing.dart';
 import 'DailyShare.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
 import 'package:video_player/video_player.dart';
 
+// Story circles, sized to match Instagram's.
+const double _kRing = 84; // outer size, ring included
+const double _kGap = 3; // white space between ring and picture
+const double _kPic = _kRing - 2 * (_kGap + 3);
+const double _kBarHeight = 116; // circle + name, with a little slack
+
 class StoryBar extends StatefulWidget {
+  /// Re-sorts every story bar (viewed stories move to the end). Dailies
+  /// calls this on pull-to-refresh and when you scroll back to the top.
+  static final ValueNotifier<int> reorder = ValueNotifier<int>(0);
+
   final void Function(Offset tapPosition) onTapOwnStory;
   final bool hasOwnPhotosToday;
   final bool hasViewedAllOwnPhotos;
@@ -34,7 +46,7 @@ class StoryBar extends StatefulWidget {
   State<StoryBar> createState() => _StoryBarState();
 }
 
-class _StoryBarState extends State<StoryBar> {
+class _StoryBarState extends State<StoryBar> with WidgetsBindingObserver {
   final FriendRequestService _friendRequestService = FriendRequestService();
   List<String> _friendUserIds = [];
   Map<String, String> _friendUsernames = {};
@@ -42,9 +54,66 @@ class _StoryBarState extends State<StoryBar> {
   StreamSubscription? _friendsSubscription;
   StreamSubscription? _authSubscription;
 
+  void _onSafety() {
+    if (mounted) setState(() {});
+  }
+
+  // The streams are made once (not on every rebuild, which re-read
+  // Firestore and made the bar flicker).
+  Stream<Set<String>>? _storiesStream;
+  String _storiesFor = '';
+  Stream<Set<String>>? _viewedStream;
+
+  Stream<Set<String>> _storyStream() {
+    final key = _friendUserIds.join(',');
+    if (_storiesStream == null || key != _storiesFor) {
+      _storiesFor = key;
+      _storiesStream =
+          FriendDailyService.getFriendsWithStoryToday(_friendUserIds);
+    }
+    return _storiesStream!;
+  }
+
+  // Order of the friends' circles. Unwatched stories first, watched ones
+  // at the end (like Instagram). It's only re-sorted at set moments (app
+  // opened/resumed, pull to refresh, scrolling back to the top, a new
+  // story showing up), never right after you watch one, so circles don't
+  // jump around under your finger.
+  List<String> _order = [];
+  bool _resort = true;
+
+  List<String> _ordered(List<String> withStory, Set<String> viewed) {
+    final current = withStory.toSet();
+    final known = _order.toSet();
+    if (_resort || !known.containsAll(current)) {
+      _resort = false;
+      _order = [
+        ...withStory.where((id) => !viewed.contains(id)),
+        ...withStory.where(viewed.contains),
+      ];
+    } else {
+      // Someone's story ended: just drop them.
+      _order = _order.where(current.contains).toList();
+    }
+    return _order;
+  }
+
+  void _onReorder() {
+    if (!mounted) return;
+    setState(() => _resort = true);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _onReorder();
+  }
+
   @override
   void initState() {
     super.initState();
+    SafetyService.instance.changes.addListener(_onSafety);
+    StoryBar.reorder.addListener(_onReorder);
+    WidgetsBinding.instance.addObserver(this);
 
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user == null) {
@@ -106,6 +175,9 @@ class _StoryBarState extends State<StoryBar> {
 
   @override
   void dispose() {
+    SafetyService.instance.changes.removeListener(_onSafety);
+    StoryBar.reorder.removeListener(_onReorder);
+    WidgetsBinding.instance.removeObserver(this);
     _friendsSubscription?.cancel();
     _authSubscription?.cancel();
     super.dispose();
@@ -114,28 +186,32 @@ class _StoryBarState extends State<StoryBar> {
   @override
   Widget build(BuildContext context) {
     if (FirebaseAuth.instance.currentUser == null) {
-      return const SizedBox(height: 140);
+      return const SizedBox(height: _kBarHeight);
     }
 
     return SizedBox(
-      height: 140,
+      height: _kBarHeight,
       child: StreamBuilder<Set<String>>(
-        stream: FriendDailyService.getFriendsWithStoryToday(_friendUserIds),
+        stream: _storyStream(),
         builder: (context, storySnapshot) {
           final friendsWithStory = storySnapshot.data ?? {};
 
           return StreamBuilder<Set<String>>(
-            stream: FriendDailyService.getViewedStoriesStream(),
+            stream: _viewedStream ??= FriendDailyService.getViewedStoriesStream(),
             builder: (context, viewedSnapshot) {
               final viewedFriends = viewedSnapshot.data ?? {};
 
-              final visibleFriends = _friendUserIds
-                  .where((id) => friendsWithStory.contains(id))
+              // Muted friends' stories stay out of the bar.
+              final safety = SafetyService.instance;
+              final withStory = _friendUserIds
+                  .where((id) =>
+              friendsWithStory.contains(id) && !safety.hidesCreator(id))
                   .toList();
+              final visibleFriends = _ordered(withStory, viewedFriends);
 
               return ListView.builder(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
                 itemCount: 1 + visibleFriends.length,
                 itemBuilder: (context, index) {
                   if (index == 0) {
@@ -182,24 +258,24 @@ class _OwnStoryCircle extends StatelessWidget {
     final profilePic = ProfilePicManager.globalProfilePic;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.only(right: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
             onTapDown: hasPhotos ? (details) => onTap(details.globalPosition) : null,
             child: Container(
-              width: 110,
-              height: 110,
+              width: _kRing,
+              height: _kRing,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: showCyanRing ? Colors.cyan : Colors.grey[400]!,
-                  width: showCyanRing ? 4 : 3,
+                  color: showCyanRing ? Colors.cyan : Colors.grey[350]!,
+                  width: showCyanRing ? 3 : 1.5,
                 ),
               ),
               child: Container(
-                margin: const EdgeInsets.all(4),
+                margin: const EdgeInsets.all(_kGap),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.grey[300],
@@ -209,20 +285,25 @@ class _OwnStoryCircle extends StatelessWidget {
                       ? Image.file(
                     profilePic,
                     fit: BoxFit.cover,
-                    width: 102,
-                    height: 102,
+                    width: _kPic,
+                    height: _kPic,
                     key: ValueKey(profilePic.path),
                   )
-                      : const _DefaultAvatar(size: 102),
+                      : const _DefaultAvatar(size: _kPic),
                 ),
               ),
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Your story',
-            style: TextStyle(fontSize: 12, color: Colors.black87),
-            overflow: TextOverflow.ellipsis,
+          const SizedBox(
+            width: _kRing + 6,
+            child: Text(
+              'Your story',
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.black87),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -282,24 +363,24 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.only(right: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
             onTapDown: (details) => _openStory(details.globalPosition),
             child: Container(
-              width: 110,
-              height: 110,
+              width: _kRing,
+              height: _kRing,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: !widget.hasViewed ? Colors.cyan : Colors.grey[400]!,
-                  width: !widget.hasViewed ? 4 : 3,
+                  color: !widget.hasViewed ? Colors.cyan : Colors.grey[350]!,
+                  width: !widget.hasViewed ? 3 : 1.5,
                 ),
               ),
               child: Container(
-                margin: const EdgeInsets.all(4),
+                margin: const EdgeInsets.all(_kGap),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.grey[300],
@@ -309,20 +390,21 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
                       ? Image.memory(
                     base64Decode(_profilePicBase64!),
                     fit: BoxFit.cover,
-                    width: 102,
-                    height: 102,
-                    errorBuilder: (_, __, ___) => const _DefaultAvatar(size: 102),
+                    width: _kPic,
+                    height: _kPic,
+                    errorBuilder: (_, __, ___) => const _DefaultAvatar(size: _kPic),
                   )
-                      : const _DefaultAvatar(size: 102),
+                      : const _DefaultAvatar(size: _kPic),
                 ),
               ),
             ),
           ),
           const SizedBox(height: 4),
           SizedBox(
-            width: 110,
+            width: _kRing + 6,
             child: Text(
               widget.friendUsername,
+              maxLines: 1,
               style: const TextStyle(fontSize: 12, color: Colors.black87),
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
@@ -571,6 +653,66 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
     );
   }
 
+  /// Someone else's story: report it, mute or block them. The story
+  /// pauses while any of this is on screen.
+  Future<void> _openMenu() async {
+    _progressController.stop();
+    final uid = widget.userId;
+    final name = widget.username;
+    final s = SafetyService.instance;
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    String? picked;
+    await SafetyMenu.show(context, [
+      SafetyMenuItem(
+        icon: Icons.flag_outlined,
+        label: 'Report story',
+        destructive: true,
+        onTap: () => picked = 'report',
+      ),
+      SafetyMenuItem(
+        icon: s.isMuted(uid) ? Icons.volume_up_outlined : Icons.volume_off_outlined,
+        label: s.isMuted(uid) ? 'Unmute $name' : 'Mute $name',
+        subtitle: s.isMuted(uid) ? null : "Hide their story and clips. They won't know.",
+        onTap: () => picked = 'mute',
+      ),
+      SafetyMenuItem(
+        icon: Icons.block_rounded,
+        label: 'Block $name',
+        destructive: true,
+        onTap: () => picked = 'block',
+      ),
+    ]);
+    if (!mounted) return;
+
+    var close = false;
+    if (picked == 'report') {
+      await ReportSheet.show(
+        context,
+        target: ReportTarget.story,
+        targetId: '${uid}_$today',
+        ownerUid: uid,
+        ownerName: name,
+        path: 'users/$uid/daily_story/$today',
+      );
+      close = s.isBlocked(uid); // blocked them from the thank-you screen
+    } else if (picked == 'mute') {
+      final mute = !s.isMuted(uid);
+      await s.setMuted(uid, mute);
+      close = mute;
+    } else if (picked == 'block') {
+      close = await BlockFlow.confirmAndBlock(context, uid, username: name);
+    }
+    if (!mounted) return;
+    if (close) {
+      Navigator.of(context).pop();
+    } else {
+      final index = _currentIndex;
+      _progressController.forward().then((_) {
+        if (mounted && index == _currentIndex) _nextPhoto();
+      });
+    }
+  }
+
   Future<void> _startProgress() async {
     final index = _currentIndex;
     _resolveSource(index);
@@ -703,6 +845,20 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
                       ),
                     ),
                   ),
+                  if (widget.userId.isNotEmpty)
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _openMenu,
+                      child: const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: Icon(
+                          Icons.more_horiz_rounded,
+                          color: Colors.white,
+                          size: 26,
+                          shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+                        ),
+                      ),
+                    ),
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () => Navigator.pop(context),

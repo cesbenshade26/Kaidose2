@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
 import 'DailyData.dart';
 import 'SendDailyMessage.dart';
 import 'DrawPad.dart';
@@ -15,6 +17,8 @@ import 'DailyMembershipService.dart';
 import 'DailyCoverData.dart';
 import 'FeedService.dart';
 import 'DailyUnread.dart';
+import 'dart:async';
+import 'DailyModeration.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
@@ -45,6 +49,11 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   List<PickedMedia> _pendingMedia = [];
 
   List<DailyMessage> _messages = [];
+
+  // Messages you just sent that are still uploading (not in Firestore yet).
+  // Kept on screen through reloads so they never blink out.
+  final Set<String> _sending = {};
+  bool _loadedOnce = false;
   late AnimationController _optionsAnimationController;
   late Animation<double> _optionsAnimation;
 
@@ -80,6 +89,18 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   bool _isGuest = false;
   bool _addingToMyDailies = false;
 
+  // Banned from this Daily (by its owner or a moderator): they can still
+  // read it, but can't post or add it while the ban lasts.
+  DailyBan? _myBan;
+  StreamSubscription<DailyBan?>? _banSub;
+
+  // Owner / moderator: can remove anyone's post and ban from a post.
+  DailyPermissions _perms = DailyPermissions.none;
+  List<String> _moderatorUids = const [];
+  StreamSubscription<DailyPermissions>? _permsSub;
+  StreamSubscription<List<String>>? _modsSub;
+  bool get _isBanned => _myBan?.isActive == true;
+
   // Today's entry prompt, shown as a banner for guests only (members get
   // the full-screen UponOpeningDaily gate instead). Empty = no banner.
   String _guestPrompt = '';
@@ -89,7 +110,8 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   // the user starts typing (the prompt becomes the field's placeholder
   // once they tap Respond, so nothing is lost).
   bool get _showGuestPromptBanner =>
-      _isGuest &&
+      !_isBanned &&
+          _isGuest &&
           _guestPrompt.isNotEmpty &&
           !_messageFocusNode.hasFocus &&
           !_respondingToPrompt &&
@@ -174,7 +196,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   }
 
   Future<void> _addToMyDailies() async {
-    if (_addingToMyDailies) return;
+    if (_addingToMyDailies || _isBanned) return;
     setState(() => _addingToMyDailies = true);
     final result = await DailyMembershipService.addToMyDailies(widget.daily);
     if (!mounted) return;
@@ -193,6 +215,47 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
             : (result['error']?.toString() ?? 'Could not add')),
         backgroundColor: ok ? Colors.green : Colors.red,
         duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Takes the compose bar's place while you're banned from this Daily.
+  Widget _buildBannedBar() {
+    final ban = _myBan!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey[200]!)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Icon(Icons.block, size: 20, color: Colors.grey[600]),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "You're banned from this Daily",
+                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    ban.isPermanent
+                        ? "You can't post here."
+                        : "You can't post here for now · ${ban.timeLeft}",
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -232,6 +295,18 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     super.initState();
     _loadCurrentUser(); // NEW: Load username first
     _checkGuestStatus();
+    _permsSub = DailyModeration.watchPermissions(widget.daily).listen((p) {
+      if (mounted) setState(() => _perms = p);
+    }, onError: (_) {});
+    _modsSub = DailyModeration.watchModerators(widget.daily.id).listen((m) {
+      if (mounted) setState(() => _moderatorUids = m);
+    }, onError: (_) {});
+    _banSub = DailyModeration.watchMyBan(widget.daily.id).listen((ban) {
+      if (!mounted) return;
+      setState(() => _myBan = ban);
+      // Banned while typing: close the keyboard and any picker.
+      if (ban != null) _messageFocusNode.unfocus();
+    });
 
     _optionsAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -306,17 +381,35 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   }
 
   Future<void> _loadMessages() async {
-    final messages = await MessageStorage.loadMessages(widget.daily.id);
+    final loaded = await MessageStorage.loadMessages(widget.daily.id);
     if (!mounted) return;
+
+    // Still-uploading messages of yours stay (they'd vanish otherwise).
+    final ids = loaded.map((m) => m.messageId).toSet();
+    final pending = _messages
+        .where((m) => _sending.contains(m.messageId) && !ids.contains(m.messageId))
+        .toList();
+    final messages = [...loaded, ...pending]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Only jump to the newest message on the first load, or if you were
+    // already at the bottom; never yank you away from where you're reading.
+    final atBottom = !_scrollController.hasClients ||
+        _scrollController.position.maxScrollExtent -
+            _scrollController.position.pixels <
+            160;
+    final jump = !_loadedOnce || atBottom;
+    _loadedOnce = true;
+
     setState(() {
       _messages = messages;
     });
 
     // Everything just loaded counts as read: clears this Daily's
     // "N new" pill in My Dailies.
-    DailyUnreadService.markRead(widget.daily.id, messages);
+    DailyUnreadService.markRead(widget.daily.id, loaded);
 
-    if (messages.isNotEmpty) {
+    if (messages.isNotEmpty && jump) {
       Future.delayed(const Duration(milliseconds: 100), () {
         if (_scrollController.hasClients) {
           _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
@@ -389,6 +482,9 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
 
   @override
   void dispose() {
+    _banSub?.cancel();
+    _permsSub?.cancel();
+    _modsSub?.cancel();
     _messageController.removeListener(_handleComposeContentChanged);
     _messageFocusNode.removeListener(_handleFocusChanged);
     _messageFocusNode.dispose();
@@ -688,6 +784,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   }
 
   Future<void> _sendMessage() async {
+    if (_isBanned) return;
     if (_isEditingMessage) {
       await _updateMessage();
       return;
@@ -731,7 +828,9 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       _respondingToPrompt = false;
     });
 
-    MessageStorage.addMessage(widget.daily.id, message);
+    _sending.add(message.messageId);
+    MessageStorage.addMessage(widget.daily.id, message)
+        .whenComplete(() => _sending.remove(message.messageId));
     FeedService.recordEvent(widget.daily, FeedEvent.post);
 
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -858,6 +957,11 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                 _buildOptionItem(Icons.comment_outlined, 'Comments'),
                 Divider(height: 1, color: Colors.grey[300]),
                 _buildFilterOptionItem(),
+                if (widget.daily.creatorUid !=
+                    FirebaseAuth.instance.currentUser?.uid) ...[
+                  Divider(height: 1, color: Colors.grey[300]),
+                  _buildOptionItem(Icons.flag_outlined, 'Report Daily'),
+                ],
               ],
             ),
           ),
@@ -891,6 +995,15 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
             MaterialPageRoute(
               builder: (context) => DailyCommentsScreen(daily: widget.daily),
             ),
+          );
+        } else if (label == 'Report Daily') {
+          ReportSheet.show(
+            context,
+            target: ReportTarget.daily,
+            targetId: widget.daily.id,
+            ownerUid: widget.daily.creatorUid ?? '',
+            path: 'public_dailies/${widget.daily.id}',
+            preview: '${widget.daily.title}\n${widget.daily.description}',
           );
         } else {
           print('$label tapped');
@@ -1047,7 +1160,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         ),
         centerTitle: true,
         actions: [
-          if (_isGuest) _buildAddAction(),
+          if (_isGuest && !_isBanned) _buildAddAction(),
           // Options menu toggle — used to be an up arrow at the bottom of
           // the screen; now lives up here, so it reads as a down arrow
           // (opening the menu) that flips when toggled.
@@ -1126,6 +1239,9 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                   onMessageUpdate: null,
                   dailyTitle: widget.daily.title,
                   isPrivateDaily: widget.daily.privacy != 'Public',
+                  permissions: _perms,
+                  ownerUid: widget.daily.creatorUid,
+                  moderatorUids: _moderatorUids,
                   topPadding: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
                 ),
               ),
@@ -1139,171 +1255,174 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                     : const SizedBox(width: double.infinity),
               ),
 
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.2),
-                      spreadRadius: 1,
-                      blurRadius: 4,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  // The picker (when open) becomes the true bottom-most
-                  // content — it reserves its own bottom safe area below,
-                  // so this shouldn't reserve space here too, or a stray
-                  // gap opens up between the two.
-                  bottom: !_showMediaPicker,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildPendingMediaStrip(),
-                      if (_isEditingMessage)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            border: Border(
-                              bottom: BorderSide(color: Colors.grey[300]!, width: 1),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.edit, color: Colors.cyan, size: 18),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Editing message',
-                                style: TextStyle(
-                                  color: Colors.black87,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const Spacer(),
-                              GestureDetector(
-                                onTap: _cancelEditingMessage,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.grey[400]!, width: 1),
-                                  ),
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(
-                                      color: Colors.black87,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      Row(
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              icon: Icon(
-                                Icons.perm_media,
-                                color: Colors.grey[700],
-                                size: 22,
-                              ),
-                              onPressed: _toggleMediaPicker,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey[100],
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: TextField(
-                                controller: _messageController,
-                                focusNode: _messageFocusNode,
-                                decoration: InputDecoration(
-                                  hintText: _respondingToPrompt && _guestPrompt.isNotEmpty
-                                      ? _guestPrompt
-                                      : 'Type a message...',
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey[500],
-                                    fontSize: 16,
-                                  ),
-                                  border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 12,
-                                  ),
-                                ),
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.black87,
-                                ),
-                                maxLines: null,
-                                textCapitalization: TextCapitalization.sentences,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 220),
-                            transitionBuilder: (child, animation) => ScaleTransition(
-                              scale: animation,
-                              child: FadeTransition(opacity: animation, child: child),
-                            ),
-                            child: _canSend
-                                ? Container(
-                              key: const ValueKey('send'),
-                              decoration: const BoxDecoration(
-                                color: Colors.cyan,
-                                shape: BoxShape.circle,
-                              ),
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.send,
-                                  color: Colors.white,
-                                  size: 22,
-                                ),
-                                onPressed: _sendMessage,
-                              ),
-                            )
-                                : Container(
-                              key: const ValueKey('camera'),
-                              decoration: const BoxDecoration(
-                                color: Colors.cyan,
-                                shape: BoxShape.circle,
-                              ),
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.camera_alt,
-                                  color: Colors.white,
-                                  size: 22,
-                                ),
-                                onPressed: () {
-                                  // Placeholder — quick camera
-                                  // capture wiring comes later.
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
+              if (_isBanned)
+                _buildBannedBar()
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.2),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                        offset: const Offset(0, -2),
                       ),
                     ],
                   ),
+                  child: SafeArea(
+                    top: false,
+                    // The picker (when open) becomes the true bottom-most
+                    // content — it reserves its own bottom safe area below,
+                    // so this shouldn't reserve space here too, or a stray
+                    // gap opens up between the two.
+                    bottom: !_showMediaPicker,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildPendingMediaStrip(),
+                        if (_isEditingMessage)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              border: Border(
+                                bottom: BorderSide(color: Colors.grey[300]!, width: 1),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.edit, color: Colors.cyan, size: 18),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Editing message',
+                                  style: TextStyle(
+                                    color: Colors.black87,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                GestureDetector(
+                                  onTap: _cancelEditingMessage,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.grey[400]!, width: 1),
+                                    ),
+                                    child: const Text(
+                                      'Cancel',
+                                      style: TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        Row(
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                shape: BoxShape.circle,
+                              ),
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.perm_media,
+                                  color: Colors.grey[700],
+                                  size: 22,
+                                ),
+                                onPressed: _toggleMediaPicker,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: TextField(
+                                  controller: _messageController,
+                                  focusNode: _messageFocusNode,
+                                  decoration: InputDecoration(
+                                    hintText: _respondingToPrompt && _guestPrompt.isNotEmpty
+                                        ? _guestPrompt
+                                        : 'Type a message...',
+                                    hintStyle: TextStyle(
+                                      color: Colors.grey[500],
+                                      fontSize: 16,
+                                    ),
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.black87,
+                                  ),
+                                  maxLines: null,
+                                  textCapitalization: TextCapitalization.sentences,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              transitionBuilder: (child, animation) => ScaleTransition(
+                                scale: animation,
+                                child: FadeTransition(opacity: animation, child: child),
+                              ),
+                              child: _canSend
+                                  ? Container(
+                                key: const ValueKey('send'),
+                                decoration: const BoxDecoration(
+                                  color: Colors.cyan,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.send,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                                  onPressed: _sendMessage,
+                                ),
+                              )
+                                  : Container(
+                                key: const ValueKey('camera'),
+                                decoration: const BoxDecoration(
+                                  color: Colors.cyan,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.camera_alt,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                                  onPressed: () {
+                                    // Placeholder — quick camera
+                                    // capture wiring comes later.
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
 
               // Sits directly below the compose bar, in the same spot
               // the keyboard would occupy — opening this unfocuses the
@@ -1314,7 +1433,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
               // content stays mounted and visible throughout — revealed
               // or hidden progressively via ClipRect/Align — instead of
               // vanishing instantly the moment _showMediaPicker flips.
-              if (_showMediaPicker)
+              if (_showMediaPicker && !_isBanned)
                 AnimatedBuilder(
                   animation: _pickerHeightController,
                   builder: (context, child) {
@@ -1380,6 +1499,11 @@ class DailyMessageList extends StatelessWidget {
   final String? dailyTitle;
   final bool isPrivateDaily;
 
+  // Who's looking, for the owner / moderator options on each post.
+  final DailyPermissions permissions;
+  final String? ownerUid;
+  final List<String> moderatorUids;
+
   const DailyMessageList({
     Key? key,
     required this.messages,
@@ -1388,8 +1512,20 @@ class DailyMessageList extends StatelessWidget {
     this.onMessageUpdate,
     this.dailyTitle,
     this.isPrivateDaily = false,
+    this.permissions = DailyPermissions.none,
+    this.ownerUid,
+    this.moderatorUids = const [],
     this.topPadding = 16,
   }) : super(key: key);
+
+  /// Whether the viewer can remove this author's posts and ban them.
+  /// Owner: anyone but themselves. Moderator: members only (not the owner
+  /// or other moderators).
+  bool _canBan(String authorUid, String? me) {
+    if (authorUid == me || authorUid == ownerUid) return false;
+    if (permissions.isOwner) return true;
+    return permissions.isModerator && !moderatorUids.contains(authorUid);
+  }
 
   static const Duration _groupWindow = Duration(minutes: 5);
 
@@ -1505,6 +1641,10 @@ class DailyMessageList extends StatelessWidget {
     return ListView.builder(
       controller: scrollController,
       padding: EdgeInsets.only(top: topPadding, bottom: 16),
+      // Builds (and so loads) messages about a screen and a half above and
+      // below what's showing: their photos/videos are ready before you
+      // scroll to them, without loading the whole thread at once.
+      cacheExtent: MediaQuery.of(context).size.height * 1.5,
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
@@ -1516,12 +1656,18 @@ class DailyMessageList extends StatelessWidget {
         final grouped = groupedIds.contains(message.messageId);
 
         return DailyMessageWidget(
+          // Keeps each message's state (loaded media, comment counts) with
+          // that message when the list reloads.
+          key: ValueKey(message.messageId),
           message: message,
           isCurrentUser: message.userId == currentUid,
           showUsername: !grouped,
           groupedWithPrevious: grouped,
           dailyTitle: dailyTitle,
           isPrivateDaily: isPrivateDaily,
+          // Same rule for removing a post as for banning its author.
+          canModerate: _canBan(message.userId, currentUid),
+          canBanAuthor: _canBan(message.userId, currentUid),
           onEdit: onEdit,
           onSaveToggle: onMessageUpdate,
           onReactionAdded: (emoji) {

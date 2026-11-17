@@ -1,19 +1,27 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'DailyData.dart';
+import 'DailyModeration.dart';
 import 'DailyList.dart';
 import 'DailyScheduleEditor.dart';
 import 'ManageDaily.dart' show DailyTagPicker, kDailyTags;
 
+/// Settings tab of Manage Daily.
+///   Owner      everything here
+///   Moderator  the schedule (covers + entry prompts) only
+///   Member     view only
 class EditDaily extends StatefulWidget {
   final DailyData daily;
   final Function(DailyData) onSave;
+
+  /// Who's looking. Left out, it's worked out here.
+  final DailyPermissions? permissions;
 
   const EditDaily({
     Key? key,
     required this.daily,
     required this.onSave,
+    this.permissions,
   }) : super(key: key);
 
   @override
@@ -24,10 +32,16 @@ class _EditDailyState extends State<EditDaily> {
   late TextEditingController _descriptionController;
   late String _selectedPrivacy;
   late Set<String> _selectedTags;
-  bool _isOwner = false;
-  bool _checkingOwnership = true;
+  DailyPermissions? _ownPerms;
+  StreamSubscription<DailyPermissions>? _permsSub;
 
-  Color get _dailyColor => Color(widget.daily.iconColor ?? 0xFF00BCD4);
+  DailyPermissions? get _perms => widget.permissions ?? _ownPerms;
+  // Description, privacy and tags: owner only.
+  bool get _isOwner => _perms?.canEditDetails == true;
+  // Covers and prompts: owner and moderators.
+  bool get _canSchedule => _perms?.canSchedule == true;
+
+  Color get _dailyColor => Colors.black;
 
   @override
   void initState() {
@@ -36,38 +50,16 @@ class _EditDailyState extends State<EditDaily> {
         TextEditingController(text: widget.daily.description);
     _selectedPrivacy = widget.daily.privacy;
     _selectedTags = Set<String>.from(widget.daily.keywords);
-    _checkOwnership();
-  }
-
-  Future<void> _checkOwnership() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      if (mounted) setState(() { _isOwner = false; _checkingOwnership = false; });
-      return;
-    }
-
-    try {
-      // If an accepted invitation exists for this user + daily,
-      // they joined via invite — they are NOT the owner.
-      final invite = await FirebaseFirestore.instance
-          .collection('daily_invitations')
-          .where('dailyId', isEqualTo: widget.daily.id)
-          .where('toUserId', isEqualTo: uid)
-          .where('status', isEqualTo: 'accepted')
-          .limit(1)
-          .get();
-
-      final isOwner = invite.docs.isEmpty;
-      print('OWNERSHIP (EditDaily): uid=$uid dailyId=${widget.daily.id} inviteFound=${invite.docs.isNotEmpty} isOwner=$isOwner');
-      if (mounted) setState(() { _isOwner = isOwner; _checkingOwnership = false; });
-    } catch (e) {
-      print('EditDaily ownership check error: $e');
-      if (mounted) setState(() { _isOwner = false; _checkingOwnership = false; });
+    if (widget.permissions == null) {
+      _permsSub = DailyModeration.watchPermissions(widget.daily).listen((p) {
+        if (mounted) setState(() => _ownPerms = p);
+      });
     }
   }
 
   @override
   void dispose() {
+    _permsSub?.cancel();
     _descriptionController.dispose();
     super.dispose();
   }
@@ -115,7 +107,7 @@ class _EditDailyState extends State<EditDaily> {
 
   @override
   Widget build(BuildContext context) {
-    if (_checkingOwnership) {
+    if (_perms == null) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.cyan),
       );
@@ -127,14 +119,20 @@ class _EditDailyState extends State<EditDaily> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: Colors.amber[50],
+            color: Colors.grey[100],
             child: Row(
               children: [
-                Icon(Icons.lock_outline, size: 16, color: Colors.amber[800]),
+                Icon(_canSchedule ? Icons.shield_outlined : Icons.lock_outline,
+                    size: 16, color: Colors.grey[700]),
                 const SizedBox(width: 8),
-                Text(
-                  'Only the owner can edit this Daily.',
-                  style: TextStyle(fontSize: 13, color: Colors.amber[800]),
+                Expanded(
+                  child: Text(
+                    _canSchedule
+                        ? 'As a moderator you can schedule covers and prompts. '
+                        'The rest is up to the owner.'
+                        : 'Only the owner and moderators can change this Daily.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                  ),
                 ),
               ],
             ),
@@ -148,7 +146,8 @@ class _EditDailyState extends State<EditDaily> {
               children: [
                 DailyScheduleEditor(
                   daily: widget.daily,
-                  isOwner: _isOwner,
+                  // Moderators can schedule too.
+                  isOwner: _canSchedule,
                   accentColor: _dailyColor,
                 ),
                 const SizedBox(height: 28),

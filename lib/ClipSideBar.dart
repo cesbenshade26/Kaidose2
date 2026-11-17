@@ -8,6 +8,8 @@ import 'SendDailyMessage.dart';
 import 'SelectArchiveFolder.dart';
 import 'user_service.dart';
 import 'FeedService.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
 
 typedef LikeTrigger = void Function();
 
@@ -21,6 +23,13 @@ class ClipSideBar extends StatefulWidget {
   final VoidCallback? onCommentTap;
   final VoidCallback? onShareTap;
 
+  /// The clip should leave the feed: "Not interested" (false) or its
+  /// creator was blocked (true: drop all their clips).
+  final void Function(bool wholeCreator)? onHidden;
+
+  /// The clip's caption, kept with a report so it can be reviewed.
+  final String? caption;
+
   const ClipSideBar({
     Key? key,
     required this.clipId,
@@ -28,6 +37,8 @@ class ClipSideBar extends StatefulWidget {
     this.onLikeTriggerReady,
     this.onCommentTap,
     this.onShareTap,
+    this.onHidden,
+    this.caption,
   }) : super(key: key);
 
   @override
@@ -373,8 +384,72 @@ class _ClipSideBarState extends State<ClipSideBar>
             shadows: _iconShadow,
           ),
         ),
+
+        // More: Not interested / Report / Block (other people's clips)
+        if (widget.creatorUid != null &&
+            widget.creatorUid!.isNotEmpty &&
+            widget.creatorUid != _uid) ...[
+          gap,
+          _SideButton(
+            onTap: _openMore,
+            child: const Icon(Icons.more_horiz_rounded,
+                color: Colors.white, size: 30, shadows: _iconShadow),
+          ),
+        ],
       ],
     );
+  }
+}
+
+extension _ClipMoreMenu on _ClipSideBarState {
+  /// "⋯": Not interested, Report, Block (only on other people's clips).
+  void _openMore() {
+    final creator = widget.creatorUid ?? '';
+    SafetyMenu.show(context, [
+      SafetyMenuItem(
+        icon: Icons.not_interested_rounded,
+        label: 'Not interested',
+        subtitle: "You'll see fewer clips like this",
+        onTap: () {
+          SafetyService.instance
+              .notInterestedIn(clipId: widget.clipId, creatorUid: creator);
+          widget.onHidden?.call(false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Got it. You'll see fewer clips like this."),
+            backgroundColor: Colors.black87,
+            duration: Duration(seconds: 2),
+          ));
+        },
+      ),
+      SafetyMenuItem(
+        icon: Icons.flag_outlined,
+        label: 'Report clip',
+        destructive: true,
+        onTap: () async {
+          await ReportSheet.show(
+            context,
+            target: ReportTarget.clip,
+            targetId: widget.clipId,
+            ownerUid: creator,
+            path: 'clips/${widget.clipId}',
+            preview: widget.caption,
+          );
+          if (SafetyService.instance.isBlocked(creator)) {
+            widget.onHidden?.call(true);
+          }
+        },
+      ),
+      SafetyMenuItem(
+        icon: Icons.block_rounded,
+        label: 'Block creator',
+        destructive: true,
+        onTap: () async {
+          if (await BlockFlow.confirmAndBlock(context, creator)) {
+            widget.onHidden?.call(true);
+          }
+        },
+      ),
+    ]);
   }
 }
 

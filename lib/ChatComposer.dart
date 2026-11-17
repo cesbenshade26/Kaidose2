@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'DrawPad.dart';
 import 'UnifiedMediaPicker.dart';
 import 'YourDaily.dart' show UseCam;
+import 'Moderation.dart';
 
 /// The chat bar from Inside Daily, shared by every chat screen:
 /// media button on the left (opens the photo/video picker under the bar),
@@ -137,6 +138,8 @@ class _ChatComposerState extends State<ChatComposer>
   Future<void> _send() async {
     if (!_canSend || _sending) return;
     final text = _controller.text.trim();
+    // Community Guidelines agreed + no blocked language.
+    if (!await TermsGate.readyToPost(context, text)) return;
     final media = List<PickedMedia>.from(_pending);
 
     _controller.clear();

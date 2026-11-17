@@ -12,6 +12,9 @@ import 'InsideDaily.dart';
 import 'FeedService.dart';
 import 'DailyMembershipService.dart';
 import 'DailyUnread.dart';
+import 'DailyWarmup.dart';
+import 'DailyModeration.dart';
+import 'DailyIcon.dart';
 
 /// The cover card for a single Daily, as shown in the Dailies list.
 ///
@@ -32,6 +35,51 @@ import 'DailyUnread.dart';
 /// My Dailies only: an unread pill ("3 new") sits in the header row, in the
 /// same spot on both layouts, counting messages from other people the
 /// viewer hasn't loaded yet (see DailyUnreadService).
+/// Gets Daily cards ready before they're on screen: reads each cover and
+/// downloads its image into memory, so when the card is built (scrolling
+/// to it, switching tabs, opening Dailies) it appears already loaded.
+class DailyCoverPrefetch {
+  DailyCoverPrefetch._();
+
+  static final Set<String> _started = {};
+  // Keeps each image's download alive until it's in the image cache.
+  static final Map<String, ImageStream> _loading = {};
+
+  /// Warms the first [count] of [dailies] (once each per session).
+  static void warm(List<DailyData> dailies, {int count = 6}) {
+    for (final d in dailies.take(count)) {
+      if (!_started.add(d.id)) continue;
+      _warmOne(d.id);
+    }
+  }
+
+  static Future<void> _warmOne(String dailyId) async {
+    final cover = DailyCoverService.isKnown(dailyId)
+        ? DailyCoverService.lastKnown(dailyId)
+        : await DailyCoverService.getCoverOnce(dailyId);
+    final url = cover?.effectiveImageUrl;
+    if (cover == null || !cover.isShowable || url == null) return;
+    precache(url);
+  }
+
+  /// Downloads [url] into the same cache the card's CachedNetworkImage
+  /// reads from.
+  static void precache(String url) {
+    if (_loading.containsKey(url)) return;
+    final stream =
+    CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
+    _loading[url] = stream;
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener((_, __) {
+      stream.removeListener(listener);
+    }, onError: (_, __) {
+      stream.removeListener(listener);
+      _loading.remove(url);
+    });
+    stream.addListener(listener);
+  }
+}
+
 class DailyCover extends StatefulWidget {
   final DailyData daily;
   final bool hasBeenViewed;
@@ -60,8 +108,13 @@ class DailyCover extends StatefulWidget {
 }
 
 class _DailyCoverState extends State<DailyCover> {
-  // Tallest the cover image gets; a naturally shorter image stays shorter.
-  static const double _maxImageHeight = 240;
+  // Tallest the cover image gets, as a share of its width (and a hard cap
+  // for big screens). A naturally shorter image stays shorter.
+  static const double _maxImageAspect = 1.2;
+  static const double _maxImageHeight = 480;
+
+  // White strip between the cover image and the card's outline.
+  static const double _imageInset = 8;
 
   // The one accent used for "something new for you".
   static const Color _accent = Color(0xFF0097A7); // cyan[700]
@@ -69,7 +122,9 @@ class _DailyCoverState extends State<DailyCover> {
   String? _activeKey;
   Stream<DailyCoverData?>? _coverStream;
 
-  // My Dailies only: live count of unread messages from other people.
+  // My Dailies only: live count of unread messages from other people. The
+  // last count is remembered so a rebuilt card doesn't flash 0 first.
+  static final Map<String, int> _lastUnread = {};
   StreamSubscription<int>? _unreadSub;
   int _unread = 0;
 
@@ -78,6 +133,10 @@ class _DailyCoverState extends State<DailyCover> {
     super.initState();
     _syncCover();
     _syncUnread();
+    // On screen: start getting its newest photos ready for opening.
+    DailyWarmup.warm(widget.daily.id);
+    // Owner's older Daily with a phone-only icon: upload it for everyone.
+    DailyIconStore.migrateIfLocal(widget.daily);
   }
 
   @override
@@ -108,10 +167,12 @@ class _DailyCoverState extends State<DailyCover> {
     _unreadSub = null;
     _unread = 0;
     if (widget.forYou) return;
-    _unreadSub =
-        DailyUnreadService.watchUnread(widget.daily.id).listen((count) {
-          if (mounted && count != _unread) setState(() => _unread = count);
-        });
+    final id = widget.daily.id;
+    _unread = _lastUnread[id] ?? 0;
+    _unreadSub = DailyUnreadService.watchUnread(id).listen((count) {
+      _lastUnread[id] = count;
+      if (mounted && count != _unread) setState(() => _unread = count);
+    });
   }
 
   /// (Re)subscribes to the cover when the date has changed since we last
@@ -133,6 +194,19 @@ class _DailyCoverState extends State<DailyCover> {
   Future<void> _addToMyDailies() async {
     if (_addState != 0) return;
     setState(() => _addState = 1);
+    // Banned from this Daily: can't add it back while the ban lasts.
+    final ban = await DailyModeration.myBan(widget.daily.id);
+    if (ban != null) {
+      if (!mounted) return;
+      setState(() => _addState = 0);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(ban.isPermanent
+            ? "You're banned from this Daily"
+            : "You're banned from this Daily · ${ban.timeLeft}"),
+        duration: const Duration(seconds: 2),
+      ));
+      return;
+    }
     final result = await DailyMembershipService.addToMyDailies(widget.daily);
     if (!mounted) return;
     final ok = result['success'] == true;
@@ -425,7 +499,7 @@ class _DailyCoverState extends State<DailyCover> {
     // The "new today" signal is the small cyan badge, not a tint.
     return BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(18),
       border: Border.all(
         color: Colors.grey[800]!,
         width: (daily.isPinned && !widget.forYou) ? 2 : 1,
@@ -504,26 +578,11 @@ class _DailyCoverState extends State<DailyCover> {
 
   Widget _iconSquare({required double size, required double iconSize}) {
     final daily = widget.daily;
-    final tile = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: daily.customIconPath != null && File(daily.customIconPath!).existsSync()
-          ? ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.file(
-          File(daily.customIconPath!),
-          fit: BoxFit.cover,
-        ),
-      )
-          : Icon(
-        daily.icon,
-        color: Colors.grey[800],
-        size: iconSize,
-      ),
+    final tile = DailyIconTile(
+      icon: daily.icon,
+      customIconPath: daily.customIconPath,
+      size: size,
+      radius: 12,
     );
     if (!_showBadge) return tile;
     return SizedBox(
@@ -687,8 +746,8 @@ class _DailyCoverState extends State<DailyCover> {
     final pinned = daily.isPinned && !widget.forYou;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
       decoration: _cardDecoration(dailyColor),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -758,13 +817,13 @@ class _DailyCoverState extends State<DailyCover> {
     final hook = cover.effectiveHook;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: _cardDecoration(dailyColor),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 8, 0),
+            padding: const EdgeInsets.fromLTRB(14, 12, 4, 0),
             child: Row(
               children: [
                 _iconSquare(size: 44, iconSize: 26),
@@ -793,11 +852,11 @@ class _DailyCoverState extends State<DailyCover> {
           ),
           if (hook != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
               child: Text(
                 hook,
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 15.5,
                   height: 1.3,
                   fontWeight: FontWeight.w500,
                   color: Colors.grey[850],
@@ -805,66 +864,75 @@ class _DailyCoverState extends State<DailyCover> {
               ),
             )
           else
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+          // The cover is the focus: almost the card's full width, with a
+          // thin white strip between it and the outline, and allowed to be
+          // tall (up to 1.2x its width).
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: _maxImageHeight),
-                child: Stack(
-                  children: [
-                    CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      // Disk-backed — unlike Image.network, this survives
-                      // app restarts, so a cold launch after the first
-                      // one doesn't re-download every cover from scratch.
-                      placeholder: (context, url) => Container(
-                        height: 180,
+            padding: const EdgeInsets.fromLTRB(
+                _imageInset, 0, _imageInset, _imageInset),
+            child: LayoutBuilder(builder: (context, box) {
+              final maxH = (box.maxWidth * _maxImageAspect)
+                  .clamp(0.0, _maxImageHeight)
+                  .toDouble();
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxH),
+                  child: Stack(
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: imageUrl,
                         width: double.infinity,
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              color: Colors.cyan,
-                              strokeWidth: 2.5,
+                        fit: BoxFit.cover,
+                        // Disk-backed — unlike Image.network, this survives
+                        // app restarts, so a cold launch after the first
+                        // one doesn't re-download every cover from scratch.
+                        placeholder: (context, url) => Container(
+                          height: box.maxWidth * 0.75,
+                          width: double.infinity,
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                color: Colors.cyan,
+                                strokeWidth: 2.5,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        height: 120,
-                        width: double.infinity,
-                        color: Colors.grey[200],
-                        child: Icon(Icons.broken_image_outlined,
-                            color: Colors.grey[400], size: 36),
-                      ),
-                    ),
-                    if (cover.showsVideoBadge)
-                      Positioned(
-                        left: 10,
-                        bottom: 10,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                        errorWidget: (context, url, error) => Container(
+                          height: 120,
+                          width: double.infinity,
+                          color: Colors.grey[200],
+                          child: Icon(Icons.broken_image_outlined,
+                              color: Colors.grey[400], size: 36),
                         ),
                       ),
-                  ],
+                      if (cover.showsVideoBadge)
+                        Positioned(
+                          left: 10,
+                          bottom: 10,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: const BoxDecoration(
+                              color: Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            }),
           ),
         ],
       ),
@@ -878,9 +946,14 @@ class _DailyCoverState extends State<DailyCover> {
     final dailyColor = Color(widget.daily.iconColor ?? 0xFF00BCD4);
 
     return GestureDetector(
+      // Finger down: its newest videos start loading too, so they're
+      // playing by the time the Daily opens.
+      onTapDown: (_) => DailyWarmup.warm(widget.daily.id, videos: true),
       onTap: _handleTap,
       child: StreamBuilder<DailyCoverData?>(
         stream: _coverStream,
+        // Seen before this session -> shown right away, no loading.
+        initialData: DailyCoverService.lastKnown(widget.daily.id),
         builder: (context, snapshot) {
           final cover = snapshot.data;
           final showCover = cover != null && cover.isShowable;

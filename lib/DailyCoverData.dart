@@ -171,6 +171,17 @@ class DailyCoverService {
     return scheduleCollection(dailyId).doc(dateKey);
   }
 
+  // The last cover seen for each Daily this session. A card that's rebuilt
+  // (switching tabs, coming back to Dailies, scrolling back to it) starts
+  // with this, so it shows its cover right away instead of loading again.
+  static final Map<String, DailyCoverData?> _last = {};
+
+  /// The last cover seen for this Daily, or null if none yet.
+  static DailyCoverData? lastKnown(String dailyId) => _last[dailyId];
+
+  /// Whether this Daily's cover has been read this session.
+  static bool isKnown(String dailyId) => _last.containsKey(dailyId);
+
   // Dailies whose info this session already synced (see syncDailyInfo).
   static final Set<String> _synced = {};
 
@@ -221,7 +232,9 @@ class DailyCoverService {
     void emit() {
       if (cover == null || schedule == null || daily == null) return;
       if (!controller.isClosed) {
-        controller.add(_merge(dailyId, cover!, schedule!, daily!));
+        final merged = _merge(dailyId, cover!, schedule!, daily!);
+        _last[dailyId] = merged;
+        controller.add(merged);
       }
     }
 

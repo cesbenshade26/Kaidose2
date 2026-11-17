@@ -1,235 +1,125 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'firebase_options.dart';
+import 'OpeningScreen.dart';
+import 'UserAccount.dart';
+import 'EmailVerificationScreen.dart';
+import 'ForgotPasswordScreen.dart';
+import 'NotificationScreen.dart';
+import 'NotificationService.dart';
+import 'InterestOnboarding.dart';
+import 'Home.dart';
+import 'AppColors.dart';
+import 'SafetyService.dart';
+import 'DailyPostActivity.dart' show DailyPostVideoCache;
+import 'DailiesPreload.dart';
 
-class HomeSwipeDetector extends StatefulWidget {
-  final int currentIndex;
-  final int totalPages;
-  final Function(int) onPageChanged;
-  final List<Widget> pages; // Changed from pageBuilder to direct pages list
-  final double edgeThreshold;
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-  const HomeSwipeDetector({
-    Key? key,
-    required this.currentIndex,
-    required this.totalPages,
-    required this.onPageChanged,
-    required this.pages, // Changed parameter
-    this.edgeThreshold = 80.0,
-  }) : super(key: key);
-
-  @override
-  State<HomeSwipeDetector> createState() => _HomeSwipeDetectorState();
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    // Light / dark / system choice saved on this phone (see AppColors.dart).
+    await AppTheme.load();
+    // Blocks, mutes, hidden stories: kept live for the signed-in account.
+    SafetyService.instance.start();
+    // Your top profile post's video, ready before Profile is opened.
+    DailyPostVideoCache.startWarmingTopPost();
+    // Dailies (the screen the app opens on): My Dailies, the For You feed
+    // and the first cards' covers start loading as soon as someone is
+    // signed in, at launch or right after logging in.
+    DailiesPreload.start();
+    final startScreen = await _pickStartScreen();
+    runApp(KaidoseApp(startScreen: startScreen));
+  } catch (e) {
+    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Error: $e")))));
+  }
 }
 
-class _HomeSwipeDetectorState extends State<HomeSwipeDetector>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
+/// Where the app opens:
+///  - first launch after installing      -> login (signed out)
+///  - signed out (tapped Log out)         -> login
+///  - signed in, onboarding not finished  -> onboarding
+///  - signed in                           -> Home (Dailies). If a notification
+///    was tapped to open the app, Home then opens that screen on top.
+Future<Widget> _pickStartScreen() async {
+  final auth = FirebaseAuth.instance;
 
-  double _dragOffset = 0.0;
-  bool _isDragging = false;
-  bool _isValidEdgeSwipe = false;
-  int? _targetPage;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-
-    _animation = Tween<double>(begin: 0.0, end: 0.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    )..addListener(() {
-      setState(() {
-        _dragOffset = _animation.value;
-      });
-    })..addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        if (_targetPage != null && _targetPage != widget.currentIndex) {
-          widget.onPageChanged(_targetPage!);
-          _targetPage = null;
-        }
-        setState(() {
-          _dragOffset = 0.0;
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _handleHorizontalDragStart(DragStartDetails details) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final startX = details.globalPosition.dx;
-
-    // Check if drag started from edge
-    _isValidEdgeSwipe = startX <= widget.edgeThreshold ||
-        startX >= screenWidth - widget.edgeThreshold;
-
-    if (_isValidEdgeSwipe) {
-      _controller.stop();
-      setState(() {
-        _isDragging = true;
-      });
+  // iPhones keep Firebase sign-ins in the Keychain even after the app is
+  // deleted, so a reinstall would otherwise open already signed in. A
+  // fresh install always starts at login instead.
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('has_launched_before') != true) {
+      await prefs.setBool('has_launched_before', true);
+      if (auth.currentUser != null) await auth.signOut();
+      return const OpeningScreen();
     }
+  } catch (_) {}
+
+  // Wait for Firebase to restore the saved sign-in (usually instant).
+  User? user;
+  try {
+    user = await auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 3));
+  } catch (_) {
+    user = auth.currentUser;
   }
+  if (user == null) return const OpeningScreen();
 
-  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
-    if (!_isDragging || !_isValidEdgeSwipe) return;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final delta = details.delta.dx;
-
-    setState(() {
-      _dragOffset += delta;
-
-      // Constrain drag based on whether there's a page in that direction
-      if (_dragOffset > 0 && widget.currentIndex == 0) {
-        // At first page, can't go left
-        _dragOffset = _dragOffset * 0.3; // Resistance effect
-      } else if (_dragOffset < 0 && widget.currentIndex == widget.totalPages - 1) {
-        // At last page, can't go right
-        _dragOffset = _dragOffset * 0.3; // Resistance effect
-      } else {
-        // Clamp to screen width
-        _dragOffset = _dragOffset.clamp(-screenWidth, screenWidth);
-      }
-    });
+  // Same check the login screen does. The copy saved on the phone answers
+  // instantly; the server is only asked when that copy is missing or says
+  // onboarding isn't done (it may be out of date). If it can't be read
+  // (offline), go to Home rather than holding the app on the splash screen.
+  final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+  try {
+    final cached = await userRef.get(const GetOptions(source: Source.cache));
+    if (cached.exists && cached.data()?['onboardingComplete'] == true) {
+      return const HomeScreen();
+    }
+  } catch (_) {
+    // Not saved on this phone yet: ask the server below.
   }
-
-  void _handleHorizontalDragEnd(DragEndDetails details) {
-    if (!_isDragging || !_isValidEdgeSwipe) return;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final velocity = details.primaryVelocity ?? 0;
-
-    // Determine if we should switch pages
-    bool shouldSwitch = false;
-    int newIndex = widget.currentIndex;
-
-    // Check based on drag distance (threshold: 30% of screen)
-    if (_dragOffset.abs() > screenWidth * 0.3) {
-      shouldSwitch = true;
+  try {
+    final doc = await userRef.get().timeout(const Duration(seconds: 4));
+    if (doc.exists && doc.data()?['onboardingComplete'] != true) {
+      return const InterestOnboarding();
     }
-    // Or based on velocity (fast swipe)
-    else if (velocity.abs() > 500) {
-      shouldSwitch = true;
-    }
+  } catch (_) {}
 
-    if (shouldSwitch) {
-      if (_dragOffset > 0 && widget.currentIndex > 0) {
-        // Swiped right, go to previous page
-        newIndex = widget.currentIndex - 1;
-        _targetPage = newIndex;
-        _animation = Tween<double>(
-          begin: _dragOffset,
-          end: screenWidth,
-        ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-      } else if (_dragOffset < 0 && widget.currentIndex < widget.totalPages - 1) {
-        // Swiped left, go to next page
-        newIndex = widget.currentIndex + 1;
-        _targetPage = newIndex;
-        _animation = Tween<double>(
-          begin: _dragOffset,
-          end: -screenWidth,
-        ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-      } else {
-        // Can't go in that direction, bounce back
-        _animation = Tween<double>(
-          begin: _dragOffset,
-          end: 0.0,
-        ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-      }
-    } else {
-      // Not enough distance/velocity, bounce back
-      _animation = Tween<double>(
-        begin: _dragOffset,
-        end: 0.0,
-      ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-    }
+  return const HomeScreen();
+}
 
-    _controller.forward(from: 0.0);
-
-    setState(() {
-      _isDragging = false;
-      _isValidEdgeSwipe = false;
-    });
-  }
+class KaidoseApp extends StatelessWidget {
+  final Widget startScreen;
+  const KaidoseApp({super.key, required this.startScreen});
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bool isDragging = _dragOffset != 0.0;
-
-    return GestureDetector(
-      onHorizontalDragStart: _handleHorizontalDragStart,
-      onHorizontalDragUpdate: _handleHorizontalDragUpdate,
-      onHorizontalDragEnd: _handleHorizontalDragEnd,
-      child: Stack(
-        children: [
-          // Base layer - ALWAYS visible and maintains state
-          IndexedStack(
-            index: widget.currentIndex,
-            sizing: StackFit.expand,
-            children: widget.pages,
-          ),
-
-          // Animation overlay - only shown during drag
-          if (isDragging)
-            Positioned.fill(
-              child: Stack(
-                children: [
-                  // White background to cover base layer
-                  Positioned.fill(
-                    child: Container(color: Colors.white),
-                  ),
-
-                  // Previous page (if exists and dragging right)
-                  if (widget.currentIndex > 0 && _dragOffset > 0)
-                    Positioned.fill(
-                      child: Transform.translate(
-                        offset: Offset(_dragOffset - screenWidth, 0),
-                        child: IndexedStack(
-                          index: widget.currentIndex - 1,
-                          sizing: StackFit.expand,
-                          children: widget.pages,
-                        ),
-                      ),
-                    ),
-
-                  // Next page (if exists and dragging left)
-                  if (widget.currentIndex < widget.totalPages - 1 && _dragOffset < 0)
-                    Positioned.fill(
-                      child: Transform.translate(
-                        offset: Offset(_dragOffset + screenWidth, 0),
-                        child: IndexedStack(
-                          index: widget.currentIndex + 1,
-                          sizing: StackFit.expand,
-                          children: widget.pages,
-                        ),
-                      ),
-                    ),
-
-                  // Current page overlay during drag
-                  Positioned.fill(
-                    child: Transform.translate(
-                      offset: Offset(_dragOffset, 0),
-                      child: IndexedStack(
-                        index: widget.currentIndex,
-                        sizing: StackFit.expand,
-                        children: widget.pages,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
+    // Rebuilds when the light/dark choice changes in Settings. Dark mode
+    // stays off (AppTheme.darkModeReady) until every screen is converted.
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: AppTheme.mode,
+      builder: (context, _, __) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: AppTheme.effective,
+        // Lets a tapped push notification open the right screen.
+        navigatorKey: NotificationService.navigatorKey,
+        home: startScreen,
+        routes: {
+          '/opening': (context) => const OpeningScreen(),
+          '/user-account': (context) => const UserAccount(),
+          '/verify-email': (context) => const EmailVerificationScreen(),
+          '/forgot-password': (context) => const ForgotPasswordScreen(),
+          '/notifications': (context) => const NotificationsScreen(),
+        },
       ),
     );
   }

@@ -13,6 +13,9 @@ import 'NotificationService.dart';
 import 'InterestOnboarding.dart';
 import 'Home.dart';
 import 'AppColors.dart';
+import 'SafetyService.dart';
+import 'DailyPostActivity.dart' show DailyPostVideoCache;
+import 'DailiesPreload.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +24,14 @@ void main() async {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     // Light / dark / system choice saved on this phone (see AppColors.dart).
     await AppTheme.load();
+    // Blocks, mutes, hidden stories: kept live for the signed-in account.
+    SafetyService.instance.start();
+    // Your top profile post's video, ready before Profile is opened.
+    DailyPostVideoCache.startWarmingTopPost();
+    // Dailies (the screen the app opens on): My Dailies, the For You feed
+    // and the first cards' covers start loading as soon as someone is
+    // signed in, at launch or right after logging in.
+    DailiesPreload.start();
     final startScreen = await _pickStartScreen();
     runApp(KaidoseApp(startScreen: startScreen));
   } catch (e) {
@@ -61,14 +72,21 @@ Future<Widget> _pickStartScreen() async {
   }
   if (user == null) return const OpeningScreen();
 
-  // Same check the login screen does. If it can't be read (offline), go
-  // to Home rather than holding the app on the splash screen.
+  // Same check the login screen does. The copy saved on the phone answers
+  // instantly; the server is only asked when that copy is missing or says
+  // onboarding isn't done (it may be out of date). If it can't be read
+  // (offline), go to Home rather than holding the app on the splash screen.
+  final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
   try {
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get()
-        .timeout(const Duration(seconds: 4));
+    final cached = await userRef.get(const GetOptions(source: Source.cache));
+    if (cached.exists && cached.data()?['onboardingComplete'] == true) {
+      return const HomeScreen();
+    }
+  } catch (_) {
+    // Not saved on this phone yet: ask the server below.
+  }
+  try {
+    final doc = await userRef.get().timeout(const Duration(seconds: 4));
     if (doc.exists && doc.data()?['onboardingComplete'] != true) {
       return const InterestOnboarding();
     }

@@ -8,7 +8,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <!-- Approximate location only (country code, regional feeds) -->
+    <!-- Approximate location only: country code, regional feeds, and
+         "Near you" in Search (opt-in; only a city-sized area is saved) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Push notifications (Android 13+ asks the user) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

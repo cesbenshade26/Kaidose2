@@ -13,6 +13,8 @@ import 'ChatComposer.dart';
 import 'ChatMedia.dart';
 import 'UnifiedMediaPicker.dart';
 import 'DailyShare.dart';
+import 'SafetyService.dart';
+import 'SafetySheets.dart';
 
 class ChatScreen extends StatefulWidget {
   final String friendUserId;
@@ -290,13 +292,53 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
               ),
-              ChatComposer(
-                focusNode: _chatInputFocusNode,
-                onSend: _handleSend,
-                banner: _buildReplyBanner(),
+              // Blocked either way: no new messages, just a quiet note.
+              ValueListenableBuilder<int>(
+                valueListenable: SafetyService.instance.changes,
+                builder: (context, _, __) {
+                  final s = SafetyService.instance;
+                  if (s.isHidden(widget.friendUserId)) {
+                    return _blockedBar(s.isBlocked(widget.friendUserId));
+                  }
+                  return ChatComposer(
+                    focusNode: _chatInputFocusNode,
+                    onSend: _handleSend,
+                    banner: _buildReplyBanner(),
+                  );
+                },
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _blockedBar(bool iBlocked) {
+    return Container(
+      width: double.infinity,
+      color: context.colors.surface,
+      padding: EdgeInsets.fromLTRB(
+          20, 14, 20, MediaQuery.of(context).padding.bottom + 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            iBlocked
+                ? 'You blocked ${widget.friendUsername}'
+                : "You can't message this account",
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: context.colors.textMuted),
+          ),
+          if (iBlocked)
+            TextButton(
+              onPressed: () => BlockFlow.unblock(
+                  context, widget.friendUserId,
+                  username: widget.friendUsername),
+              child: const Text('Unblock'),
+            ),
         ],
       ),
     );
@@ -359,6 +401,7 @@ class ChatMessageWidget extends StatelessWidget {
   }) : super(key: key);
 
   void _showMenu(BuildContext context) {
+    final outerContext = context;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -400,6 +443,23 @@ class ChatMessageWidget extends StatelessWidget {
                   onReply();
                 },
               ),
+              if (!isMe)
+                ListTile(
+                  leading: Icon(Icons.flag_outlined, color: context.colors.danger),
+                  title: Text("Report",
+                      style: TextStyle(color: context.colors.danger)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ReportSheet.show(
+                      outerContext,
+                      target: ReportTarget.chatMessage,
+                      targetId: message.id,
+                      ownerUid: message.senderId,
+                      preview: message.text,
+                      extra: {'chatWith': friendUserId},
+                    );
+                  },
+                ),
               const SizedBox(height: 12),
             ],
           ),

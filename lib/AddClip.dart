@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'Moderation.dart';
 import 'AppColors.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:image_picker/image_picker.dart';
@@ -350,6 +351,8 @@ class _AddClipScreenState extends State<AddClipScreen> {
   Future<void> _post() async {
     if (!_hasMedia || _isPosting) return;
     FocusScope.of(context).unfocus();
+    // Community Guidelines agreed + no blocked language in the caption.
+    if (!await TermsGate.readyToPost(context, _captionController.text)) return;
     setState(() => _isPosting = true);
     final messenger = ScaffoldMessenger.of(context);
 
