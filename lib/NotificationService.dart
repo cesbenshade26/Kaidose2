@@ -10,6 +10,9 @@ import 'DailyData.dart';
 import 'DailyList.dart';
 import 'UponOpeningDaily.dart';
 import 'InsideDaily.dart';
+import 'AdminReportsScreen.dart';
+import 'DailyCoverData.dart' show DailyCoverService;
+import 'ReportProblem.dart' show ProblemReportsScreen;
 
 /// Push notifications on the phone side.
 ///
@@ -167,7 +170,9 @@ class NotificationService {
           friendUsername: d['friendUsername'] ?? '',
         ),
       ));
-    } else if (type == 'group') {
+    } else if (type == 'group_chat' || type == 'group') {
+      // New message in a group chat (notifyGroupMessage sends
+      // type: group_chat).
       final groupId = d['groupId'];
       if (groupId == null || groupId.isEmpty) return;
       nav.push(MaterialPageRoute(
@@ -182,7 +187,24 @@ class NotificationService {
         type == 'join_request') {
       // Something to accept or decline.
       nav.pushNamed('/notifications');
+    } else if (type == 'activity') {
+      // Someone liked or commented on your clip.
+      nav.pushNamed('/notifications');
+    } else if (type == 'report') {
+      // Admins: a new report or a review request.
+      nav.push(MaterialPageRoute(builder: (_) => const AdminReportsScreen()));
+    } else if (type == 'problem_report') {
+      // Admins: someone used Report a problem.
+      nav.push(MaterialPageRoute(builder: (_) => const ProblemReportsScreen()));
     }
+    // content_notice: nothing to open; the "your post was removed" pop-up
+    // shows by itself once the app is open (ContentNotices).
+  }
+
+  /// Opens a Daily from anywhere (e.g. a reaction in Notifications).
+  Future<void> openDaily(String dailyId) async {
+    final nav = navigatorKey.currentState;
+    if (nav != null) await _openDaily(nav, dailyId);
   }
 
   /// Opens one of the viewer's Dailies the same way tapping its card in
@@ -205,11 +227,13 @@ class NotificationService {
     }
 
     final viewed = await DailyList.hasBeenViewedToday(dailyId);
+    // Only today's scheduled prompt counts.
+    final prompt = viewed ? '' : await DailyCoverService.todayPrompt(dailyId);
     if (!nav.mounted) return;
 
-    if (!viewed && daily.dailyEntryPrompt.isNotEmpty) {
+    if (!viewed && prompt.isNotEmpty) {
       nav.push(MaterialPageRoute(
-        builder: (_) => UponOpeningDaily(daily: daily!),
+        builder: (_) => UponOpeningDaily(daily: daily!, prompt: prompt),
       ));
     } else {
       await DailyList.markAsViewed(dailyId);

@@ -17,6 +17,13 @@ import 'SafetyService.dart';
 import 'DailyPostActivity.dart' show DailyPostVideoCache;
 import 'DailiesPreload.dart';
 import 'DailyFonts.dart';
+import 'CoverJump.dart';
+import 'DataSaver.dart';
+import 'PrivateInfo.dart';
+import 'LikePrefs.dart';
+import 'ReduceMotion.dart';
+import 'ArchiveStorage.dart';
+import 'SavedItemStorage.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +43,20 @@ void main() async {
     // Daily title fonts (cards + inside a Daily), so titles never show in
     // the default font first. Not awaited: it never delays opening.
     DailyFonts.preload();
+    // Which cover posts you've already been taken to (opening a Daily from
+    // its cover goes to that post once).
+    CoverJump.load();
+    // Data saver (Settings → Content & data): cuts video preloading on
+    // cellular. Not awaited.
+    DataSaver.init();
+    // Email, phone and birthday kept private (moves them off the public
+    // profile for accounts made before that).
+    PrivateInfo.start();
+    // Like-count settings (Settings → Privacy → Likes).
+    LikePrefs.start();
+    // Your Archives folders and saved posts/clips, kept live.
+    ArchiveStorage.start();
+    SavedItems.start();
     final startScreen = await _pickStartScreen();
     runApp(KaidoseApp(startScreen: startScreen));
   } catch (e) {
@@ -105,25 +126,33 @@ class KaidoseApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Rebuilds when the light/dark choice changes in Settings. Dark mode
-    // stays off (AppTheme.darkModeReady) until every screen is converted.
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: AppTheme.mode,
-      builder: (context, _, __) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: AppTheme.effective,
-        // Lets a tapped push notification open the right screen.
-        navigatorKey: NotificationService.navigatorKey,
-        home: startScreen,
-        routes: {
-          '/opening': (context) => const OpeningScreen(),
-          '/user-account': (context) => const UserAccount(),
-          '/verify-email': (context) => const EmailVerificationScreen(),
-          '/forgot-password': (context) => const ForgotPasswordScreen(),
-          '/notifications': (context) => const NotificationsScreen(),
-        },
+    // Rebuilds when the light/dark choice changes in Settings (or the
+    // phone's own setting, under "Match phone"). ThemeRebuilder redraws
+    // every screen so they all switch together.
+    return ThemeRebuilder(
+      child: ValueListenableBuilder<ThemeMode>(
+        valueListenable: AppTheme.mode,
+        builder: (context, _, __) => MaterialApp(
+          debugShowCheckedModeBanner: false,
+          // Page transitions follow the phone's Reduce Motion setting.
+          theme: AppTheme.lightTheme.copyWith(
+              pageTransitionsTheme: ReduceMotion.transitions(
+                  AppTheme.lightTheme.pageTransitionsTheme)),
+          darkTheme: AppTheme.darkTheme.copyWith(
+              pageTransitionsTheme: ReduceMotion.transitions(
+                  AppTheme.darkTheme.pageTransitionsTheme)),
+          themeMode: AppTheme.effective,
+          // Lets a tapped push notification open the right screen.
+          navigatorKey: NotificationService.navigatorKey,
+          home: startScreen,
+          routes: {
+            '/opening': (context) => const OpeningScreen(),
+            '/user-account': (context) => const UserAccount(),
+            '/verify-email': (context) => const EmailVerificationScreen(),
+            '/forgot-password': (context) => const ForgotPasswordScreen(),
+            '/notifications': (context) => const NotificationsScreen(),
+          },
+        ),
       ),
     );
   }

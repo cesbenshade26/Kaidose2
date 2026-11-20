@@ -48,6 +48,15 @@ class DailyCoverData {
   final String? hook;
   final DateTime? generatedAt;
 
+  // A text post as the cover (no photo/video): it only wins when it got at
+  // least twice the reactions of the best photo/video, or when there was no
+  // photo/video. Shown as a quote card, with no AI hook (the text is the
+  // hook).
+  final bool isText;
+  final String? text;
+  final String? authorUid;
+  final String? authorName;
+
   // The owner's scheduled cover for today, if any.
   final String? manualMediaUrl;
   final bool manualIsVideo;
@@ -69,6 +78,10 @@ class DailyCoverData {
     this.reactorCount = 0,
     this.hook,
     this.generatedAt,
+    this.isText = false,
+    this.text,
+    this.authorUid,
+    this.authorName,
     this.manualMediaUrl,
     this.manualIsVideo = false,
     this.manualHook,
@@ -81,6 +94,14 @@ class DailyCoverData {
   /// The image the card shows: the owner's photo, else the automatic pick.
   String? get effectiveImageUrl => _hasManualPhoto ? manualMediaUrl : imageUrl;
 
+  /// The automatic pick is a text post (and the owner didn't set a photo).
+  bool get showsTextCover =>
+      !_hasManualPhoto && isText && (text?.isNotEmpty ?? false);
+
+  /// The post this cover came from, to open the Daily right at it. Null for
+  /// the owner's own photo (it isn't a post).
+  String? get jumpMessageId => _hasManualPhoto ? null : sourceMessageId;
+
   /// The hook line, or null for no line at all.
   ///  - The owner's own hook always wins.
   ///  - With the owner's photo: the AI hook written for THAT photo.
@@ -88,14 +109,16 @@ class DailyCoverData {
   ///  AI hooks are dropped when the owner turned them off.
   String? get effectiveHook {
     if (manualHook != null) return manualHook;
-    if (!aiHooksEnabled) return null;
+    if (!aiHooksEnabled || showsTextCover) return null;
     return _hasManualPhoto ? manualAiHook : hook;
   }
 
   bool get showsVideoBadge => _hasManualPhoto ? manualIsVideo : isVideo;
 
   /// Something to show on the card right now.
-  bool get isShowable => status == CoverStatus.ready && effectiveImageUrl != null;
+  bool get isShowable =>
+      status == CoverStatus.ready &&
+          (effectiveImageUrl != null || showsTextCover);
 
   factory DailyCoverData.fromCoverDoc(String dailyId, Map<String, dynamic> d) {
     var status = (d['status'] as String?) ?? CoverStatus.empty;
@@ -117,6 +140,10 @@ class DailyCoverData {
       reactorCount: (d['reactorCount'] as num?)?.toInt() ?? 0,
       hook: d['hook'] as String?,
       generatedAt: generatedAt,
+      isText: d['isText'] == true,
+      text: d['text'] as String?,
+      authorUid: d['authorUid'] as String?,
+      authorName: d['authorName'] as String?,
     );
   }
 
@@ -139,6 +166,10 @@ class DailyCoverData {
       reactorCount: reactorCount,
       hook: hook,
       generatedAt: generatedAt,
+      isText: isText,
+      text: text,
+      authorUid: authorUid,
+      authorName: authorName,
       manualMediaUrl: manualMediaUrl ?? this.manualMediaUrl,
       manualIsVideo: manualIsVideo ?? this.manualIsVideo,
       manualHook: manualHook ?? this.manualHook,
@@ -169,6 +200,36 @@ class DailyCoverService {
   static DocumentReference<Map<String, dynamic>> scheduleRef(
       String dailyId, String dateKey) {
     return scheduleCollection(dailyId).doc(dateKey);
+  }
+
+  // Today's scheduled entry prompt per Daily, as last seen by watchCover:
+  // dailyId -> (dateKey, prompt).
+  static final Map<String, MapEntry<String, String>> _prompts = {};
+
+  /// Today's scheduled entry prompt if watchCover already has it ('' = no
+  /// prompt today), or null if not known yet.
+  static String? knownPrompt(String dailyId) {
+    final p = _prompts[dailyId];
+    if (p == null || p.key != CoverWindow.dateKey(DateTime.now())) return null;
+    return p.value;
+  }
+
+  /// The entry prompt for today, or '' if the owner didn't schedule one.
+  /// Prompts are per day, like covers: one set for the 20th shows only on
+  /// the 20th.
+  static Future<String> todayPrompt(String dailyId) async {
+    final known = knownPrompt(dailyId);
+    if (known != null) return known;
+    final key = CoverWindow.dateKey(DateTime.now());
+    try {
+      final snap = await scheduleRef(dailyId, key).get();
+      final prompt = ((snap.data()?['prompt'] as String?) ?? '').trim();
+      _prompts[dailyId] = MapEntry(key, prompt);
+      return prompt;
+    } catch (e) {
+      print('DailyCoverService: todayPrompt error for $dailyId: $e');
+      return '';
+    }
   }
 
   // The last cover seen for each Daily this session. A card that's rebuilt
@@ -246,6 +307,8 @@ class DailyCoverService {
         }, onError: controller.addError));
         subs.add(scheduleRef(dailyId, todayKey).snapshots().listen((s) {
           schedule = s;
+          _prompts[dailyId] = MapEntry(
+              todayKey, ((s.data()?['prompt'] as String?) ?? '').trim());
           emit();
         }, onError: controller.addError));
         subs.add(_dailyRef(dailyId).snapshots().listen((s) {
@@ -294,6 +357,10 @@ class DailyCoverService {
       reactorCount: base.reactorCount,
       hook: base.hook,
       generatedAt: base.generatedAt,
+      isText: base.isText,
+      text: base.text,
+      authorUid: base.authorUid,
+      authorName: base.authorName,
       manualMediaUrl: media.isEmpty ? null : media,
       manualIsVideo: media.isNotEmpty && s['coverIsVideo'] == true,
       manualHook: hook.isEmpty ? null : hook,

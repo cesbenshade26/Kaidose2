@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 
 /// Works out the shape (width / height) of a photo or video in a Daily
 /// message so cards can size themselves to it, and remembers it for the
 /// rest of the session.
 ///
-/// Photos: read from the image itself (shares Flutter's image cache, so
-/// nothing is downloaded twice). Videos: from the still frame saved with
+/// Photos: read from the image itself (shares Flutter's image cache and
+/// the disk cache the cards use, so nothing is downloaded twice). Videos: from the still frame saved with
 /// newer posts; older videos without one are opened briefly just to read
 /// their size.
 class MediaAspect {
@@ -38,11 +39,11 @@ class MediaAspect {
       String path, bool isVideo, String? thumb) async {
     try {
       if (!isVideo) {
-        return _imageAspect(_remote(path) ? NetworkImage(path) : FileImage(File(path)));
+        return _imageAspect(_remote(path) ? CachedNetworkImageProvider(path) : FileImage(File(path)));
       }
       if (thumb != null && thumb.isNotEmpty) {
         final a = await _imageAspect(_remote(thumb)
-            ? NetworkImage(thumb)
+            ? CachedNetworkImageProvider(thumb)
             : FileImage(File(thumb)) as ImageProvider);
         if (a != null) return a;
       }
@@ -175,11 +176,12 @@ class LocalMediaAlias {
   }
 }
 
-/// Starts downloading a photo into Flutter's image cache, so an
-/// Image.network for the same URL shows it instantly later.
+/// Starts downloading a photo into the same caches the Daily cards and
+/// messages use (memory + disk via CachedNetworkImageProvider), so it shows
+/// instantly when it comes on screen, now and after the app restarts.
 void precacheNetworkImage(String url) {
   if (!url.startsWith('http')) return;
-  final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
+  final stream = CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
   late final ImageStreamListener listener;
   listener = ImageStreamListener(
         (_, __) => stream.removeListener(listener),

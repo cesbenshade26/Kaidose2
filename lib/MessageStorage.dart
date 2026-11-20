@@ -107,6 +107,16 @@ class MessageStorage {
     }
   }
 
+  /// The real file type of a video. iPhone camera videos are .MOV
+  /// (QuickTime); uploading them labelled as .mp4 stops them streaming on
+  /// iPhones, so each keeps its own label.
+  static ({String ext, String mime}) _videoType(String path) {
+    final p = path.toLowerCase();
+    if (p.endsWith('.mov')) return (ext: 'mov', mime: 'video/quicktime');
+    if (p.endsWith('.m4v')) return (ext: 'm4v', mime: 'video/x-m4v');
+    return (ext: 'mp4', mime: 'video/mp4');
+  }
+
   /// Uploads a message's local photos/videos (plus a still frame for each
   /// video) and returns the media list with URLs in place of local paths.
   static Future<List<DailyMediaItem>> _uploadMedia(
@@ -127,8 +137,11 @@ class MessageStorage {
         dailyId: dailyId,
         messageId: msg.messageId,
         localPath: item.path,
-        storageFileName: item.isVideo ? 'media_$i.mp4' : 'media_$i.jpg',
-        contentType: item.isVideo ? 'video/mp4' : 'image/jpeg',
+        storageFileName: item.isVideo
+            ? 'media_$i.${_videoType(item.path).ext}'
+            : 'media_$i.jpg',
+        contentType:
+        item.isVideo ? _videoType(item.path).mime : 'image/jpeg',
       );
       // Keep showing the file already on this phone (no re-download).
       LocalMediaAlias.remember(path, item.path);

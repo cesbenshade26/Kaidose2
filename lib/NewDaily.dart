@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'dart:io';
 import 'DailyData.dart';
 import 'DailyList.dart';
@@ -34,7 +35,7 @@ class NewDailyFlow {
   }
 
   static Widget closeButton(BuildContext context) => IconButton(
-    icon: const Icon(Icons.close, color: Colors.black, size: 26),
+    icon: Icon(Icons.close, color: kc.text, size: 26),
     onPressed: () => close(context),
   );
 }
@@ -100,19 +101,19 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: Icon(Icons.arrow_back, color: kc.text, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Create Daily',
           style: TextStyle(
-              color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
+              color: kc.text, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
       ),
@@ -130,7 +131,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                   TextField(
                     controller: _titleController,
                     maxLength: 50,
-                    style: const TextStyle(fontSize: 16, color: Colors.black87),
+                    style: TextStyle(fontSize: 16, color: kc.text),
                     decoration: _inputDeco('Enter daily title...'),
                     buildCounter: (context,
                         {required currentLength,
@@ -138,7 +139,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                           maxLength}) =>
                         Text('$currentLength/$maxLength',
                             style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600])),
+                                fontSize: 12, color: kc.grey(600))),
                   ),
                   const SizedBox(height: 24),
 
@@ -157,7 +158,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                     controller: _descriptionController,
                     maxLines: 4,
                     maxLength: 200,
-                    style: const TextStyle(fontSize: 16, color: Colors.black87),
+                    style: TextStyle(fontSize: 16, color: kc.text),
                     decoration: _inputDeco('Enter description...'),
                     buildCounter: (context,
                         {required currentLength,
@@ -165,7 +166,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                           maxLength}) =>
                         Text('$currentLength/$maxLength',
                             style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600])),
+                                fontSize: 12, color: kc.grey(600))),
                   ),
                   const SizedBox(height: 24),
 
@@ -174,7 +175,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'Pick topics that fit your Daily — helps connect you with the right people.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 13, color: kc.grey(600)),
                   ),
                   const SizedBox(height: 12),
                   DailyTagPicker(
@@ -198,17 +199,17 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
 
   Widget _sectionLabel(String text) => Text(
     text,
-    style: const TextStyle(
+    style: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
-        color: Colors.black87),
+        color: kc.text),
   );
 
   InputDecoration _inputDeco(String hint) => InputDecoration(
     hintText: hint,
-    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 16),
+    hintStyle: TextStyle(color: kc.grey(400), fontSize: 16),
     filled: true,
-    fillColor: Colors.grey[100],
+    fillColor: kc.grey(100),
     border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none),
@@ -226,7 +227,7 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: kc.grey(100),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
               color: selected ? Colors.cyan : Colors.transparent, width: 2),
@@ -235,15 +236,15 @@ class _NewDailyScreenState extends State<NewDailyScreen> {
           children: [
             Icon(
               selected ? Icons.check_box : Icons.check_box_outline_blank,
-              color: selected ? Colors.cyan : Colors.grey[400],
+              color: selected ? Colors.cyan : kc.grey(400),
               size: 24,
             ),
             const SizedBox(width: 12),
             Text(value,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87)),
+                    color: kc.text)),
           ],
         ),
       ),
@@ -299,19 +300,19 @@ class _NewDailyNextScreenState extends State<NewDailyNextScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: Icon(Icons.arrow_back, color: kc.text, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Invite Friends',
           style: TextStyle(
-              color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
+              color: kc.text, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         actions: [NewDailyFlow.closeButton(context)],
         centerTitle: true,
@@ -352,8 +353,8 @@ class _FriendPickerForDailyState extends State<_FriendPickerForDaily> {
       stream: _friendRequestService.getAcceptedFriends(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-              child: CircularProgressIndicator(color: Colors.cyan));
+          return Center(
+              child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
         }
 
         final friends = snapshot.data ?? [];
@@ -364,20 +365,20 @@ class _FriendPickerForDailyState extends State<_FriendPickerForDaily> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.people_outline, size: 80, color: Colors.grey[400]),
+                Icon(Icons.people_outline, size: 80, color: kc.grey(400)),
                 const SizedBox(height: 16),
                 Text('No Friends Yet',
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey[700])),
+                        color: kc.grey(700))),
                 const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 40),
                   child: Text(
                     'Add friends to invite them to your daily',
                     style:
-                    TextStyle(fontSize: 14, color: Colors.grey[600]),
+                    TextStyle(fontSize: 14, color: kc.grey(600)),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -406,10 +407,10 @@ class _FriendPickerForDailyState extends State<_FriendPickerForDaily> {
               decoration: BoxDecoration(
                 color: isSelected
                     ? Colors.cyan.withOpacity(0.05)
-                    : Colors.white,
+                    : kc.surface,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? Colors.cyan : Colors.grey[300]!,
+                  color: isSelected ? Colors.cyan : kc.grey(300),
                   width: isSelected ? 2 : 1,
                 ),
               ),
@@ -422,14 +423,14 @@ class _FriendPickerForDailyState extends State<_FriendPickerForDaily> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(friendName,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.black87)),
+                                color: kc.text)),
                         const SizedBox(height: 2),
                         Text('Friends on Kaidose',
                             style: TextStyle(
-                                fontSize: 13, color: Colors.grey[600])),
+                                fontSize: 13, color: kc.grey(600))),
                       ],
                     ),
                   ),
@@ -641,19 +642,19 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: Icon(Icons.arrow_back, color: kc.text, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Choose Icon',
           style: TextStyle(
-              color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
+              color: kc.text, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         actions: [NewDailyFlow.closeButton(context)],
         centerTitle: true,
@@ -666,11 +667,11 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Select an Icon',
+                  Text('Select an Icon',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87)),
+                          color: kc.text)),
                   const SizedBox(height: 16),
                   GridView.builder(
                     shrinkWrap: true,
@@ -695,30 +696,30 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
                           decoration: BoxDecoration(
                             color: isSelected
                                 ? _selectedColor.withOpacity(0.1)
-                                : Colors.grey[100],
+                                : kc.grey(100),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: isSelected
                                   ? _selectedColor
-                                  : Colors.grey[300]!,
+                                  : kc.grey(300),
                               width: isSelected ? 2 : 1,
                             ),
                           ),
                           child: Icon(icon,
                               color: isSelected
                                   ? _selectedColor
-                                  : Colors.grey[700],
+                                  : kc.grey(700),
                               size: 32),
                         ),
                       );
                     },
                   ),
                   const SizedBox(height: 24),
-                  const Text('Or Upload Custom Icon',
+                  Text('Or Upload Custom Icon',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87)),
+                          color: kc.text)),
                   const SizedBox(height: 16),
                   GestureDetector(
                     onTap: _pickCustomIcon,
@@ -728,12 +729,12 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
                       decoration: BoxDecoration(
                         color: _customIcon != null
                             ? Colors.cyan.withOpacity(0.1)
-                            : Colors.grey[100],
+                            : kc.grey(100),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: _customIcon != null
                               ? Colors.cyan
-                              : Colors.grey[300]!,
+                              : kc.grey(300),
                           width: _customIcon != null ? 2 : 1,
                         ),
                       ),
@@ -749,7 +750,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
                             )
                           else
                             Icon(Icons.cloud_upload_outlined,
-                                size: 48, color: Colors.grey[600]),
+                                size: 48, color: kc.grey(600)),
                           const SizedBox(height: 8),
                           Text(
                             _customIcon != null
@@ -758,7 +759,7 @@ class _NewDailyFinalScreenState extends State<NewDailyFinalScreen> {
                             style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
-                                color: Colors.grey[700]),
+                                color: kc.grey(700)),
                           ),
                         ],
                       ),
@@ -800,7 +801,7 @@ Widget _bottomButton(String label, VoidCallback? onPressed) {
     width: double.infinity,
     padding: const EdgeInsets.all(20),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: kc.surface,
       boxShadow: [
         BoxShadow(
           color: Colors.grey.withOpacity(0.2),

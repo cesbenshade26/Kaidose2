@@ -174,7 +174,7 @@ class _AddToDailyScreenState extends State<AddToDailyScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return Center(
-                    child: CircularProgressIndicator(color: context.colors.accent),
+                    child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
                   );
                 }
 

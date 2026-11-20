@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'DailyFonts.dart';
@@ -13,7 +14,7 @@ import 'ManageMembers.dart' as manage_members;
 import 'dart:io';
 
 /// Dark grey used instead of black on the Manage Daily screens.
-const Color kManageInk = Color(0xFF2E2E2E);
+Color get kManageInk => kc.adapt(const Color(0xFF2E2E2E));
 
 const List<Map<String, dynamic>> kDailyTags = [
   {'label': 'Sports',      'emoji': '🏆'},
@@ -109,16 +110,16 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
   Widget build(BuildContext context) {
     final perms = _perms;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: kManageInk, size: 28),
+          icon: Icon(Icons.arrow_back, color: kManageInk, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Manage Daily',
+        title: Text('Manage Daily',
             style: TextStyle(
                 color: kManageInk,
                 fontSize: 18,
@@ -126,8 +127,8 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
         centerTitle: true,
       ),
       body: perms == null
-          ? const Center(
-          child: CircularProgressIndicator(color: Colors.cyan))
+          ? Center(
+          child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))))
           : Column(
         children: [
           _header(perms),
@@ -165,7 +166,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                       decoration: BoxDecoration(
                         color: Colors.cyan,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2.5),
+                        border: Border.all(color: kc.background, width: 2.5),
                       ),
                       child: const Icon(Icons.edit,
                           color: Colors.white, size: 14),
@@ -182,7 +183,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
               textAlign: TextAlign.center,
               // Plain here: the Daily's own font is only for its card and
               // the inside of the Daily.
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
                 color: kManageInk,
@@ -192,13 +193,13 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
           const SizedBox(height: 6),
           Text(
             'Created ${_formatCreatedDate(_currentDaily.createdAt)}',
-            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+            style: TextStyle(fontSize: 13, color: kc.grey(500)),
           ),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: kc.grey(100),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -211,14 +212,14 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                       ? Icons.shield_rounded
                       : Icons.visibility_outlined,
                   size: 14,
-                  color: Colors.grey[700],
+                  color: kc.grey(700),
                 ),
                 const SizedBox(width: 5),
                 Text(perms.label,
                     style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey[700])),
+                        color: kc.grey(700))),
               ],
             ),
           ),
@@ -243,7 +244,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: Container(color: Colors.grey[200]),
+                  child: Container(color: kc.grey(200)),
                 ),
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 250),
@@ -252,7 +253,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
                   width: w,
                   top: 0,
                   bottom: 0,
-                  child: Container(color: Colors.cyan),
+                  child: Container(color: kc.text),
                 ),
               ],
             ),
@@ -264,7 +265,7 @@ class _ManageDailyScreenState extends State<ManageDailyScreen> {
 
   Widget _buildTab(int index, IconData icon, String label) {
     final active = _selectedTabIndex == index;
-    final color = active ? kManageInk : Colors.grey[500];
+    final color = active ? kManageInk : kc.grey(500);
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -332,10 +333,10 @@ class DailyTagPicker extends StatelessWidget {
             padding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: sel ? accentColor : Colors.grey[100],
+              color: sel ? accentColor : kc.grey(100),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                  color: sel ? accentColor : Colors.grey[300]!,
+                  color: sel ? accentColor : kc.grey(300),
                   width: 1.5),
             ),
             child: Row(
@@ -482,8 +483,8 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxH),
         child: Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: kc.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           ),
           child: SafeArea(
@@ -496,7 +497,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey[300],
+                    color: kc.grey(300),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -522,7 +523,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
                             color: title.isEmpty
-                                ? Colors.grey[400]
+                                ? kc.grey(400)
                                 : kManageInk,
                           ),
                         ),
@@ -545,9 +546,9 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                           style: const TextStyle(fontSize: 16),
                           decoration: InputDecoration(
                             hintText: 'Daily name',
-                            hintStyle: TextStyle(color: Colors.grey[400]),
+                            hintStyle: TextStyle(color: kc.grey(400)),
                             filled: true,
-                            fillColor: Colors.grey[100],
+                            fillColor: kc.grey(100),
                             contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 14, vertical: 13),
                             border: OutlineInputBorder(
@@ -577,7 +578,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
                                       horizontal: 14),
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: sel ? Colors.cyan : Colors.grey[100],
+                                    color: sel ? Colors.cyan : kc.grey(100),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Text(
@@ -677,11 +678,11 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
               child: DailyIconPicture(
                 path: custom,
                 fallback: Icon(Icons.add_photo_alternate_outlined,
-                    color: Colors.grey[700]),
+                    color: kc.grey(700)),
               ),
             )
                 : Icon(Icons.add_photo_alternate_outlined,
-                color: Colors.grey[700], size: 22),
+                color: kc.grey(700), size: 22),
           );
         }
         final icon = _icons[i - 1];
@@ -691,7 +692,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
             _icon = icon;
             _custom = null;
           }),
-          child: Icon(icon, color: Colors.grey[800], size: 22),
+          child: Icon(icon, color: kc.grey(800), size: 22),
         );
       },
     );
@@ -707,7 +708,7 @@ class _EditIconAndTitleSheetState extends State<_EditIconAndTitleSheet> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: kc.grey(100),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? Colors.cyan : Colors.transparent,

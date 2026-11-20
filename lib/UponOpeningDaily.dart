@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:image_picker/image_picker.dart';
-import 'package:video_player/video_player.dart';
 import 'DailyData.dart';
 import 'InsideDaily.dart';
 import 'DailyTransitions.dart';
 import 'DailyList.dart';
+import 'UnifiedMediaPicker.dart';
 
+/// Opening a Daily whose entry prompt you haven't answered (or skipped)
+/// today: the Daily loads underneath and the prompt pops over it.
+///
+///  - Send: the answer is posted to the Daily and you're in.
+///  - Skip: uses one of the week's skips and you're in, nothing posted.
+///  - X / back: leaves, and the prompt shows again next time.
 class UponOpeningDaily extends StatefulWidget {
   final DailyData daily;
+
+  /// Today's scheduled entry prompt (see DailyCoverService.todayPrompt).
+  final String prompt;
 
   const UponOpeningDaily({
     Key? key,
     required this.daily,
+    required this.prompt,
   }) : super(key: key);
 
   @override
@@ -21,83 +29,67 @@ class UponOpeningDaily extends StatefulWidget {
 
 class _UponOpeningDailyState extends State<UponOpeningDaily> {
   final TextEditingController _entryController = TextEditingController();
-  final GlobalKey<InsideDailyState> _insideDailyKey = GlobalKey<InsideDailyState>();
+  final GlobalKey<InsideDailyState> _insideDailyKey =
+  GlobalKey<InsideDailyState>();
   bool _showOverlay = true;
-  XFile? _selectedImage;
-  XFile? _selectedVideo;
-  VideoPlayerController? _videoController;
 
   @override
   void dispose() {
     _entryController.dispose();
-    _videoController?.dispose();
     super.dispose();
   }
 
-  void _handleMediaAttach(XFile? image, XFile? video, VideoPlayerController? controller) {
-    setState(() {
-      if (image != null) {
-        _selectedImage = image;
-        _selectedVideo = null;
-        _videoController?.dispose();
-        _videoController = null;
-      } else if (video != null) {
-        _selectedVideo = video;
-        _selectedImage = null;
-        _videoController?.dispose();
-        _videoController = controller;
+  /// Answered: let them in, then post the answer into the Daily.
+  Future<void> _handleSend(List<PickedMedia> media) async {
+    final text = _entryController.text.trim();
+    await DailyList.markAsViewed(widget.daily.id);
+    if (!mounted) return;
+    setState(() => _showOverlay = false);
+
+    if (text.isEmpty && media.isEmpty) return;
+    _postWhenReady(text, media);
+  }
+
+  /// The Daily underneath is built from the start, so it's normally ready
+  /// right away; if not, try again on the next frames for a moment.
+  void _postWhenReady(String text, List<PickedMedia> media, [int tries = 0]) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final inside = _insideDailyKey.currentState;
+      if (inside != null) {
+        inside.addPromptEntry(text, media);
+      } else if (tries < 30) {
+        _postWhenReady(text, media, tries + 1);
       }
     });
   }
 
-  void _handleMediaRemove() {
-    setState(() {
-      _selectedImage = null;
-      _selectedVideo = null;
-    });
-    _videoController?.dispose();
-    _videoController = null;
-  }
-
-  void _handleSend() async {
-    final message = _entryController.text.trim();
-
-    // Mark as viewed when they submit the prompt
+  /// Skip used: let them in without posting anything (even if they had
+  /// started typing).
+  Future<void> _handleSkip() async {
     await DailyList.markAsViewed(widget.daily.id);
-
-    // Close overlay immediately
-    setState(() {
-      _showOverlay = false;
-    });
-
-    // If there's content, add it to the daily
-    if (message.isNotEmpty || _selectedImage != null || _selectedVideo != null) {
-      // Add message with media to InsideDaily after overlay closes
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _insideDailyKey.currentState?.addPromptMessageWithMedia(
-          message,
-          _selectedImage?.path,
-          _selectedVideo?.path,
-        );
-      });
-    }
+    if (!mounted) return;
+    setState(() => _showOverlay = false);
   }
 
-  void _handleBack() async {
-    // Unmark as viewed so they have to see the prompt again
+  /// Backed out of the prompt: they'll have to see it again.
+  Future<void> _handleBack() async {
     await DailyList.unmarkAsViewed(widget.daily.id);
-    if (mounted) {
-      Navigator.pop(context);
-    }
+    if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: () async {
+      // Only while the prompt is up. Once they've answered or skipped,
+      // leaving the Daily is a normal back (and on iPhone the swipe-back
+      // gesture works again).
+      onWillPop: _showOverlay
+          ? () async {
         await DailyList.unmarkAsViewed(widget.daily.id);
         return true;
-      },
+      }
+          : null,
       child: Stack(
         children: [
           InsideDaily(
@@ -107,15 +99,11 @@ class _UponOpeningDailyState extends State<UponOpeningDaily> {
           if (_showOverlay)
             DailyPromptOverlay(
               dailyTitle: widget.daily.title,
-              dailyEntryPrompt: widget.daily.dailyEntryPrompt,
+              dailyEntryPrompt: widget.prompt,
               entryController: _entryController,
               onSend: _handleSend,
+              onSkip: _handleSkip,
               onBack: _handleBack,
-              selectedImage: _selectedImage,
-              selectedVideo: _selectedVideo,
-              videoController: _videoController,
-              onMediaRemove: _handleMediaRemove,
-              onMediaAttach: _handleMediaAttach,
             ),
         ],
       ),

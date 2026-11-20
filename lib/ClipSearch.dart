@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'AppColors.dart';
 import 'clip_service.dart';
 import 'Clips.dart';
 import 'FeedService.dart';
@@ -135,7 +136,7 @@ class _ClipSearchWidgetState extends State<ClipSearchWidget> {
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: Colors.grey[800])),
+                    color: kc.text)),
           ),
         ),
         SliverPadding(
@@ -162,7 +163,7 @@ class _ClipSearchWidgetState extends State<ClipSearchWidget> {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Text(_typed ? 'No clips match' : 'No clips to show yet',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+            style: TextStyle(fontSize: 14, color: kc.grey(500))),
       );
     }
     return SizedBox(
@@ -189,8 +190,8 @@ class _ClipSearchWidgetState extends State<ClipSearchWidget> {
           for (final t in _topics)
             ActionChip(
               label: Text(t),
-              labelStyle: const TextStyle(
-                  color: Colors.black87, fontWeight: FontWeight.w500),
+              labelStyle: TextStyle(
+                  color: kc.text, fontWeight: FontWeight.w500),
               backgroundColor: Colors.cyan.withOpacity(0.1),
               side: BorderSide.none,
               onPressed: widget.onTopicTap == null
@@ -271,17 +272,17 @@ class _ClipSearchWidgetState extends State<ClipSearchWidget> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 80, color: Colors.grey[400]),
+            Icon(icon, size: 80, color: kc.grey(400)),
             const SizedBox(height: 16),
             Text(title,
                 style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey[700])),
+                    color: kc.grey(700))),
             const SizedBox(height: 8),
             Text(body,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                style: TextStyle(fontSize: 14, color: kc.grey(600))),
           ],
         ),
       ),

@@ -46,6 +46,9 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.danger,
   });
 
+  /// Whichever palette the app is using right now (see [kc]).
+  static AppColors get current => AppTheme.isDark ? dark : light;
+
   /// Today's look, exactly.
   static const AppColors light = AppColors(
     background: Colors.white,
@@ -125,6 +128,57 @@ class AppColors extends ThemeExtension<AppColors> {
   }
 }
 
+/// The palette in use right now, without needing a `context`.
+///
+/// Most screens use `kc.text`, `kc.surface` and so on; it reads the same
+/// light/dark choice as the theme. When the choice (or the phone's own
+/// setting) changes, [ThemeRebuilder] redraws every screen so they all
+/// pick up the new colors at once.
+AppColors get kc => AppColors.current;
+
+extension AppColorsHelpers on AppColors {
+  bool get _dark => background.computeLuminance() < 0.2;
+
+  /// Material's grey shades, unchanged in light mode; in dark mode the
+  /// same role in Kaidose's dark greys (light greys used as backgrounds
+  /// become dark surfaces, darker greys used for text become lighter).
+  Color grey(int shade) {
+    if (!_dark) return Colors.grey[shade] ?? Colors.grey;
+    if (shade <= 100) return surfaceMuted;
+    if (shade <= 200) return line;
+    if (shade <= 350) return border;
+    if (shade <= 400) return const Color(0xFF636366);
+    if (shade <= 500) return textFaint;
+    if (shade <= 600) return textMuted;
+    if (shade <= 700) return const Color(0xFFC7C7CC);
+    if (shade <= 850) return const Color(0xFFD1D1D6);
+    return Colors.grey[shade] ?? Colors.grey;
+  }
+
+  /// Any fixed light-mode grey: exactly [c] in light mode; in dark mode the
+  /// matching dark role, picked by how light [c] is (near-white backgrounds
+  /// -> dark surfaces, mid greys -> muted text, near-black -> main text).
+  Color adapt(Color c) {
+    if (!_dark) return c;
+    final l = c.computeLuminance();
+    final Color out;
+    if (l > 0.88) {
+      out = surfaceMuted;
+    } else if (l > 0.74) {
+      out = line;
+    } else if (l > 0.55) {
+      out = border;
+    } else if (l > 0.3) {
+      out = textFaint;
+    } else if (l > 0.1) {
+      out = textMuted;
+    } else {
+      out = text;
+    }
+    return c.alpha == 255 ? out : out.withAlpha(c.alpha);
+  }
+}
+
 extension AppColorsContext on BuildContext {
   /// The current palette (light or dark).
   AppColors get colors =>
@@ -137,7 +191,7 @@ extension AppColorsContext on BuildContext {
 class AppTheme {
   /// Flip to true once every screen uses AppColors. Until then the app stays
   /// light no matter what, so nobody sees a half-dark app.
-  static const bool darkModeReady = false;
+  static const bool darkModeReady = true;
 
   static const String _key = 'theme_mode';
 
@@ -148,6 +202,25 @@ class AppTheme {
   /// What the app actually uses right now.
   static ThemeMode get effective =>
       darkModeReady ? mode.value : ThemeMode.light;
+
+  /// Is the app dark right now? "Match phone" follows the phone's own
+  /// light/dark setting (iPhone and Android), live.
+  static bool get isDark {
+    switch (effective) {
+      case ThemeMode.dark:
+        return true;
+      case ThemeMode.light:
+        return false;
+      case ThemeMode.system:
+        return WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    }
+  }
+
+  /// Status bar style for a plain page: dark icons on a light page, light
+  /// icons on a dark one. (Over photos screens still use .light.)
+  static SystemUiOverlayStyle get pageOverlay =>
+      isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;
 
   static Future<void> load() async {
     try {
@@ -220,4 +293,59 @@ class AppTheme {
       progressIndicatorTheme: ProgressIndicatorThemeData(color: c.accent),
     );
   }
+}
+
+
+/// Wrap the app in this (main.dart). When the light/dark choice or the
+/// phone's own setting changes, it redraws every screen, including ones
+/// that read colors through [kc] rather than the theme.
+class ThemeRebuilder extends StatefulWidget {
+  final Widget child;
+  const ThemeRebuilder({Key? key, required this.child}) : super(key: key);
+
+  @override
+  State<ThemeRebuilder> createState() => _ThemeRebuilderState();
+}
+
+class _ThemeRebuilderState extends State<ThemeRebuilder>
+    with WidgetsBindingObserver {
+  bool _wasDark = AppTheme.isDark;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    AppTheme.mode.addListener(_check);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    AppTheme.mode.removeListener(_check);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() => _check();
+
+  void _check() {
+    final dark = AppTheme.isDark;
+    if (dark == _wasDark) return;
+    _wasDark = dark;
+    if (!mounted) return;
+    setState(() {});
+    // Mark every screen below for a redraw (including pages under the
+    // current one and kept-alive tabs).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      void redraw(Element e) {
+        e.markNeedsBuild();
+        e.visitChildren(redraw);
+      }
+      (context as Element).visitChildren(redraw);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

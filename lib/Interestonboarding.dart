@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'Home.dart';
@@ -36,8 +37,8 @@ class InterestOnboarding extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Colors.white,
+    return Scaffold(
+      backgroundColor: kc.background,
       body: SafeArea(child: _OnboardingFlow()),
     );
   }
@@ -365,7 +366,7 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
                 duration: const Duration(milliseconds: 200),
                 child: IconButton(
                   icon: Icon(Icons.arrow_back_ios,
-                      size: 18, color: Colors.grey[400]),
+                      size: 18, color: kc.grey(400)),
                   onPressed: _page > 0 ? _goBack : null,
                 ),
               ),
@@ -379,7 +380,7 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
                       width: i == _page ? 22 : 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: i == _page ? Colors.cyan : Colors.grey[300],
+                        color: i == _page ? Colors.cyan : kc.grey(300),
                         borderRadius: BorderRadius.circular(4),
                       ),
                     );
@@ -402,7 +403,7 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
               _subtitle,
               style: TextStyle(
                 fontSize: 15,
-                color: Colors.grey[500],
+                color: kc.grey(500),
                 fontStyle: FontStyle.italic,
               ),
             ),
@@ -466,7 +467,7 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
   Widget _buildBottom() {
     final isLast = _page == _totalPages - 1;
     return Container(
-      color: Colors.white,
+      color: kc.surface,
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -512,7 +513,7 @@ class _OnboardingFlowState extends State<_OnboardingFlow>
               'Skip',
               style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey[400],
+                  color: kc.grey(400),
                   fontWeight: FontWeight.w500),
             ),
           ),
@@ -544,14 +545,14 @@ class _InterestsPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('What are you into?',
+          Text('What are you into?',
               style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87)),
+                  color: kc.text)),
           const SizedBox(height: 6),
           Text('Pick as many as you like.',
-              style: TextStyle(fontSize: 15, color: Colors.grey[500])),
+              style: TextStyle(fontSize: 15, color: kc.grey(500))),
           const SizedBox(height: 24),
           Wrap(
             spacing: 10,
@@ -566,10 +567,10 @@ class _InterestsPage extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 11),
                   decoration: BoxDecoration(
-                    color: sel ? Colors.cyan : Colors.grey[100],
+                    color: sel ? Colors.cyan : kc.grey(100),
                     borderRadius: BorderRadius.circular(30),
                     border: Border.all(
-                        color: sel ? Colors.cyan : Colors.grey[300]!,
+                        color: sel ? Colors.cyan : kc.grey(300),
                         width: 1.5),
                   ),
                   child: Row(
@@ -582,7 +583,7 @@ class _InterestsPage extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: sel ? Colors.white : Colors.black87)),
+                              color: sel ? Colors.white : kc.text)),
                     ],
                   ),
                 ),
@@ -611,12 +612,12 @@ class _OneWordPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'If you had one word\nto describe yourself,\nwhat would it be?',
             style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Colors.black87,
+                color: kc.text,
                 height: 1.35),
           ),
           const SizedBox(height: 36),
@@ -635,9 +636,9 @@ class _OneWordPage extends StatelessWidget {
               hintStyle: TextStyle(
                   fontSize: 34,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey[300]),
-              enabledBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.grey, width: 1.5)),
+                  color: kc.grey(300)),
+              enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: kc.grey(500), width: 1.5)),
               focusedBorder: const UnderlineInputBorder(
                   borderSide: BorderSide(color: Colors.cyan, width: 2.5)),
             ),
@@ -645,7 +646,7 @@ class _OneWordPage extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             'One word. No pressure — just how you\'d introduce yourself.',
-            style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+            style: TextStyle(fontSize: 13, color: kc.grey(400)),
           ),
         ],
       ),
@@ -695,23 +696,23 @@ class _PeoplePage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
       children: [
-        const Text('People you might know',
+        Text('People you might know',
             style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Colors.black87)),
+                color: kc.text)),
         const SizedBox(height: 6),
         Text('Add a few friends to get started.',
-            style: TextStyle(fontSize: 15, color: Colors.grey[500])),
+            style: TextStyle(fontSize: 15, color: kc.grey(500))),
         const SizedBox(height: 20),
 
         // Contacts
         if (contactsState == _ContactsState.notAsked) _contactsCard(),
         if (contactsState == _ContactsState.loading)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Center(
-                child: CircularProgressIndicator(color: Colors.cyan)),
+                child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
           ),
         if (contactsState == _ContactsState.denied)
           _note('Contacts are off. You can turn them on later in your '
@@ -729,10 +730,10 @@ class _PeoplePage extends StatelessWidget {
 
         // Popular
         if (loadingPopular)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Center(
-                child: CircularProgressIndicator(color: Colors.cyan)),
+                child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
           )
         else if (popularShown.isNotEmpty) ...[
           _sectionLabel('Popular on Kaidose'),
@@ -750,9 +751,9 @@ class _PeoplePage extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: kc.grey(50),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: kc.grey(200)),
       ),
       child: Row(
         children: [
@@ -760,11 +761,11 @@ class _PeoplePage extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: Colors.cyan.withOpacity(0.12),
+              color: kc.adapt(const Color(0xFFEDEFF2)),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.contacts_outlined,
-                color: Colors.cyan, size: 22),
+            child: Icon(Icons.contacts_outlined,
+                color: kc.adapt(const Color(0xFF2E2E2E)), size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -776,7 +777,7 @@ class _PeoplePage extends StatelessWidget {
                         fontSize: 15, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
                 Text('Only used to find people you know on Kaidose.',
-                    style: TextStyle(fontSize: 12.5, color: Colors.grey[600])),
+                    style: TextStyle(fontSize: 12.5, color: kc.grey(600))),
               ],
             ),
           ),
@@ -804,14 +805,14 @@ class _PeoplePage extends StatelessWidget {
         style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
-            color: Colors.grey[600],
+            color: kc.grey(600),
             letterSpacing: 0.3)),
   );
 
   Widget _note(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 20),
     child: Text(text,
-        style: TextStyle(fontSize: 14, color: Colors.grey[500], height: 1.35)),
+        style: TextStyle(fontSize: 14, color: kc.grey(500), height: 1.35)),
   );
 
   Widget _row(_Person p) {
@@ -846,7 +847,7 @@ class _PeoplePage extends StatelessWidget {
                 Text(p.subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12.5, color: Colors.grey[500])),
+                    style: TextStyle(fontSize: 12.5, color: kc.grey(500))),
               ],
             ),
           ),
@@ -859,10 +860,10 @@ class _PeoplePage extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: done ? Colors.grey[100] : Colors.cyan,
+                color: done ? kc.grey(100) : Colors.cyan,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                    color: done ? Colors.grey[300]! : Colors.cyan),
+                    color: done ? kc.grey(300) : Colors.cyan),
               ),
               child: busy
                   ? const SizedBox(
@@ -875,7 +876,7 @@ class _PeoplePage extends StatelessWidget {
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: done ? Colors.grey[600] : Colors.white),
+                    color: done ? kc.grey(600) : Colors.white),
               ),
             ),
           ),

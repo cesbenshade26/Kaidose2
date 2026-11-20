@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/physics.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'Profile.dart';
@@ -184,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       body: FadeTransition(
         opacity: _contentFade,
         child: SlideTransition(
@@ -203,7 +204,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: Container(
           height: 80,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: kc.surface,
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.3),
@@ -247,13 +248,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   width: isSelected ? 50 : 0,
                   height: isSelected ? 50 : 0,
                   decoration: BoxDecoration(
-                    color: isSelected ? Colors.black : Colors.transparent,
+                    color: isSelected ? kc.text : Colors.transparent,
                     borderRadius: BorderRadius.circular(25),
                   ),
                 ),
                 Icon(icon,
                     size: 26,
-                    color: isSelected ? Colors.white : Colors.black),
+                    color: isSelected ? kc.background : kc.text),
               ],
             ),
           ),

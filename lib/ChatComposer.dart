@@ -1,10 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'AppColors.dart';
-import 'package:image_picker/image_picker.dart';
 import 'DrawPad.dart';
 import 'UnifiedMediaPicker.dart';
-import 'YourDaily.dart' show UseCam;
+import 'CameraCapture.dart';
 import 'Moderation.dart';
 
 /// The chat bar from Inside Daily, shared by every chat screen:
@@ -12,7 +11,8 @@ import 'Moderation.dart';
 /// text field, and a camera button on the right that turns into Send as soon
 /// as there is text or attached media.
 ///
-/// Camera: tap = take a photo, hold = record a video.
+/// Camera: tap = choose photo or video, hold = straight to recording.
+/// Either way it lands in the pending strip, ready to send.
 class ChatComposer extends StatefulWidget {
   /// Called with the text and any attached media when Send is pressed.
   final Future<void> Function(String text, List<PickedMedia> media) onSend;
@@ -107,30 +107,20 @@ class _ChatComposerState extends State<ChatComposer>
 
   // ------------------------------------------------------------- camera
 
-  Future<void> _takePhoto() async {
-    final image = await UseCam.openCamera(context);
-    if (image != null && mounted) {
-      setState(
-              () => _pending.add(PickedMedia(file: File(image.path), isVideo: false)));
-    }
+  Future<void> _openCamera() async {
+    final shot = await CameraCapture.capture(context);
+    _addShot(shot);
   }
 
   Future<void> _recordVideo() async {
-    try {
-      final video = await ImagePicker().pickVideo(
-        source: ImageSource.camera,
-        maxDuration: const Duration(minutes: 1),
-      );
-      if (video != null && mounted) {
-        setState(() =>
-            _pending.add(PickedMedia(file: File(video.path), isVideo: true)));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Could not record video: $e')));
-      }
-    }
+    final shot = await CameraCapture.recordVideo(context);
+    _addShot(shot);
+  }
+
+  void _addShot(PickedMedia? shot) {
+    if (shot == null || !mounted) return;
+    if (_showPicker) _closePicker();
+    setState(() => _pending.add(shot));
   }
 
   // --------------------------------------------------------------- send
@@ -294,7 +284,7 @@ class _ChatComposerState extends State<ChatComposer>
               : GestureDetector(
             key: const ValueKey('camera'),
             behavior: HitTestBehavior.opaque,
-            onTap: _takePhoto,
+            onTap: _openCamera,
             onLongPress: _recordVideo,
             child: _roundButton(Icons.camera_alt),
           ),
@@ -365,7 +355,7 @@ class _ChatComposerState extends State<ChatComposer>
                               width: 14,
                               height: 14,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: context.colors.accent),
+                                  strokeWidth: 2, color: kc.adapt(const Color(0xFFB0B5BC))),
                             ),
                             const SizedBox(width: 10),
                             Text('Sending...',

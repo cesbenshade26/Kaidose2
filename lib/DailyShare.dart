@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/services.dart';
 import 'DailyData.dart';
 import 'GroupAvatar.dart';
@@ -348,7 +349,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: kc.grey(100),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -368,7 +369,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                     : Image.network(first.url,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) =>
-                        Container(color: Colors.grey[300])),
+                        Container(color: kc.grey(300))),
               ),
             )
           else
@@ -376,11 +377,11 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.15),
+                color: kc.adapt(const Color(0xFFF1F3F5)),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.chat_bubble_outline,
-                  color: Colors.cyan[700], size: 24),
+                  color: kc.adapt(const Color(0xFF2E2E2E)), size: 24),
             ),
           const SizedBox(width: 12),
           Expanded(
@@ -394,7 +395,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                   style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: Colors.cyan[800]),
+                      color: kc.grey(800)),
                 ),
                 if (c.text.isNotEmpty || c.media.length > 1) ...[
                   const SizedBox(height: 2),
@@ -404,7 +405,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                         : '${c.media.length} photos & videos',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+                    style: TextStyle(fontSize: 14, color: kc.grey(800)),
                   ),
                 ],
               ],
@@ -424,7 +425,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
         shape: BoxShape.circle,
         color: on ? Colors.cyan : Colors.transparent,
         border: Border.all(
-            color: on ? Colors.cyan : Colors.grey[400]!, width: 1.6),
+            color: on ? Colors.cyan : kc.grey(400), width: 1.6),
       ),
       child: on
           ? const Icon(Icons.check, size: 16, color: Colors.white)
@@ -462,7 +463,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:
-                        TextStyle(fontSize: 12.5, color: Colors.grey[600])),
+                        TextStyle(fontSize: 12.5, color: kc.grey(600))),
                 ],
               ),
             ),
@@ -481,13 +482,13 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.8,
-              color: Colors.grey[500])),
+              color: kc.grey(500))),
     );
   }
 
   Widget _list() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+      return Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
     }
     final q = _search.text.trim().toLowerCase();
     final me = FirebaseAuth.instance.currentUser?.uid;
@@ -505,7 +506,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
           _friends.isEmpty && _groups.isEmpty
               ? 'Add friends to start sharing'
               : 'No matches',
-          style: TextStyle(color: Colors.grey[600]),
+          style: TextStyle(color: kc.grey(600)),
         ),
       );
     }
@@ -521,10 +522,10 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.15),
+                color: kc.adapt(const Color(0xFFF1F3F5)),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.groups_rounded, color: Colors.cyan[700]),
+              child: Icon(Icons.groups_rounded, color: kc.adapt(const Color(0xFF2E2E2E))),
             ),
             title: g.displayName(me),
             subtitle: '${g.memberIds.length} members',
@@ -548,7 +549,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: keyboard),
       child: Material(
-        color: Colors.white,
+        color: kc.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
         child: SizedBox(
           height: (height * 0.82).clamp(0.0, height - keyboard - 60),
@@ -564,7 +565,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                       width: 40,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.grey[300],
+                        color: kc.grey(300),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -583,7 +584,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                       hintText: 'Search',
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
-                      fillColor: Colors.grey[100],
+                      fillColor: kc.grey(100),
                       contentPadding: const EdgeInsets.symmetric(vertical: 0),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
@@ -600,7 +601,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                       decoration: InputDecoration(
                         hintText: 'Add a message (optional)',
                         filled: true,
-                        fillColor: Colors.grey[100],
+                        fillColor: kc.grey(100),
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 12),
                         border: OutlineInputBorder(
@@ -618,7 +619,7 @@ class _ShareToChatSheetState extends State<ShareToChatSheet> {
                       onPressed: _selected.isEmpty || _sending ? null : _send,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.cyan,
-                        disabledBackgroundColor: Colors.grey[300],
+                        disabledBackgroundColor: kc.grey(300),
                         foregroundColor: Colors.white,
                         elevation: 0,
                         shape: RoundedRectangleBorder(

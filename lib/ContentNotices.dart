@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
+import 'CommunityGuidelines.dart';
 import 'NotificationService.dart';
 
 /// Tells you when one of your posts, clips or comments was removed for
@@ -37,6 +39,41 @@ class ContentNotices {
           .snapshots()
           .listen(_onNotices, onError: (e) => print('ContentNotices: $e'));
     });
+  }
+
+  /// Sends a removed post to an admin to look at (from the pop-up or from
+  /// Settings → Account → Account status). If they agree it was a
+  /// mistake, it comes back and doesn't count against you. True if sent.
+  static Future<bool> requestReview(
+      DocumentSnapshot<Map<String, dynamic>> notice) async {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    final n = notice.data();
+    if (me == null || n == null) return false;
+    try {
+      await FirebaseFirestore.instance.collection('reports').add({
+        'reporterUid': me,
+        'target': n['target'] ?? 'dailyMessage',
+        'targetId': n['targetId'] ?? '',
+        'ownerUid': me,
+        'reason': 'appeal',
+        'reasonLabel': 'Review requested: removed for ${n['category'] ?? 'rules'}',
+        if (n['path'] != null) 'path': n['path'],
+        if ((n['preview'] as String?)?.isNotEmpty == true) 'preview': n['preview'],
+        'note': (n['reason'] as String?) ?? '',
+        'extra': {
+          'appeal': true,
+          'noticePath': notice.reference.path,
+          'category': n['category'],
+        },
+        'status': 'open',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      await notice.reference.update({'appeal': 'requested', 'seen': true});
+      return true;
+    } catch (e) {
+      print('ContentNotices: appeal failed: $e');
+      return false;
+    }
   }
 
   static void _onNotices(QuerySnapshot<Map<String, dynamic>> snap) {
@@ -88,7 +125,8 @@ class _NoticeSheetState extends State<_NoticeSheet> {
     'gore': 'No graphic violence or gore',
     'hate': 'No slurs or hate speech',
     'self_harm': 'No promoting self-harm',
-    'weapons_drugs': 'No selling drugs or real weapons',
+    'weapons_drugs': 'No selling or threatening with real weapons',
+    'drugs': 'No showing drugs or selling drugs, tobacco or alcohol',
     'threat': 'No threats against real people',
   };
 
@@ -109,39 +147,17 @@ class _NoticeSheetState extends State<_NoticeSheet> {
   /// Sends it to an admin to look at. If they agree it was a mistake, it
   /// comes back and doesn't count against you.
   Future<void> _requestReview() async {
-    final me = FirebaseAuth.instance.currentUser?.uid;
-    if (me == null) return;
     setState(() => _sending = true);
-    try {
-      await FirebaseFirestore.instance.collection('reports').add({
-        'reporterUid': me,
-        'target': n['target'] ?? 'dailyMessage',
-        'targetId': n['targetId'] ?? '',
-        'ownerUid': me,
-        'reason': 'appeal',
-        'reasonLabel': 'Review requested: removed for ${n['category'] ?? 'rules'}',
-        if (n['path'] != null) 'path': n['path'],
-        if ((n['preview'] as String?)?.isNotEmpty == true) 'preview': n['preview'],
-        'note': (n['reason'] as String?) ?? '',
-        'extra': {
-          'appeal': true,
-          'noticePath': widget.doc.reference.path,
-          'category': n['category'],
-        },
-        'status': 'open',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      await widget.doc.reference.update({'appeal': 'requested', 'seen': true});
-      if (mounted) setState(() => _requested = true);
-    } catch (e) {
-      print('ContentNotices: appeal failed: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Couldn't send that. Try again.")),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _sending = false);
+    final ok = await ContentNotices.requestReview(widget.doc);
+    if (!mounted) return;
+    setState(() {
+      _sending = false;
+      _requested = ok;
+    });
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't send that. Try again.")),
+      );
     }
   }
 
@@ -152,8 +168,8 @@ class _NoticeSheetState extends State<_NoticeSheet> {
     final preview = (n['preview'] as String?) ?? '';
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: kc.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       child: SafeArea(
@@ -169,7 +185,7 @@ class _NoticeSheetState extends State<_NoticeSheet> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey[300],
+                    color: kc.grey(300),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -178,11 +194,11 @@ class _NoticeSheetState extends State<_NoticeSheet> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: kc.grey(100),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.visibility_off_outlined,
-                    size: 26, color: Colors.grey[800]),
+                    size: 26, color: kc.grey(800)),
               ),
               const SizedBox(height: 14),
               Text(
@@ -192,12 +208,12 @@ class _NoticeSheetState extends State<_NoticeSheet> {
               const SizedBox(height: 6),
               Text(
                 rule,
-                style: TextStyle(fontSize: 15, color: Colors.grey[800]),
+                style: TextStyle(fontSize: 15, color: kc.grey(800)),
               ),
               if (reason.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(reason,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                    style: TextStyle(fontSize: 14, color: kc.grey(600))),
               ],
               if (preview.isNotEmpty) ...[
                 const SizedBox(height: 14),
@@ -205,15 +221,15 @@ class _NoticeSheetState extends State<_NoticeSheet> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey[50],
+                    color: kc.grey(50),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey[200]!),
+                    border: Border.all(color: kc.grey(200)),
                   ),
                   child: Text(
                     preview,
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                    style: TextStyle(fontSize: 14, color: kc.grey(700)),
                   ),
                 ),
               ],
@@ -222,10 +238,22 @@ class _NoticeSheetState extends State<_NoticeSheet> {
                 _requested || n['appeal'] == 'requested'
                     ? "Thanks. A person will look at it. If it was a mistake, "
                     "it'll come back and won't count against you."
-                    : "It's hidden from everyone. Repeated removals can lead "
-                    "to your account being restricted. Think we got it wrong? "
+                    : "It's hidden from everyone. 3 removals in 30 days and "
+                    "our team reviews your account. Think we got it wrong? "
                     "Ask for a review.",
-                style: TextStyle(fontSize: 13, height: 1.35, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 13, height: 1.35, color: kc.grey(600)),
+              ),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => CommunityGuidelinesScreen.open(context),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 2),
+                  child: Text('Read the Community Guidelines',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.cyan[700])),
+                ),
               ),
               const SizedBox(height: 18),
               Row(
@@ -235,8 +263,8 @@ class _NoticeSheetState extends State<_NoticeSheet> {
                       child: OutlinedButton(
                         onPressed: _sending ? null : _requestReview,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.black87,
-                          side: BorderSide(color: Colors.grey[300]!),
+                          foregroundColor: kc.text,
+                          side: BorderSide(color: kc.grey(300)),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14)),

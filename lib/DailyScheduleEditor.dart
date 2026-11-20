@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'DailyData.dart';
@@ -38,8 +39,11 @@ class _DayEntry {
 /// A video cover is stored as one still frame (pulled on the phone, so the
 /// video itself never uploads) plus a flag that adds the play badge.
 ///
-/// Prompts are saved and shown back here, but nothing reads them when a
-/// Daily is opened yet.
+/// Prompts work the same way: members get the entry prompt only on the day
+/// it's scheduled for (DailyCoverService.todayPrompt).
+///
+/// "Select days" lets the owner tick several days (across weeks) and save
+/// the same prompt and/or cover to all of them at once.
 class DailyScheduleEditor extends StatefulWidget {
   final DailyData daily;
   final bool isOwner;
@@ -95,9 +99,10 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
   final Map<String, _DayEntry> _entries = {};
   final Set<String> _loadedKeys = {};
 
-  // "Show for": how many days, starting with the selected one, a saved
-  // cover applies to (1, 3 or 7). Resets to 1 when another day is picked.
-  int _showForDays = 1;
+  // "Select days" mode: the day being edited (_selectedDay) plus any other
+  // days ticked, by date key. Saving copies to all of them.
+  bool _multiSelect = false;
+  final Set<String> _extraDays = {};
 
   bool _loadingWeek = true;
   bool _saving = false;
@@ -157,7 +162,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
 
   /// One query for the whole visible week (only days not already loaded),
   /// which also drives the dots under days that have something scheduled.
-  Future<void> _loadWeek(DateTime weekStart) async {
+  Future<void> _loadWeek(DateTime weekStart, {bool fillEditor = true}) async {
     final keys = List.generate(7, (i) => _dateKey(_addDays(weekStart, i)))
         .where((k) => !_loadedKeys.contains(k))
         .toList();
@@ -188,7 +193,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     if (!mounted) return;
     setState(() {
       _loadingWeek = false;
-      _applyDay(_selectedDay);
+      if (fillEditor) _applyDay(_selectedDay);
     });
   }
 
@@ -201,7 +206,6 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     _pickedVideoFrame = null;
     _savedCoverUrl = entry.coverUrl;
     _savedCoverIsVideo = entry.coverIsVideo;
-    _showForDays = 1;
   }
 
   bool get _hasUnsavedChanges {
@@ -242,7 +246,18 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
   // ─── Navigation ────────────────────────────────────────────────────────────
 
   Future<void> _selectDay(DateTime day) async {
-    if (!_isSelectable(day) || _sameDay(day, _selectedDay) || _saving) return;
+    if (!_isSelectable(day) || _saving) return;
+    // Select days: tapping ticks / unticks extra days; the day being
+    // edited stays put.
+    if (_multiSelect) {
+      if (_sameDay(day, _selectedDay)) return;
+      final key = _dateKey(day);
+      setState(() {
+        if (!_extraDays.remove(key)) _extraDays.add(key);
+      });
+      return;
+    }
+    if (_sameDay(day, _selectedDay)) return;
     if (!await _confirmDiscardIfNeeded()) return;
     setState(() {
       _selectedDay = day;
@@ -254,9 +269,19 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     if (_saving) return;
     if (delta < 0 && !_canGoBack) return;
     if (delta > 0 && !_canGoForward) return;
-    if (!await _confirmDiscardIfNeeded()) return;
 
     final newStart = _addDays(_weekStart, 7 * delta);
+
+    // Select days: just look at another week; the day being edited (and
+    // anything typed for it) and the ticked days stay as they are.
+    if (_multiSelect) {
+      setState(() => _weekStart = newStart);
+      await _loadWeek(newStart, fillEditor: false);
+      return;
+    }
+
+    if (!await _confirmDiscardIfNeeded()) return;
+
     DateTime target = newStart;
     for (int i = 0; i < 7; i++) {
       final d = _addDays(newStart, i);
@@ -349,44 +374,57 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     });
   }
 
-  /// Copies the selected day's cover (hook + photo) onto the [count - 1]
-  /// days after it, stopping at the last editable day. Each of those days
-  /// keeps its own prompt; only the cover fields are replaced. A day left
-  /// with nothing at all has its doc removed.
-  Future<void> _copyCoverToFollowingDays(
-      DateTime from, int count, _DayEntry cover) async {
-    for (int i = 1; i < count; i++) {
-      final day = _addDays(from, i);
-      if (day.isAfter(_lastEditable)) break;
-      final key = _dateKey(day);
-      final ref = DailyCoverService.scheduleRef(widget.daily.id, key);
+  /// Saves [prompt] and/or [cover] onto another day, keeping whatever
+  /// that day already had for the part not given. A day left with nothing
+  /// at all has its doc removed.
+  Future<void> _applyToDay(String key, {String? prompt, _DayEntry? cover}) async {
+    final ref = DailyCoverService.scheduleRef(widget.daily.id, key);
+    final snap = await ref.get();
+    final d = snap.data() ?? const <String, dynamic>{};
+    final oldCover = ((d['coverMediaUrl'] as String?) ?? '').trim();
 
-      final snap = await ref.get();
-      final prompt = ((snap.data()?['prompt'] as String?) ?? '').trim();
-      final entry = _DayEntry(
-        prompt: prompt,
-        hook: cover.hook,
-        coverUrl: cover.coverUrl,
-        coverIsVideo: cover.coverIsVideo,
-      );
+    final entry = _DayEntry(
+      prompt: prompt ?? ((d['prompt'] as String?) ?? '').trim(),
+      hook: cover?.hook ?? ((d['coverHook'] as String?) ?? '').trim(),
+      coverUrl: cover != null
+          ? cover.coverUrl
+          : (oldCover.isEmpty ? null : oldCover),
+      coverIsVideo: cover != null
+          ? cover.coverIsVideo
+          : (oldCover.isNotEmpty && d['coverIsVideo'] == true),
+    );
 
-      if (entry.isEmpty) {
-        if (snap.exists) await ref.delete();
-      } else {
-        await ref.set({
-          'coverHook':
-          cover.hook.isNotEmpty ? cover.hook : FieldValue.delete(),
-          'coverMediaUrl': cover.coverUrl ?? FieldValue.delete(),
-          'coverIsVideo': (cover.coverUrl != null && cover.coverIsVideo)
-              ? true
-              : FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          'updatedBy': FirebaseAuth.instance.currentUser?.uid,
-        }, SetOptions(merge: true));
-      }
-      _entries[key] = entry;
-      _loadedKeys.add(key);
+    if (entry.isEmpty) {
+      if (snap.exists) await ref.delete();
+    } else {
+      await ref.set({
+        'prompt': entry.prompt.isNotEmpty ? entry.prompt : FieldValue.delete(),
+        'coverHook': entry.hook.isNotEmpty ? entry.hook : FieldValue.delete(),
+        'coverMediaUrl': entry.coverUrl ?? FieldValue.delete(),
+        'coverIsVideo': (entry.coverUrl != null && entry.coverIsVideo)
+            ? true
+            : FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': FirebaseAuth.instance.currentUser?.uid,
+      }, SetOptions(merge: true));
     }
+    _entries[key] = entry;
+    _loadedKeys.add(key);
+  }
+
+  String _shortDate(DateTime d) => '${_monthAbbr[d.month - 1]} ${d.day}';
+
+  DateTime _parseKey(String key) {
+    final p = key.split('-').map(int.parse).toList();
+    return DateTime(p[0], p[1], p[2]);
+  }
+
+  void _setMultiSelect(bool on) {
+    if (_saving) return;
+    setState(() {
+      _multiSelect = on;
+      _extraDays.clear();
+    });
   }
 
   // ─── Saving ────────────────────────────────────────────────────────────────
@@ -396,6 +434,8 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
 
     final day = _selectedDay;
     final key = _dateKey(day);
+    final saved = _entries[key] ?? const _DayEntry();
+    final extraKeys = _multiSelect ? _extraDays.toList() : const <String>[];
     setState(() => _saving = true);
 
     try {
@@ -447,15 +487,31 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
         });
       }
 
-      // Old cover images are no longer deleted here: with "Show for", one
-      // image can be shared by several days.
+      // Old cover images are never deleted here: one image can be shared
+      // by several days.
 
       _entries[key] = entry;
       _loadedKeys.add(key);
 
-      final spanDays = _showForDays;
-      if (spanDays > 1) {
-        await _copyCoverToFollowingDays(day, spanDays, entry);
+      // Select days: copy what was changed to the other ticked days (or,
+      // if nothing was changed, whatever tab is open). Each day keeps the
+      // part that wasn't copied.
+      if (extraKeys.isNotEmpty) {
+        var copyPrompt = prompt != saved.prompt;
+        var copyCover = hook != saved.hook ||
+            coverUrl != saved.coverUrl ||
+            entry.coverIsVideo != saved.coverIsVideo;
+        if (!copyPrompt && !copyCover) {
+          copyPrompt = _tabIndex == 0;
+          copyCover = _tabIndex == 1;
+        }
+        for (final k in extraKeys) {
+          await _applyToDay(
+            k,
+            prompt: copyPrompt ? prompt : null,
+            cover: copyCover ? entry : null,
+          );
+        }
       }
 
       if (mounted) {
@@ -465,13 +521,13 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
           _savedCoverUrl = coverUrl;
           _savedCoverIsVideo = entry.coverIsVideo;
         });
-        final last = _addDays(day, spanDays - 1).isAfter(_lastEditable)
-            ? _lastEditable
-            : _addDays(day, spanDays - 1);
-        final label = _sameDay(last, day)
-            ? '${_monthAbbr[day.month - 1]} ${day.day}'
-            : '${_monthAbbr[day.month - 1]} ${day.day} – '
-            '${_monthAbbr[last.month - 1]} ${last.day}';
+        final label = extraKeys.isEmpty
+            ? _shortDate(day)
+            : '${extraKeys.length + 1} days';
+        if (_multiSelect) {
+          _multiSelect = false;
+          _extraDays.clear();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Saved $label'),
@@ -503,30 +559,47 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: kc.grey(50),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: kc.grey(200)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildWeekStrip(),
-          const SizedBox(height: 16),
-          Text(
-            _dayHeading(_selectedDay),
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Colors.black87,
-            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _dayHeading(_selectedDay),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: kc.text,
+                  ),
+                ),
+              ),
+              if (widget.isOwner) _buildSelectDaysToggle(),
+            ],
           ),
+          if (_multiSelect) ...[
+            const SizedBox(height: 6),
+            Text(
+              _extraDays.isEmpty
+                  ? 'Tap other days to add them. Saving copies this '
+                  'day\'s prompt and/or cover to every ticked day.'
+                  : 'Also saving to ${_extraLabel()}.',
+              style: TextStyle(fontSize: 12.5, color: kc.grey(600)),
+            ),
+          ],
           const SizedBox(height: 12),
           _buildTabs(),
           const SizedBox(height: 16),
           if (_loadingWeek)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: CircularProgressIndicator(color: Colors.cyan)),
+              child: Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
             )
           else ...[
             if (_tabIndex == 0) _buildPromptTab() else _buildCoverTab(),
@@ -552,10 +625,10 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
               child: Center(
                 child: Text(
                   _monthLabel(days),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                    color: kc.text,
                   ),
                 ),
               ),
@@ -577,7 +650,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.all(4),
-        child: Icon(icon, size: 26, color: enabled ? Colors.black87 : Colors.grey[300]),
+        child: Icon(icon, size: 26, color: enabled ? kc.text : kc.grey(300)),
       ),
     );
   }
@@ -585,6 +658,8 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
   Widget _dayCell(DateTime d) {
     final selectable = _isSelectable(d);
     final selected = _sameDay(d, _selectedDay);
+    // Ticked in "Select days" (gets the same save as the selected day).
+    final ticked = _multiSelect && _extraDays.contains(_dateKey(d));
     final hasEntry = !(_entries[_dateKey(d)]?.isEmpty ?? true);
 
     return GestureDetector(
@@ -598,7 +673,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: selectable ? Colors.grey[600] : Colors.grey[400],
+              color: selectable ? kc.grey(600) : kc.grey(400),
             ),
           ),
           const SizedBox(height: 6),
@@ -608,8 +683,14 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
             height: 38,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: selected ? Colors.cyan : Colors.transparent,
+              color: selected
+                  ? Colors.cyan
+                  : (ticked ? Colors.cyan.withOpacity(0.15) : Colors.transparent),
               shape: BoxShape.circle,
+              border: Border.all(
+                color: ticked ? Colors.cyan : Colors.transparent,
+                width: 1.5,
+              ),
             ),
             child: Text(
               '${d.day}',
@@ -618,7 +699,9 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
                 fontWeight: FontWeight.w600,
                 color: selected
                     ? Colors.white
-                    : (selectable ? Colors.black87 : Colors.grey[400]),
+                    : ticked
+                    ? Colors.cyan[700]
+                    : (selectable ? kc.text : kc.grey(400)),
               ),
             ),
           ),
@@ -657,7 +740,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: active ? Colors.cyan : Colors.grey[300]!,
+                color: active ? Colors.cyan : kc.grey(300),
                 width: 2,
               ),
             ),
@@ -668,7 +751,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
-                color: active ? Colors.black87 : Colors.grey[500],
+                color: active ? kc.text : kc.grey(500),
               ),
             ),
           ),
@@ -687,7 +770,7 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
           controller: _promptController,
           enabled: widget.isOwner && !_saving,
           maxLength: 100,
-          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          style: TextStyle(fontSize: 16, color: kc.text),
           decoration: _inputDeco('Enter a prompt for this day...'),
         ),
       ],
@@ -702,14 +785,14 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
         const SizedBox(height: 4),
         Text(
           'A short teaser above the photo. Optional.',
-          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          style: TextStyle(fontSize: 12, color: kc.grey(500)),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _hookController,
           enabled: widget.isOwner && !_saving,
           maxLength: 90,
-          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          style: TextStyle(fontSize: 16, color: kc.text),
           decoration: _inputDeco('Enter a hook...'),
         ),
         const SizedBox(height: 12),
@@ -717,49 +800,57 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
         const SizedBox(height: 4),
         Text(
           'Optional. A video shows one still frame with a play icon.',
-          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          style: TextStyle(fontSize: 12, color: kc.grey(500)),
         ),
         const SizedBox(height: 10),
         _buildCoverPicker(),
-        const SizedBox(height: 16),
-        _buildShowFor(),
       ],
     );
   }
 
-  /// "Show for" dropdown: this day only, 3 days or 1 week. Applies to the
-  /// cover (hook + photo); each day keeps its own prompt.
-  Widget _buildShowFor() {
-    return Row(
-      children: [
-        _fieldLabel('Show for'),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<int>(
-              value: _showForDays,
-              borderRadius: BorderRadius.circular(12),
-              style: const TextStyle(fontSize: 15, color: Colors.black87),
-              icon: Icon(Icons.keyboard_arrow_down_rounded,
-                  color: widget.accentColor),
-              items: const [
-                DropdownMenuItem(value: 1, child: Text('This day only')),
-                DropdownMenuItem(value: 3, child: Text('3 days')),
-                DropdownMenuItem(value: 7, child: Text('1 week')),
-              ],
-              onChanged: (widget.isOwner && !_saving)
-                  ? (v) => setState(() => _showForDays = v ?? 1)
-                  : null,
-            ),
-          ),
+  /// "Select days" on/off, next to the day's heading.
+  Widget _buildSelectDaysToggle() {
+    final on = _multiSelect;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _setMultiSelect(!on),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: on ? Colors.cyan.withOpacity(0.12) : kc.grey(100),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: on ? Colors.cyan : kc.grey(300)),
         ),
-      ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(on ? Icons.close_rounded : Icons.date_range_rounded,
+                size: 15, color: on ? Colors.cyan[700] : kc.grey(700)),
+            const SizedBox(width: 5),
+            Text(
+              on ? 'Done' : 'Select days',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: on ? Colors.cyan[700] : kc.grey(700),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  /// "Nov 21, Nov 23 and 2 more"
+  String _extraLabel() {
+    final days = _extraDays.map(_parseKey).toList()..sort();
+    final names = days.map(_shortDate).toList();
+    if (names.length <= 3) {
+      if (names.length == 1) return names.first;
+      return '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+    }
+    return '${names.take(2).join(', ')} and ${names.length - 2} more';
   }
 
   Widget _playBadge() {
@@ -786,20 +877,20 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 36),
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: kc.grey(100),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: kc.grey(300)),
         ),
         child: Column(
           children: [
-            const SizedBox(
+            SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2.5),
+              child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)), strokeWidth: 2.5),
             ),
             const SizedBox(height: 10),
             Text('Reading video...',
-                style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                style: TextStyle(fontSize: 13, color: kc.grey(600))),
           ],
         ),
       );
@@ -812,21 +903,21 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 28),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: kc.grey(100),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: kc.grey(300)),
           ),
           child: Column(
             children: [
               Icon(Icons.add_photo_alternate_outlined,
-                  size: 36, color: Colors.grey[600]),
+                  size: 36, color: kc.grey(600)),
               const SizedBox(height: 8),
               Text(
                 'Upload a photo or video',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey[700],
+                  color: kc.grey(700),
                 ),
               ),
             ],
@@ -859,16 +950,16 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
                       imageUrl: _savedCoverUrl!,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
-                        color: Colors.grey[200],
-                        child: const Center(
+                        color: kc.grey(200),
+                        child: Center(
                           child: CircularProgressIndicator(
-                              color: Colors.cyan, strokeWidth: 2.5),
+                              color: kc.adapt(const Color(0xFFB0B5BC)), strokeWidth: 2.5),
                         ),
                       ),
                       errorWidget: (context, url, error) => Container(
-                        color: Colors.grey[200],
+                        color: kc.grey(200),
                         child: Icon(Icons.broken_image_outlined,
-                            color: Colors.grey[400], size: 36),
+                            color: kc.grey(400), size: 36),
                       ),
                     ),
                   if (showsBadge) _playBadge(),
@@ -919,7 +1010,9 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
               color: Colors.white, strokeWidth: 2.5),
         )
             : Text(
-          'Save ${_monthAbbr[day.month - 1]} ${day.day}',
+          (_multiSelect && _extraDays.isNotEmpty)
+              ? 'Save ${_extraDays.length + 1} days'
+              : 'Save ${_monthAbbr[day.month - 1]} ${day.day}',
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -928,25 +1021,25 @@ class _DailyScheduleEditorState extends State<DailyScheduleEditor> {
 
   Widget _fieldLabel(String text) => Text(
     text,
-    style: const TextStyle(
+    style: TextStyle(
       fontSize: 15,
       fontWeight: FontWeight.w600,
-      color: Colors.black87,
+      color: kc.text,
     ),
   );
 
   InputDecoration _inputDeco(String hint) => InputDecoration(
     hintText: hint,
-    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 16),
+    hintStyle: TextStyle(color: kc.grey(400), fontSize: 16),
     filled: true,
-    fillColor: widget.isOwner ? Colors.white : Colors.grey[100],
+    fillColor: widget.isOwner ? kc.surface : kc.grey(100),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: Colors.grey[300]!),
+      borderSide: BorderSide(color: kc.grey(300)),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: Colors.grey[300]!),
+      borderSide: BorderSide(color: kc.grey(300)),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),

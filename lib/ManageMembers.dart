@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'DailyData.dart';
@@ -184,10 +185,10 @@ class _ManageMembersState extends State<ManageMembers> {
         ),
         Expanded(
           child: _loading
-              ? const Center(
-              child: CircularProgressIndicator(color: Colors.cyan))
+              ? Center(
+              child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))))
               : RefreshIndicator(
-            color: Colors.cyan,
+            color: kc.adapt(const Color(0xFF8A8F98)),
             onRefresh: () => _load(freshNames: true),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -217,7 +218,7 @@ class _ManageMembersState extends State<ManageMembers> {
       height: 40,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.grey[200],
+        color: kc.grey(200),
         borderRadius: BorderRadius.circular(20),
       ),
       child: LayoutBuilder(builder: (context, box) {
@@ -233,7 +234,7 @@ class _ManageMembersState extends State<ManageMembers> {
               width: w,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: kc.surface,
                   borderRadius: BorderRadius.circular(17),
                   boxShadow: [
                     BoxShadow(
@@ -260,7 +261,7 @@ class _ManageMembersState extends State<ManageMembers> {
                               TextSpan(
                                 text: '  ${t.$3}',
                                 style: TextStyle(
-                                    color: Colors.grey[500],
+                                    color: kc.grey(500),
                                     fontWeight: FontWeight.w600),
                               ),
                           ]),
@@ -269,7 +270,7 @@ class _ManageMembersState extends State<ManageMembers> {
                             fontWeight: FontWeight.w700,
                             color: _tab == t.$1
                                 ? kManageInk
-                                : Colors.grey[600],
+                                : kc.grey(600),
                           ),
                         ),
                       ),
@@ -308,20 +309,20 @@ class _ManageMembersState extends State<ManageMembers> {
       margin: const EdgeInsets.only(top: 4),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: kc.grey(50),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: kc.grey(200)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.shield_outlined, size: 20, color: Colors.grey[700]),
+          Icon(Icons.shield_outlined, size: 20, color: kc.grey(700)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Moderators can ban people and schedule covers and prompts. '
                   'Tap ⋯ next to a member to make them one.',
-              style: TextStyle(fontSize: 13, height: 1.35, color: Colors.grey[700]),
+              style: TextStyle(fontSize: 13, height: 1.35, color: kc.grey(700)),
             ),
           ),
         ],
@@ -344,7 +345,7 @@ class _ManageMembersState extends State<ManageMembers> {
       trailing: actions.isEmpty
           ? null
           : PopupMenuButton<String>(
-        icon: Icon(Icons.more_horiz, color: Colors.grey[600]),
+        icon: Icon(Icons.more_horiz, color: kc.grey(600)),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14)),
         onSelected: (v) {
@@ -410,8 +411,8 @@ class _ManageMembersState extends State<ManageMembers> {
           trailing: TextButton(
             onPressed: () => _unban(b),
             style: TextButton.styleFrom(
-              foregroundColor: Colors.cyan[800],
-              backgroundColor: Colors.cyan.withOpacity(0.1),
+              foregroundColor: kc.adapt(const Color(0xFF2E2E2E)),
+              backgroundColor: kc.adapt(const Color(0xFFF1F3F5)),
               padding: const EdgeInsets.symmetric(horizontal: 14),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18)),
@@ -463,7 +464,7 @@ class _ManageMembersState extends State<ManageMembers> {
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(subtitle,
-                        style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                        style: TextStyle(fontSize: 13, color: kc.grey(600))),
                   ],
                   if (detail != null) ...[
                     const SizedBox(height: 2),
@@ -473,7 +474,7 @@ class _ManageMembersState extends State<ManageMembers> {
                         style: TextStyle(
                             fontSize: 13,
                             fontStyle: FontStyle.italic,
-                            color: Colors.grey[500])),
+                            color: kc.grey(500))),
                   ],
                 ],
               ),
@@ -487,11 +488,11 @@ class _ManageMembersState extends State<ManageMembers> {
 
   /// Owner / Moderator tags get the cyan accent; others stay grey.
   Widget _tagChip(String label, IconData icon, {bool accent = false}) {
-    final color = accent ? Colors.cyan[700]! : Colors.grey[700]!;
+    final color = accent ? Colors.cyan[700]! : kc.grey(700);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: accent ? Colors.cyan.withOpacity(0.1) : Colors.grey[100],
+        color: accent ? Colors.cyan.withOpacity(0.1) : kc.grey(100),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -533,7 +534,7 @@ class _ManageMembersState extends State<ManageMembers> {
           fontSize: 12,
           letterSpacing: 0.6,
           fontWeight: FontWeight.w700,
-          color: Colors.grey[500],
+          color: kc.grey(500),
         ),
       ),
     );
@@ -544,13 +545,13 @@ class _ManageMembersState extends State<ManageMembers> {
       padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
         children: [
-          Icon(icon, size: 40, color: Colors.grey[350]),
+          Icon(icon, size: 40, color: kc.grey(350)),
           const SizedBox(height: 10),
           Text(text,
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[500])),
+                  color: kc.grey(500))),
         ],
       ),
     );

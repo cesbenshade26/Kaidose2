@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
@@ -240,10 +241,10 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
           Expanded(
             child: Text(
               widget.title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
-                color: Colors.black87,
+                color: kc.text,
               ),
             ),
           ),
@@ -253,7 +254,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
           ],
           GestureDetector(
             onTap: widget.onClose,
-            child: Icon(Icons.close, color: Colors.grey[600], size: 22),
+            child: Icon(Icons.close, color: kc.grey(600), size: 22),
           ),
         ],
       ),
@@ -271,7 +272,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
           decoration: BoxDecoration(
-            color: selected ? Colors.grey[200] : Colors.transparent,
+            color: selected ? kc.grey(200) : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
@@ -279,7 +280,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected ? Colors.black87 : Colors.grey[500],
+              color: selected ? kc.text : kc.grey(500),
             ),
           ),
         ),
@@ -309,15 +310,15 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: kc.grey(100),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.edit, color: Colors.black87, size: 22),
+                  child: Icon(Icons.edit, color: kc.text, size: 22),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'Draw',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                  style: TextStyle(fontSize: 11, color: kc.grey(700)),
                 ),
               ],
             ),
@@ -345,8 +346,8 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
             ),
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => Container(
-              color: Colors.grey[200],
-              child: Icon(Icons.broken_image, color: Colors.grey[400], size: 24),
+              color: kc.grey(200),
+              child: Icon(Icons.broken_image, color: kc.grey(400), size: 24),
             ),
           ),
           if (isVideo) ...[
@@ -372,7 +373,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
           ],
           if (tooLong)
             Positioned.fill(
-              child: Container(color: Colors.white.withOpacity(0.65)),
+              child: Container(color: kc.background.withOpacity(0.65)),
             ),
           if (isSelected)
             Positioned.fill(
@@ -415,7 +416,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error_outline, size: 40, color: Colors.grey[400]),
+                Icon(Icons.error_outline, size: 40, color: kc.grey(400)),
                 const SizedBox(height: 12),
                 Text(
                   "Couldn't load your photos. If this just appeared after "
@@ -423,7 +424,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
                       "rebuilt (flutter clean + a fresh flutter run) rather "
                       "than hot-reloaded.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  style: TextStyle(color: kc.grey(600), fontSize: 13),
                 ),
               ],
             ),
@@ -436,12 +437,12 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.no_photography_outlined, size: 40, color: Colors.grey[400]),
+                Icon(Icons.no_photography_outlined, size: 40, color: kc.grey(400)),
                 const SizedBox(height: 12),
                 Text(
                   'Allow access to your photos to attach one here',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  style: TextStyle(color: kc.grey(600), fontSize: 13),
                 ),
                 const SizedBox(height: 12),
                 TextButton(
@@ -461,7 +462,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
                   : _filter == MediaFilter.photos
                   ? 'No photos found'
                   : 'No photos or videos found',
-              style: TextStyle(color: Colors.grey[600]),
+              style: TextStyle(color: kc.grey(600)),
             ),
           );
         }
@@ -483,7 +484,7 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: kc.surface,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.08),
@@ -521,9 +522,9 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
   Widget build(BuildContext context) {
     return Container(
       height: widget.height,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: kc.surface,
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
         ),
@@ -537,16 +538,16 @@ class _UnifiedMediaPickerPanelState extends State<UnifiedMediaPickerPanel> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: kc.grey(300),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
           _buildHeader(),
-          const Divider(height: 1, color: Color(0xFFEEEEEE)),
+          Divider(height: 1, color: kc.line),
           if (widget.showDraw) ...[
             _buildDrawRow(),
-            Divider(height: 1, color: Colors.grey[200]),
+            Divider(height: 1, color: kc.line),
           ],
           Expanded(child: _buildBody()),
           if (_selectedAssetIds.isNotEmpty && !_single)

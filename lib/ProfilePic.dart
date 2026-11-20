@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/rendering.dart';
 import 'ProfilePicManager.dart';
 import 'UnifiedMediaPicker.dart';
 import 'DrawPad.dart';
-import 'UseCam.dart';
+import 'CameraCapture.dart';
 
 // ---------------------------------------------------------------------------
 // Crop screen: choose which part of the photo becomes your profile picture.
@@ -92,18 +93,18 @@ class _ProfilePicEditorState extends State<ProfilePicEditor> {
     final frame = MediaQuery.of(context).size.width - 48;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: const Text('Position photo',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 18)),
+        iconTheme: IconThemeData(color: kc.text),
+        title: Text('Position photo',
+            style: TextStyle(color: kc.text, fontWeight: FontWeight.w600, fontSize: 18)),
         centerTitle: true,
       ),
       body: _imageSize == null
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyan))
+          ? Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))))
           : Column(
         children: [
           const SizedBox(height: 24),
@@ -162,7 +163,7 @@ class _ProfilePicEditorState extends State<ProfilePicEditor> {
           ),
           const SizedBox(height: 24),
           Text('Drag to move, pinch to zoom',
-              style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+              style: TextStyle(color: kc.grey(600), fontSize: 14)),
           const Spacer(),
           SafeArea(
             top: false,
@@ -206,7 +207,7 @@ class _CircleMaskPainter extends CustomPainter {
     final circle = Path()..addOval(Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2));
     canvas.drawPath(
       Path.combine(PathOperation.difference, full, circle),
-      Paint()..color = Colors.white.withOpacity(0.75),
+      Paint()..color = kc.background.withOpacity(0.75),
     );
     canvas.drawCircle(
       size.center(Offset.zero),
@@ -271,9 +272,10 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
     );
   }
 
+  /// Photo only, front camera. It goes straight into the crop screen.
   Future<void> _openCamera() async {
-    final image = await UseCam.openCamera(context);
-    if (image != null && mounted) _openEditor(File(image.path));
+    final shot = await CameraCapture.takePhoto(context, selfie: true);
+    if (shot != null && mounted) _openEditor(shot.file);
   }
 
   void _openDrawingPad() {
@@ -301,14 +303,14 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
     final hasPic = _selectedImage != null && _selectedImage!.existsSync();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: const Text('Profile photo',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600, fontSize: 18)),
+        iconTheme: IconThemeData(color: kc.text),
+        title: Text('Profile photo',
+            style: TextStyle(color: kc.text, fontWeight: FontWeight.w600, fontSize: 18)),
         centerTitle: true,
       ),
       body: Column(
@@ -319,7 +321,7 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
             height: 140,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.grey[300],
+              color: kc.grey(300),
               boxShadow: [
                 BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 2)),
               ],
@@ -344,8 +346,8 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
                 icon: const Icon(Icons.camera_alt_outlined, size: 18),
                 label: const Text('Take photo'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.black87,
-                  side: BorderSide(color: Colors.grey[300]!),
+                  foregroundColor: kc.text,
+                  side: BorderSide(color: kc.grey(300)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 ),
               ),
@@ -353,7 +355,7 @@ class _ProfilePicScreenState extends State<ProfilePicScreen> {
                 const SizedBox(width: 8),
                 TextButton(
                   onPressed: _useDefault,
-                  style: TextButton.styleFrom(foregroundColor: Colors.grey[700]),
+                  style: TextButton.styleFrom(foregroundColor: kc.grey(700)),
                   child: const Text('Use default'),
                 ),
               ],

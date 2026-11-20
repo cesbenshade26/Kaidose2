@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'DailyData.dart';
 import 'DailyModeration.dart';
 import 'DailyList.dart';
@@ -109,8 +110,8 @@ class _EditDailyState extends State<EditDaily> {
   @override
   Widget build(BuildContext context) {
     if (_perms == null) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.cyan),
+      return Center(
+        child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
       );
     }
 
@@ -120,11 +121,11 @@ class _EditDailyState extends State<EditDaily> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: Colors.grey[100],
+            color: kc.grey(100),
             child: Row(
               children: [
                 Icon(_canSchedule ? Icons.shield_outlined : Icons.lock_outline,
-                    size: 16, color: Colors.grey[700]),
+                    size: 16, color: kc.grey(700)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -132,7 +133,7 @@ class _EditDailyState extends State<EditDaily> {
                         ? 'As a moderator you can schedule covers and prompts. '
                         'The rest is up to the owner.'
                         : 'Only the owner and moderators can change this Daily.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                    style: TextStyle(fontSize: 13, color: kc.grey(700)),
                   ),
                 ),
               ],
@@ -160,7 +161,7 @@ class _EditDailyState extends State<EditDaily> {
                   enabled: _isOwner,
                   maxLines: 4,
                   maxLength: 200,
-                  style: const TextStyle(fontSize: 16, color: kManageInk),
+                  style: TextStyle(fontSize: 16, color: kManageInk),
                   decoration: _inputDeco('Enter description...'),
                 ),
                 const SizedBox(height: 24),
@@ -176,7 +177,7 @@ class _EditDailyState extends State<EditDaily> {
                 const SizedBox(height: 4),
                 Text(
                   'Topics that describe this Daily.',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 13, color: kc.grey(500)),
                 ),
                 const SizedBox(height: 12),
                 _isOwner
@@ -203,7 +204,7 @@ class _EditDailyState extends State<EditDaily> {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: kc.surface,
               boxShadow: [
                 BoxShadow(
                   color: Colors.grey.withOpacity(0.2),
@@ -234,7 +235,7 @@ class _EditDailyState extends State<EditDaily> {
   Widget _readOnlyTags() {
     if (_selectedTags.isEmpty) {
       return Text('No tags set.',
-          style: TextStyle(color: Colors.grey[500], fontSize: 14));
+          style: TextStyle(color: kc.grey(500), fontSize: 14));
     }
     return Wrap(
       spacing: 8,
@@ -277,7 +278,7 @@ class _EditDailyState extends State<EditDaily> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: kc.grey(100),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? _dailyColor : Colors.transparent,
@@ -288,12 +289,12 @@ class _EditDailyState extends State<EditDaily> {
           children: [
             Icon(
               selected ? Icons.check_box : Icons.check_box_outline_blank,
-              color: selected ? _dailyColor : Colors.grey[400],
+              color: selected ? _dailyColor : kc.grey(400),
               size: 24,
             ),
             const SizedBox(width: 12),
             Text(value,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                     color: kManageInk)),
@@ -305,15 +306,15 @@ class _EditDailyState extends State<EditDaily> {
 
   Widget _sectionLabel(String text) => Text(
     text,
-    style: const TextStyle(
+    style: TextStyle(
         fontSize: 16, fontWeight: FontWeight.w600, color: kManageInk),
   );
 
   InputDecoration _inputDeco(String hint) => InputDecoration(
     hintText: hint,
-    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 16),
+    hintStyle: TextStyle(color: kc.grey(400), fontSize: 16),
     filled: true,
-    fillColor: _isOwner ? Colors.grey[100] : Colors.grey[50],
+    fillColor: _isOwner ? kc.grey(100) : kc.grey(50),
     border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none),

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'GroupAvatar.dart';
 import 'UserProfileScreen.dart';
 
@@ -32,11 +33,11 @@ class AdminReportsScreen extends StatelessWidget {
         .orderBy('createdAt', descending: true)
         .limit(100);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
+      backgroundColor: kc.adapt(const Color(0xFFF5F5F7)),
       appBar: AppBar(
         title: const Text('Reports'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: kc.background,
+        foregroundColor: kc.text,
         surfaceTintColor: Colors.transparent,
         elevation: 0.5,
       ),
@@ -52,13 +53,13 @@ class AdminReportsScreen extends StatelessWidget {
             );
           }
           if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+            return Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
           }
           final docs = snap.data!.docs;
           if (docs.isEmpty) {
             return Center(
               child: Text('No open reports 🎉',
-                  style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+                  style: TextStyle(fontSize: 16, color: kc.grey(600))),
             );
           }
           return ListView.builder(
@@ -182,7 +183,7 @@ class _ReportCardState extends State<_ReportCard> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: kc.surface,
         borderRadius: BorderRadius.circular(16),
         border: urgent ? Border.all(color: Colors.red, width: 2) : null,
       ),
@@ -220,7 +221,7 @@ class _ReportCardState extends State<_ReportCard> {
               if (when != null)
                 Text(
                   '${when.month}/${when.day} ${when.hour}:${when.minute.toString().padLeft(2, '0')}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 12, color: kc.grey(500)),
                 ),
             ],
           ),
@@ -247,7 +248,7 @@ class _ReportCardState extends State<_ReportCard> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.grey[100],
+                color: kc.grey(100),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(preview, style: const TextStyle(fontSize: 14)),
@@ -256,12 +257,12 @@ class _ReportCardState extends State<_ReportCard> {
           if (note.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(_isAppeal ? 'AI said: "$note"' : 'Reporter: "$note"',
-                style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                style: TextStyle(fontSize: 13, color: kc.grey(700))),
           ],
           if (d['path'] != null) ...[
             const SizedBox(height: 6),
             SelectableText(d['path'] as String,
-                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                style: TextStyle(fontSize: 11, color: kc.grey(500))),
           ],
           const SizedBox(height: 12),
           if (_isAppeal)

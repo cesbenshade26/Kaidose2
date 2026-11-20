@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'DailyModeration.dart';
 import 'GroupAvatar.dart';
 
@@ -102,8 +103,8 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: kc.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
         ),
         child: SafeArea(
@@ -119,7 +120,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
                     width: 36,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey[300],
+                      color: kc.grey(300),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -142,7 +143,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
                           Text(
                             'From ${widget.dailyTitle} only',
                             style: TextStyle(
-                                fontSize: 13.5, color: Colors.grey[600]),
+                                fontSize: 13.5, color: kc.grey(600)),
                           ),
                         ],
                       ),
@@ -173,9 +174,9 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
                   style: const TextStyle(fontSize: 15),
                   decoration: InputDecoration(
                     hintText: 'Only the owner and moderators see this',
-                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14.5),
+                    hintStyle: TextStyle(color: kc.grey(400), fontSize: 14.5),
                     filled: true,
-                    fillColor: Colors.grey[100],
+                    fillColor: kc.grey(100),
                     contentPadding: const EdgeInsets.all(14),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
@@ -189,9 +190,9 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey[50],
+                    color: kc.grey(50),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey[200]!),
+                    border: Border.all(color: kc.grey(200)),
                   ),
                   child: Text(
                     length.duration == null
@@ -201,7 +202,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
                         "or add it again for ${length.label}. After that they "
                         "can rejoin.",
                     style: TextStyle(
-                        fontSize: 13, height: 1.35, color: Colors.grey[700]),
+                        fontSize: 13, height: 1.35, color: kc.grey(700)),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -211,8 +212,8 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
                       child: OutlinedButton(
                         onPressed: _saving ? null : () => Navigator.pop(context),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.black87,
-                          side: BorderSide(color: Colors.grey[300]!),
+                          foregroundColor: kc.text,
+                          side: BorderSide(color: kc.grey(300)),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14)),
@@ -269,7 +270,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: selected ? Colors.cyan : Colors.grey[100],
+          color: selected ? Colors.cyan : kc.grey(100),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -277,7 +278,7 @@ class _DailyBanSheetState extends State<DailyBanSheet> {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : const Color(0xFF2E2E2E),
+            color: selected ? Colors.white : kc.adapt(const Color(0xFF2E2E2E)),
           ),
         ),
       ),

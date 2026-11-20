@@ -1,6 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// Weekly skips for Daily entry prompts.
+///
+/// How it works (unchanged): everyone gets 3 skips a week, plus 1 for every
+/// 2 Dailies they're in, up to 6. A "week" is counted from the day you
+/// first used Kaidose's prompts, so it resets on your own schedule.
+///
+/// Stored at users/{uid}/skip_data/current:
+///   userStartDate      – midnight (your time) of the day your weeks start
+///   lastResetDate      – midnight (your time) the current week started
+///   skipsUsedThisWeek  – skips used since then
+///
+/// The app only reads this. Using a skip goes through the useDailySkip
+/// Cloud Function, which starts a new week when it's due and only counts
+/// the skip if one is left, all in one step. So the count can't be edited
+/// from a phone, and two quick taps can't both get through on the last skip.
 class SkipCount {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -10,181 +26,113 @@ class SkipCount {
 
   static String? get _currentUserId => _auth.currentUser?.uid;
 
-  // Calculate total available skips based on number of dailies
+  static DocumentReference<Map<String, dynamic>> _doc(String uid) => _firestore
+      .collection('users')
+      .doc(uid)
+      .collection('skip_data')
+      .doc('current');
+
+  /// Total skips a week for someone in [numDailies] Dailies: 3, plus 1 per
+  /// 2 Dailies, up to 6.
   static int calculateTotalSkips(int numDailies) {
-    int baseSkips = _baseSkips;
-    int bonusSkips = (numDailies ~/ 2); // 1 bonus per 2 dailies
-    int totalSkips = baseSkips + bonusSkips;
-    return totalSkips.clamp(_baseSkips, _maxSkips); // Min 3, max 6
+    final total = _baseSkips + (numDailies ~/ 2);
+    return total.clamp(_baseSkips, _maxSkips);
   }
 
-  // Get remaining skips for the week
+  /// Skips left this week.
   static Future<int> getRemainingSkips(int numDailies) async {
-    int totalSkips = calculateTotalSkips(numDailies);
-    int used = await getSkipsUsed();
-    int remaining = totalSkips - used;
-    return remaining.clamp(0, totalSkips);
+    final total = calculateTotalSkips(numDailies);
+    final used = await getSkipsUsed();
+    return (total - used).clamp(0, total);
   }
 
-  // Use a skip
+  /// Uses one skip. True if it was used, false if none were left (or it
+  /// couldn't reach the server; check [getRemainingSkips] to tell which).
   static Future<bool> useSkip(int numDailies) async {
+    if (_currentUserId == null) return false;
     try {
-      final userId = _currentUserId;
-      if (userId == null) return false;
-
-      await checkAndResetIfNewWeek();
-
-      int remaining = await getRemainingSkips(numDailies);
-
-      if (remaining <= 0) {
-        return false; // No skips available
-      }
-
-      // Increment skips used
-      final docRef = _firestore.collection('users').doc(userId).collection('skip_data').doc('current');
-
-      await _firestore.runTransaction((transaction) async {
-        final snapshot = await transaction.get(docRef);
-        int currentUsed = snapshot.data()?['skipsUsedThisWeek'] ?? 0;
-        transaction.set(docRef, {
-          'skipsUsedThisWeek': currentUsed + 1,
-          'lastUpdated': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+      final result = await FirebaseFunctions.instance
+          .httpsCallable('useDailySkip')
+          .call(<String, dynamic>{
+        'dailyCount': numDailies,
+        'tzOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
       });
-
-      return true;
+      final data = result.data;
+      return data is Map && data['ok'] == true;
     } catch (e) {
-      print('Error using skip: $e');
+      print('SkipCount: useSkip error: $e');
       return false;
     }
   }
 
-  // Check if a new week has started and reset if needed
-  static Future<void> checkAndResetIfNewWeek() async {
-    try {
-      final userId = _currentUserId;
-      if (userId == null) return;
+  /// Kept so existing callers (Dailies) still work. New weeks are now
+  /// started by the server the next time a skip is used, and every read
+  /// here already treats a finished week as reset, so there's nothing to
+  /// write from the phone.
+  static Future<void> checkAndResetIfNewWeek() async {}
 
-      final docRef = _firestore.collection('users').doc(userId).collection('skip_data').doc('current');
-      final doc = await docRef.get();
-
-      final now = DateTime.now();
-      DateTime? userStartDate;
-      DateTime? lastResetDate;
-
-      if (doc.exists) {
-        final data = doc.data();
-        if (data != null) {
-          if (data['userStartDate'] != null) {
-            userStartDate = (data['userStartDate'] as Timestamp).toDate();
-          }
-          if (data['lastResetDate'] != null) {
-            lastResetDate = (data['lastResetDate'] as Timestamp).toDate();
-          }
-        }
-      }
-
-      // Initialize user start date if not set
-      if (userStartDate == null) {
-        userStartDate = DateTime(now.year, now.month, now.day);
-        await docRef.set({
-          'userStartDate': Timestamp.fromDate(userStartDate),
-          'lastResetDate': Timestamp.fromDate(userStartDate),
-          'skipsUsedThisWeek': 0,
-        });
-        print('Initialized skip system for user');
-        return;
-      }
-
-      final currentWeekStart = _getWeekStartDate(now, userStartDate);
-
-      // Check if we need to reset
-      if (lastResetDate == null || currentWeekStart.isAfter(lastResetDate)) {
-        // New week! Reset skips
-        await docRef.update({
-          'skipsUsedThisWeek': 0,
-          'lastResetDate': Timestamp.fromDate(currentWeekStart),
-        });
-        print('New week detected. Skips reset to 0 used. Next reset: ${_getNextResetDate(userStartDate, now)}');
-      }
-    } catch (e) {
-      print('Error checking/resetting skip week: $e');
-    }
-  }
-
-  // Get the week start date based on user's join date
-  static DateTime _getWeekStartDate(DateTime now, DateTime userStart) {
-    // Calculate days since user started
-    int daysSinceStart = now.difference(userStart).inDays;
-
-    // Calculate which week we're in (0-indexed)
-    int weekNumber = daysSinceStart ~/ 7;
-
-    // Calculate the start of the current week
-    DateTime weekStart = userStart.add(Duration(days: weekNumber * 7));
-
-    return DateTime(weekStart.year, weekStart.month, weekStart.day);
-  }
-
-  // Get next reset date (for display)
-  static DateTime _getNextResetDate(DateTime userStart, DateTime now) {
-    final currentWeekStart = _getWeekStartDate(now, userStart);
-    return currentWeekStart.add(const Duration(days: 7));
-  }
-
-  // Get current skips used (for debugging/display)
+  /// Skips used this week (0 if a new week has started since the last one).
   static Future<int> getSkipsUsed() async {
+    final uid = _currentUserId;
+    if (uid == null) return 0;
     try {
-      final userId = _currentUserId;
-      if (userId == null) return 0;
-
-      final docRef = _firestore.collection('users').doc(userId).collection('skip_data').doc('current');
-      final doc = await docRef.get();
-
-      if (!doc.exists) return 0;
-
-      return doc.data()?['skipsUsedThisWeek'] ?? 0;
-    } catch (e) {
-      print('Error getting skips used: $e');
-      return 0;
-    }
-  }
-
-  // Reset skips (for testing purposes)
-  static Future<void> resetSkips() async {
-    try {
-      final userId = _currentUserId;
-      if (userId == null) return;
-
-      final docRef = _firestore.collection('users').doc(userId).collection('skip_data').doc('current');
-      await docRef.update({'skipsUsedThisWeek': 0});
-    } catch (e) {
-      print('Error resetting skips: $e');
-    }
-  }
-
-  // Get days until next reset (for UI display)
-  static Future<int> getDaysUntilReset() async {
-    try {
-      final userId = _currentUserId;
-      if (userId == null) return 0;
-
-      final docRef = _firestore.collection('users').doc(userId).collection('skip_data').doc('current');
-      final doc = await docRef.get();
-
-      if (!doc.exists) return 0;
-
+      final doc = await _doc(uid).get();
       final data = doc.data();
-      if (data == null || data['userStartDate'] == null) return 0;
-
-      final userStartDate = (data['userStartDate'] as Timestamp).toDate();
-      final now = DateTime.now();
-      final nextReset = _getNextResetDate(userStartDate, now);
-      final diff = nextReset.difference(now).inDays;
-      return diff.clamp(0, 7);
+      if (data == null) return 0;
+      final start = _date(data['userStartDate']);
+      final lastReset = _date(data['lastResetDate']);
+      final used = (data['skipsUsedThisWeek'] as num?)?.toInt() ?? 0;
+      if (start == null) return 0;
+      final weekStart = _weekStart(_today(), start);
+      if (lastReset == null || weekStart.isAfter(lastReset)) return 0;
+      return used;
     } catch (e) {
-      print('Error getting days until reset: $e');
+      print('SkipCount: getSkipsUsed error: $e');
       return 0;
     }
+  }
+
+  /// Days until skips reset (7 if you haven't started yet).
+  static Future<int> getDaysUntilReset() async {
+    final uid = _currentUserId;
+    if (uid == null) return 0;
+    try {
+      final doc = await _doc(uid).get();
+      final start = _date(doc.data()?['userStartDate']);
+      if (start == null) return 7;
+      final today = _today();
+      final next = _weekStart(today, start).add(const Duration(days: 7));
+      return _daysBetween(today, next).clamp(0, 7);
+    } catch (e) {
+      print('SkipCount: getDaysUntilReset error: $e');
+      return 0;
+    }
+  }
+
+  // ─── Dates (calendar days on this phone, so daylight saving can't make a
+  // day count as 23 or 25 hours) ─────────────────────────────────────────────
+
+  static DateTime _today() {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day);
+  }
+
+  static DateTime? _date(dynamic v) {
+    if (v is! Timestamp) return null;
+    final d = v.toDate();
+    return DateTime(d.year, d.month, d.day);
+  }
+
+  static int _daysBetween(DateTime a, DateTime b) =>
+      DateTime.utc(b.year, b.month, b.day)
+          .difference(DateTime.utc(a.year, a.month, a.day))
+          .inDays;
+
+  /// The first day of the week [day] falls in, counting 7-day weeks from
+  /// [start].
+  static DateTime _weekStart(DateTime day, DateTime start) {
+    final days = _daysBetween(start, day);
+    final week = days < 0 ? 0 : days ~/ 7;
+    return DateTime(start.year, start.month, start.day + week * 7);
   }
 }

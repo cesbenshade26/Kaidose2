@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'SunColors.dart';
+import 'dart:math' as math;
 import 'AppColors.dart';
 import 'DailyPhotoTracker.dart';
 import 'DailyVideoTracker.dart';
@@ -75,7 +77,7 @@ class OwnStory {
   }
 }
 
-/// The ring around an avatar: cyan when there's something new to watch,
+/// The ring around an avatar: sun gradient when there's something new to watch,
 /// grey once it's all been watched, nothing when there's no story. Drawn
 /// outside the avatar, so the layout around it doesn't move.
 class StoryRing extends StatelessWidget {
@@ -90,7 +92,7 @@ class StoryRing extends StatelessWidget {
     required this.child,
     required this.hasStory,
     required this.seen,
-    this.width = 3,
+    this.width = 3.5,
     this.gap = 3,
   }) : super(key: key);
 
@@ -107,13 +109,16 @@ class StoryRing extends StatelessWidget {
           right: -out,
           bottom: -out,
           child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: context.colors.background,
-                border: Border.all(
-                  color: seen ? context.colors.textFaint : Colors.cyan,
-                  width: width,
+            child: CustomPaint(
+              foregroundPainter: SunRingPainter(
+                active: !seen,
+                width: seen ? math.max(1.5, width / 2) : width,
+                seenColor: context.colors.border,
+              ),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: context.colors.background,
                 ),
               ),
             ),

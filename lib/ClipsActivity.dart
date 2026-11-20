@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'clip_service.dart';
@@ -9,6 +12,8 @@ import 'ClipMusic.dart';
 import 'PhotoFlipper.dart';
 import 'ClipSideBar.dart';
 import 'Clipcommentsheet.dart';
+import 'DataSaver.dart';
+import 'ReduceMotion.dart';
 
 // ─── Your clips, loaded ahead of time ────────────────────────────────────────
 
@@ -66,20 +71,40 @@ class MyClipsCache extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Keeps your pinned clips ready so they open instantly: videos get a
-  /// ready-to-play controller, photos are downloaded ahead of time.
+  // Clips showing in a profile grid right now (plus the next row), kept
+  // ready alongside the pins. Keys are the viewer's pool keys.
+  Map<String, String> _onScreenVideos = {};
+  List<String> _onScreenImages = [];
+
+  /// The grid tells us which clips are on screen; they're kept ready to
+  /// play so tapping one never waits. Cheap to call often: nothing happens
+  /// unless the set changed.
+  void setOnScreen(Map<String, String> videos, List<String> images) {
+    if (mapEquals(videos, _onScreenVideos) &&
+        listEquals(images, _onScreenImages)) {
+      return;
+    }
+    _onScreenVideos = videos;
+    _onScreenImages = images;
+    _warmPinnedVideos();
+  }
+
+  /// Keeps your pinned clips, and whatever a profile grid is showing, ready
+  /// so they open instantly: videos get a ready-to-play controller, photos
+  /// are downloaded ahead of time.
   void _warmPinnedVideos() {
-    final list = clips;
-    if (list == null) return;
+    final list = clips ?? const <ClipData>[];
     final pinned = list.where(isPinned).take(ClipService.maxPins).toList();
     PreloadedMediaPool.instance.setProtected(
       {
         for (final c in pinned)
           if (!c.isPhoto && c.videoUrl.isNotEmpty) c.id: c.videoUrl,
+        ..._onScreenVideos,
       },
       images: [
         for (final c in pinned)
           if (c.isPhoto) ...c.allPhotos.take(4),
+        ..._onScreenImages,
       ],
     );
   }
@@ -132,6 +157,8 @@ class MyClipsCache extends ChangeNotifier {
     clips = null;
     failed = false;
     PreloadedMediaPool.instance.clear();
+    _onScreenVideos = {};
+    _onScreenImages = [];
     _warmed.clear();
     _pinOverrides.clear();
     _attempted.clear();
@@ -212,6 +239,31 @@ class ClipsActivity extends StatefulWidget {
 
   const ClipsActivity({Key? key, this.userId}) : super(key: key);
 
+  /// Opens one of YOUR clips full screen (from a "liked your clip"
+  /// notification), with the rest of your clips to swipe through.
+  static Future<void> openMine(BuildContext context, String clipId) async {
+    final cache = MyClipsCache.instance;
+    cache.start();
+    // Just signed in / first open: give the list a moment to arrive.
+    for (var i = 0; i < 20 && cache.clips == null; i++) {
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+    if (!context.mounted) return;
+    final list = cache.clips ?? const <ClipData>[];
+    final index = list.indexWhere((c) => c.id == clipId);
+    if (index < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('That clip is no longer up')));
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MyClipViewer(clips: list, initialIndex: index),
+      ),
+    );
+  }
+
   @override
   State<ClipsActivity> createState() => _ClipsActivityState();
 }
@@ -222,6 +274,73 @@ class _ClipsActivityState extends State<ClipsActivity> {
 
   // Someone else's clips (only used when it isn't your profile).
   Stream<List<ClipData>>? _otherClips;
+
+  /// At most this many videos are kept ready from the grid at once (phones
+  /// can only hold so many video players).
+  static const int _maxReadyVideos = 12;
+
+  // Last on-screen rows handled, so scrolling only does work per new row.
+  int _firstRow = -1, _lastRow = -1, _clipCount = -1;
+  double _gridWidth = 0;
+  final Set<String> _thumbsWarmed = {};
+
+  String get _poolPrefix => _isOwn ? '' : 'profile:';
+
+  /// Height of one grid row (3 across, 9:16 tiles, 1px gaps).
+  double get _rowHeight {
+    final cell = (_gridWidth - 2) / 3;
+    return cell * 16 / 9 + 1;
+  }
+
+  /// Gets the rows on screen (and the next one) ready: the clips themselves
+  /// for tapping, and thumbnails a couple of rows further down for
+  /// scrolling.
+  void _warmRows(List<ClipData> clips, double offset, double viewport) {
+    if (_gridWidth <= 0 || clips.isEmpty) return;
+    final rowH = _rowHeight;
+    final first = (math.max(0.0, offset) / rowH).floor();
+    final last = ((offset + viewport) / rowH).ceil();
+    if (first == _firstRow && last == _lastRow && clips.length == _clipCount) {
+      return;
+    }
+    _firstRow = first;
+    _lastRow = last;
+    _clipCount = clips.length;
+
+    // Clips: what's on screen plus one row ahead (none ahead on Data Saver).
+    final aheadRows = DataSaver.active ? 0 : 1;
+    final from = math.min(clips.length, first * 3);
+    final to = math.min(clips.length, (last + aheadRows) * 3);
+    final videos = <String, String>{};
+    final images = <String>[];
+    for (var i = from; i < to; i++) {
+      final c = clips[i];
+      if (c.isPhoto) {
+        images.addAll(c.allPhotos.take(4));
+      } else if (c.videoUrl.isNotEmpty && videos.length < _maxReadyVideos) {
+        videos['$_poolPrefix${c.id}'] = c.videoUrl;
+      }
+    }
+    MyClipsCache.instance.setOnScreen(videos, images);
+
+    // Thumbnails: two more rows beyond that, so scrolling never shows a
+    // blank tile.
+    final thumbsTo = math.min(clips.length, (last + aheadRows + 2) * 3);
+    for (var i = from; i < thumbsTo; i++) {
+      final url = clips[i].thumbnailUrl;
+      if (url == null || url.isEmpty || !_thumbsWarmed.add(url)) continue;
+      precacheImage(ClipThumb.provider(url), context).catchError((_) {
+        _thumbsWarmed.remove(url);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    // Stop keeping this grid's clips ready (pins stay ready).
+    MyClipsCache.instance.setOnScreen({}, []);
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -253,7 +372,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
     HapticFeedback.mediumImpact();
     final choice = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: kc.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -266,7 +385,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
               width: 38,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: kc.grey(300),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -276,7 +395,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
                 MyClipsCache.instance.isPinned(clip)
                     ? Icons.push_pin_outlined
                     : Icons.push_pin,
-                color: Colors.black87,
+                color: kc.text,
               ),
               title: Text(
                 MyClipsCache.instance.isPinned(clip)
@@ -394,7 +513,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
   }
 
   Widget _loadingState() =>
-      const Center(child: CircularProgressIndicator(color: Colors.cyan));
+      Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
 
   Widget _errorState() {
     return Center(
@@ -402,7 +521,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
         padding: const EdgeInsets.all(24),
         child: Text(
           'Error loading clips',
-          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+          style: TextStyle(color: kc.grey(600), fontSize: 14),
           textAlign: TextAlign.center,
         ),
       ),
@@ -414,21 +533,21 @@ class _ClipsActivityState extends State<ClipsActivity> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.videocam_outlined, size: 80, color: Colors.grey[400]),
+          Icon(Icons.videocam_outlined, size: 80, color: kc.grey(400)),
           const SizedBox(height: 16),
           Text(
             'No Clips Yet',
             style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey[700]),
+                color: kc.grey(700)),
           ),
           const SizedBox(height: 8),
           Text(
             _isOwn
                 ? 'Your posted clips will show up here'
                 : 'Clips they post will show up here',
-            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 14, color: kc.grey(600)),
           ),
         ],
       ),
@@ -436,6 +555,39 @@ class _ClipsActivityState extends State<ClipsActivity> {
   }
 
   Widget _buildGrid(
+      List<ClipData> clips, {
+        required bool Function(ClipData) pinned,
+        required bool Function(ClipData) fallbackToVideo,
+        void Function(ClipData)? onLongPress,
+      }) {
+    // First screenful: get it ready as soon as the grid is laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_clipCount != clips.length || _firstRow < 0) {
+        _firstRow = -1;
+        _warmRows(clips, 0, MediaQuery.of(context).size.height);
+      }
+    });
+    return LayoutBuilder(
+      builder: (context, box) {
+        _gridWidth = box.maxWidth;
+        return NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (n.metrics.axis == Axis.vertical) {
+              _warmRows(clips, n.metrics.pixels, n.metrics.viewportDimension);
+            }
+            return false;
+          },
+          child: _grid(clips,
+              pinned: pinned,
+              fallbackToVideo: fallbackToVideo,
+              onLongPress: onLongPress),
+        );
+      },
+    );
+  }
+
+  Widget _grid(
       List<ClipData> clips, {
         required bool Function(ClipData) pinned,
         required bool Function(ClipData) fallbackToVideo,
@@ -457,6 +609,7 @@ class _ClipsActivityState extends State<ClipsActivity> {
           clip: clip,
           fallbackToVideo: fallbackToVideo(clip),
           pinned: pinned(clip),
+          showViews: _isOwn,
           onLongPress: onLongPress == null ? null : () => onLongPress(clip),
           onTap: () {
             Navigator.push(
@@ -492,6 +645,9 @@ class _ClipThumbnail extends StatelessWidget {
   /// Show the pin badge.
   final bool pinned;
 
+  /// Show how many views it has (your own clips).
+  final bool showViews;
+
   const _ClipThumbnail({
     Key? key,
     required this.clip,
@@ -499,11 +655,21 @@ class _ClipThumbnail extends StatelessWidget {
     this.onLongPress,
     this.fallbackToVideo = false,
     this.pinned = false,
+    this.showViews = false,
   }) : super(key: key);
+
+  /// 950, 1.2K, 3.4M
+  static String _compact(int n) {
+    String trim(double v) =>
+        v == v.truncateToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+    if (n >= 1000000) return '${trim(n / 1000000)}M';
+    if (n >= 1000) return '${trim(n / 1000)}K';
+    return '$n';
+  }
 
   Widget _placeholder() => Container(
     color: Colors.grey[900],
-    child: Icon(Icons.videocam_outlined, color: Colors.grey[700], size: 32),
+    child: Icon(Icons.videocam_outlined, color: kc.grey(700), size: 32),
   );
 
   @override
@@ -556,6 +722,45 @@ class _ClipThumbnail extends StatelessWidget {
                 size: 16,
                 color: Colors.white,
                 shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+              ),
+            ),
+          // Views, bottom right, over a soft shade so it reads on any
+          // picture.
+          if (showViews)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                child: Container(
+                  height: 34,
+                  padding: const EdgeInsets.only(right: 6, bottom: 5),
+                  alignment: Alignment.bottomRight,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Color(0x66000000)],
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.play_arrow_rounded,
+                          size: 16, color: Colors.white),
+                      const SizedBox(width: 1),
+                      Text(
+                        _compact(clip.viewCount),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           if (pinned)
@@ -640,7 +845,71 @@ class _VideoFirstFrameState extends State<_VideoFirstFrame> {
     }
     return Container(
       color: Colors.grey[900],
-      child: Icon(Icons.videocam_outlined, color: Colors.grey[700], size: 32),
+      child: Icon(Icons.videocam_outlined, color: kc.grey(700), size: 32),
+    );
+  }
+}
+
+// ─── A plain grid of clips (saved clips in Archives) ──────────────────────────
+
+/// Clips in the same 3-across grid as a profile, no pins or view counts.
+/// Tap opens them full screen; [onLongPress] for a menu.
+class ClipGrid extends StatelessWidget {
+  final List<ClipData> clips;
+  final void Function(ClipData)? onLongPress;
+
+  /// Keeps these videos apart from the Clips feed's in the preloader.
+  final String poolPrefix;
+
+  const ClipGrid({
+    Key? key,
+    required this.clips,
+    this.onLongPress,
+    this.poolPrefix = 'saved:',
+  }) : super(key: key);
+
+  /// Opens [clips] full screen at [index] (swipe through the rest).
+  static Future<void> openViewer(
+      BuildContext context, List<ClipData> clips, int index,
+      {String poolPrefix = 'saved:'}) =>
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _MyClipViewer(
+              clips: clips, initialIndex: index, poolPrefix: poolPrefix),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      physics: const AlwaysScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 1,
+        mainAxisSpacing: 1,
+        childAspectRatio: 9 / 16,
+      ),
+      itemCount: clips.length,
+      itemBuilder: (context, index) {
+        final clip = clips[index];
+        return _ClipThumbnail(
+          key: ValueKey(clip.id),
+          clip: clip,
+          onLongPress: onLongPress == null ? null : () => onLongPress!(clip),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _MyClipViewer(
+                clips: clips,
+                initialIndex: index,
+                poolPrefix: poolPrefix,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -685,7 +954,7 @@ class _MyClipViewerState extends State<_MyClipViewer> {
       url: (c) => c.isPhoto ? (c.photoUrl ?? '') : c.videoUrl,
       isImage: (c) => c.isPhoto,
       photos: (c) => c.allPhotos,
-      ahead: 3,
+      ahead: DataSaver.clipsAhead,
       behind: 1,
     );
   }
@@ -905,6 +1174,8 @@ class _MyClipPageState extends State<_MyClipPage>
 
   void _onDoubleTap(Offset position) {
     _likeTrigger?.call();
+    // Reduce Motion (phone setting): like it, but no floating heart.
+    if (ReduceMotion.of(context)) return;
     setState(() {
       _floatingHeartPosition = position;
       _showFloatingHeart = true;
@@ -1053,7 +1324,7 @@ class _MyClipPageState extends State<_MyClipPage>
                 _controller!,
                 allowScrubbing: true,
                 colors: const VideoProgressColors(
-                  playedColor: Colors.cyan,
+                  playedColor: Colors.white,
                   bufferedColor: Colors.white30,
                   backgroundColor: Colors.white10,
                 ),
@@ -1095,8 +1366,8 @@ class _MyClipPageState extends State<_MyClipPage>
     if (_isLoading) {
       return Container(
         color: Colors.black,
-        child: const Center(
-            child: CircularProgressIndicator(color: Colors.cyan)),
+        child: Center(
+            child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
       );
     }
     if (_hasError) {
@@ -1104,7 +1375,7 @@ class _MyClipPageState extends State<_MyClipPage>
         color: Colors.black,
         child: Center(
           child: Text('Could not load clip',
-              style: TextStyle(color: Colors.grey[500])),
+              style: TextStyle(color: kc.grey(500))),
         ),
       );
     }

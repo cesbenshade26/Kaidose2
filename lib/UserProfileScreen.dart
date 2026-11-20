@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/services.dart';
 import 'BackgroundPic.dart';
 import 'ProfilePicManager.dart';
@@ -61,6 +62,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Uint8List? _avatar;
   Uint8List? _banner;
   String? _bio;
+  String _bannerStyle = BannerStyle.sky;
   bool _loading = true;
   bool _notFound = false;
   int _selectedTabIndex = 0;
@@ -105,7 +107,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       padding: const EdgeInsets.fromLTRB(32, 8, 32, 32),
       child: Column(
         children: [
-          Icon(Icons.block_rounded, size: 40, color: Colors.grey[350]),
+          Icon(Icons.block_rounded, size: 40, color: kc.grey(350)),
           const SizedBox(height: 10),
           Text(
             _iBlocked
@@ -120,7 +122,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 ? "They can't see your profile or message you."
                 : "You can't see their posts right now.",
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13.5, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 13.5, color: kc.grey(600)),
           ),
           if (_iBlocked) ...[
             const SizedBox(height: 14),
@@ -128,8 +130,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               onPressed: () =>
                   BlockFlow.unblock(context, widget.userId, username: _username),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.black87,
-                side: BorderSide(color: Colors.grey[300]!),
+                foregroundColor: kc.text,
+                side: BorderSide(color: kc.grey(300)),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20)),
               ),
@@ -140,6 +142,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ),
     );
   }
+
+  /// Their banner is plain white (no photo, plain style): icons go dark.
+  bool get _plainBanner =>
+      BackgroundSpec.isPlain(hasPhoto: _banner != null, style: _bannerStyle);
 
   Uint8List? _decode(dynamic b64) {
     if (b64 is! String || b64.isEmpty) return null;
@@ -170,6 +176,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         if (name != null && name.isNotEmpty) _username = name;
         _avatar = _decode(data['profilePicBase64']);
         _banner = _decode(data['backgroundPicBase64']);
+        _bannerStyle = BannerStyle.parse(data['bannerStyle']);
 
         // Same lookup as BioManager: the plain `bio` field, then the old
         // formatted `bioData.text` for accounts that haven't re-saved.
@@ -240,7 +247,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           child: Icon(
             selected ? on : off,
             size: 24,
-            color: selected ? Colors.black : Colors.grey[400],
+            color: selected ? kc.text : kc.grey(400),
           ),
         ),
       ),
@@ -266,16 +273,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 padding: EdgeInsets.only(top: topInset, left: 4, right: 12),
                 height: topInset + 48,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.86),
+                  color: kc.background.withOpacity(0.86),
                   border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade300, width: 0.5),
+                    bottom: BorderSide(color: kc.grey(300), width: 0.5),
                   ),
                 ),
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_back,
-                          color: Colors.black, size: 24),
+                      icon: Icon(Icons.arrow_back,
+                          color: kc.text, size: 24),
                       onPressed: () => Navigator.maybePop(context),
                     ),
                     _barTab(0, Icons.wb_sunny_outlined, Icons.wb_sunny_rounded,
@@ -288,17 +295,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           _username!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
-                            color: Colors.black87,
+                            color: kc.text,
                           ),
                         ),
                       ),
                     if (!_isMe)
                       IconButton(
-                        icon: const Icon(Icons.more_horiz_rounded,
-                            color: Colors.black87, size: 24),
+                        icon: Icon(Icons.more_horiz_rounded,
+                            color: kc.text, size: 24),
                         onPressed: _openActions,
                       ),
                   ],
@@ -337,7 +344,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     child: TweenAnimationBuilder<Color?>(
                       duration: const Duration(milliseconds: 200),
                       tween: ColorTween(
-                        end: selected ? Colors.black : Colors.grey[400],
+                        end: selected ? kc.text : kc.grey(400),
                       ),
                       builder: (context, color, _) => Icon(
                         icons[i][selected ? 1 : 0],
@@ -359,7 +366,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: Container(height: 1, color: Colors.grey[200]),
+                child: Container(height: 1, color: kc.grey(200)),
               ),
               AnimatedAlign(
                 duration: const Duration(milliseconds: 250),
@@ -372,7 +379,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       width: 28,
                       height: 2.5,
                       decoration: BoxDecoration(
-                        color: Colors.black,
+                        color: kc.text,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -421,12 +428,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, __, ___) =>
-                Container(decoration: BackgroundSpec.defaultDecoration),
+                Container(
+                    decoration: BackgroundSpec.defaultDecorationFor(context,
+                        style: _bannerStyle)),
           )
-              : Container(decoration: BackgroundSpec.defaultDecoration),
+              : Container(
+              decoration: BackgroundSpec.defaultDecorationFor(context,
+                  style: _bannerStyle)),
           // Light scrim so the status bar and back arrow stay readable
-          IgnorePointer(
-              child: Container(decoration: BackgroundSpec.scrimDecoration)),
+          if (!_plainBanner)
+            IgnorePointer(
+                child: Container(decoration: BackgroundSpec.scrimDecoration)),
         ],
       ),
     );
@@ -448,7 +460,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           style: TextStyle(
             fontSize: 15,
             height: 1.3,
-            color: Colors.grey[800],
+            color: kc.grey(800),
           ),
         ),
       ),
@@ -486,7 +498,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       height: avatarSize,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.grey[300],
+                        color: kc.grey(300),
                       ),
                       child: ClipOval(
                         child: _avatar != null
@@ -512,7 +524,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 4, bottom: 24),
                   child: Text('This account no longer exists',
-                      style: TextStyle(color: Colors.grey[600])),
+                      style: TextStyle(color: kc.grey(600))),
                 )
               else if (_iBlocked || _blocksMe)
                 _blockedPanel()
@@ -538,10 +550,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           top: 50,
           left: 4,
           child: IconButton(
-            icon: const Icon(
+            icon: Icon(
               Icons.arrow_back,
-              color: Colors.white,
-              shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+              color: _plainBanner ? kc.text : Colors.white,
+              shadows: _plainBanner
+                  ? null
+                  : const [Shadow(color: Colors.black45, blurRadius: 6)],
             ),
             onPressed: () => Navigator.maybePop(context),
           ),
@@ -553,11 +567,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             top: 50,
             right: 4,
             child: IconButton(
-              icon: const Icon(
+              icon: Icon(
                 Icons.more_horiz_rounded,
-                color: Colors.white,
+                color: _plainBanner ? kc.text : Colors.white,
                 size: 28,
-                shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+                shadows: _plainBanner
+                    ? null
+                    : const [Shadow(color: Colors.black45, blurRadius: 6)],
               ),
               onPressed: _openActions,
             ),
@@ -575,9 +591,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     });
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: _showBar ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
+      value: (_showBar || _plainBanner)
+          ? AppTheme.pageOverlay
+          : SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         body: Stack(
           children: [
             NotificationListener<ScrollNotification>(
@@ -588,11 +606,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   SliverToBoxAdapter(child: _buildHeader()),
                 ],
                 body: _loading
-                    ? const Padding(
+                    ? Padding(
                   padding: EdgeInsets.only(top: 40),
                   child: Align(
                     alignment: Alignment.topCenter,
-                    child: CircularProgressIndicator(color: Colors.cyan),
+                    child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
                   ),
                 )
                     : (_iBlocked || _blocksMe)

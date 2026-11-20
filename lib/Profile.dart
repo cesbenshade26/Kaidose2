@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 import 'ProfilePicManager.dart';
@@ -20,6 +21,7 @@ import 'StoryRing.dart';
 import 'Add.dart';
 import 'ProfileStatsRow.dart';
 import 'auth_service.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -34,7 +36,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
   File? _profilePic;
   File? _backgroundPic;
   bool _showSeparator = false;
-  Color _separatorColor = Colors.black;
+  Color _separatorColor = kc.text;
   String? _bio;
   String? _username;
   int _selectedTabIndex = 0;
@@ -75,6 +77,10 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     };
 
     _backgroundPicListener = () {
+      // A new background can be saved over the same file path; drop the
+      // old picture from Flutter's image cache so the new one shows.
+      final f = BackgroundPicManager.globalBackgroundPic;
+      if (f != null) FileImage(f).evict();
       if (mounted) {
         setState(() {
           _backgroundPic = BackgroundPicManager.globalBackgroundPic;
@@ -112,6 +118,8 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     BioManager.addListener(_bioListener!);
     UserManager.addListener(_usernameListener!);
     YourDailyBubbleManager.addListener(_bubbleListener!);
+    BannerStyle.mine.addListener(_onBannerStyle);
+    BannerPhoto.changed.addListener(_onBannerStyle);
 
     // Load your clips now and warm the first thumbnails, so the Clips tab is
     // ready the moment it's opened.
@@ -119,6 +127,20 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     MyClipsCache.instance.addListener(_warmClipThumbnails);
     WidgetsBinding.instance.addPostFrameCallback((_) => _warmClipThumbnails());
   }
+
+  void _onBannerStyle() {
+    if (mounted) setState(() {});
+  }
+
+  /// No photo + plain style: the banner is white, so icons go dark.
+  bool get _plainBanner {
+    final f = _bannerFile;
+    return BackgroundSpec.isPlain(hasPhoto: f != null && f.existsSync());
+  }
+
+  /// The banner photo to show: one just picked this session wins (it's a
+  /// brand-new file, so it shows instantly), otherwise the saved one.
+  File? get _bannerFile => BannerPhoto.resolve(_backgroundPic);
 
   void _warmClipThumbnails() {
     if (!mounted) return;
@@ -174,8 +196,11 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     // user's local cache and refreshes from Firebase in the background
     await ProfilePicManager.loadProfilePicFromStorage();
     await BackgroundPicManager.loadBackgroundPicFromStorage();
+    final bg = BackgroundPicManager.globalBackgroundPic;
+    if (bg != null) FileImage(bg).evict();
     await BioManager.loadBioFromStorage();
     await UserManager.loadUsernameFromStorage();
+    await BannerStyle.load();
     if (mounted) {
       setState(() {
         _profilePic = ProfilePicManager.globalProfilePic;
@@ -209,6 +234,8 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
     if (_usernameListener != null) UserManager.removeListener(_usernameListener!);
     if (_bubbleListener != null) YourDailyBubbleManager.removeListener(_bubbleListener!);
     MyClipsCache.instance.removeListener(_warmClipThumbnails);
+    BannerStyle.mine.removeListener(_onBannerStyle);
+    BannerPhoto.changed.removeListener(_onBannerStyle);
     _outer.dispose();
     super.dispose();
   }
@@ -237,7 +264,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           style: TextStyle(
             fontSize: 15,
             height: 1.3,
-            color: hasBio ? Colors.grey[800] : Colors.grey[500],
+            color: hasBio ? kc.grey(800) : kc.grey(500),
           ),
         ),
       ),
@@ -295,7 +322,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           child: Icon(
             selected ? on : off,
             size: 24,
-            color: selected ? Colors.black : Colors.grey[400],
+            color: selected ? kc.text : kc.grey(400),
           ),
         ),
       ),
@@ -322,9 +349,9 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                 padding: EdgeInsets.only(top: topInset, left: 8, right: 4),
                 height: topInset + 48,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.86),
+                  color: kc.background.withOpacity(0.86),
                   border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade300, width: 0.5),
+                    bottom: BorderSide(color: kc.grey(300), width: 0.5),
                   ),
                 ),
                 child: Row(
@@ -333,10 +360,10 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                         'Dailies'),
                     _barTab(1, Icons.videocam_outlined, Icons.videocam, 'Clips'),
                     const Spacer(),
-                    const NotificationBell(size: 26),
+                    NotificationBell(size: 26, color: kc.text),
                     IconButton(
-                      icon: const Icon(Icons.settings_outlined,
-                          color: Colors.black, size: 26),
+                      icon: Icon(Icons.settings_outlined,
+                          color: kc.text, size: 26),
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -357,7 +384,8 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
 
   Widget _buildBanner() {
     const double h = BackgroundSpec.bannerHeight;
-    final bool hasPic = _backgroundPic != null && _backgroundPic!.existsSync();
+    final banner = _bannerFile;
+    final bool hasPic = banner != null && banner.existsSync();
     return SizedBox(
       height: h,
       child: Stack(
@@ -365,19 +393,20 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         children: [
           hasPic
               ? Image.file(
-            _backgroundPic!,
+            banner!,
             fit: BoxFit.cover,
             width: double.infinity,
             height: h,
-            key: ValueKey(_backgroundPic!.path +
-                _backgroundPic!.lastModifiedSync().toString()),
+            key: ValueKey(banner.path + banner.lastModifiedSync().toString()),
             errorBuilder: (context, error, stackTrace) =>
-                Container(decoration: BackgroundSpec.defaultDecoration),
+                Container(decoration: BackgroundSpec.defaultDecorationFor(context)),
           )
-              : Container(decoration: BackgroundSpec.defaultDecoration),
-          // Light scrim so the status bar and top icons stay readable
-          IgnorePointer(
-              child: Container(decoration: BackgroundSpec.scrimDecoration)),
+              : Container(decoration: BackgroundSpec.defaultDecorationFor(context)),
+          // Light scrim so the status bar and top icons stay readable (not
+          // needed on a plain white banner, where they're dark).
+          if (!_plainBanner)
+            IgnorePointer(
+                child: Container(decoration: BackgroundSpec.scrimDecoration)),
         ],
       ),
     );
@@ -409,7 +438,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                     child: TweenAnimationBuilder<Color?>(
                       duration: const Duration(milliseconds: 200),
                       tween: ColorTween(
-                        end: selected ? Colors.black : Colors.grey[400],
+                        end: selected ? kc.text : kc.grey(400),
                       ),
                       builder: (context, color, _) => Icon(
                         icons[i][selected ? 1 : 0],
@@ -431,7 +460,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: Container(height: 1, color: Colors.grey[200]),
+                child: Container(height: 1, color: kc.grey(200)),
               ),
               AnimatedAlign(
                 duration: const Duration(milliseconds: 250),
@@ -444,7 +473,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                       width: 28,
                       height: 2.5,
                       decoration: BoxDecoration(
-                        color: Colors.black,
+                        color: kc.text,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -477,25 +506,37 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
       if (h != null && h > 0) _headerHeight = h;
     });
 
-    return Stack(
-      children: [
-        NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: NestedScrollView(
-            controller: _outer,
-            headerSliverBuilder: (context, innerScrolled) => [
-              SliverToBoxAdapter(child: _buildHeader()),
-            ],
-            body: _buildTabContent(),
-          ),
+    // Rebuilds the moment the banner style (Sky / Plain) or the banner
+    // photo changes, so Profile never waits for anything else to redraw.
+    return ListenableBuilder(
+      listenable: Listenable.merge([BannerStyle.mine, BannerPhoto.changed]),
+      builder: (context, _) => AnnotatedRegion<SystemUiOverlayStyle>(
+        // Dark status bar text over white (plain banner or the compact bar),
+        // light over a photo or the blue fade.
+        value: (_showBar || _plainBanner)
+            ? AppTheme.pageOverlay
+            : SystemUiOverlayStyle.light,
+        child: Stack(
+          children: [
+            NotificationListener<ScrollNotification>(
+              onNotification: _onScrollNotification,
+              child: NestedScrollView(
+                controller: _outer,
+                headerSliverBuilder: (context, innerScrolled) => [
+                  SliverToBoxAdapter(child: _buildHeader()),
+                ],
+                body: _buildTabContent(),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _buildFloatingBar(),
+            ),
+          ],
         ),
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: _buildFloatingBar(),
-        ),
-      ],
+      ),
     );
   }
 
@@ -538,7 +579,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                               height: BackgroundSpec.avatarSize,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: Colors.grey[300],
+                                color: kc.grey(300),
                               ),
                               child: ClipOval(
                                 child: _profilePic != null && _profilePic!.existsSync()
@@ -569,7 +610,7 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
                                 decoration: BoxDecoration(
                                   color: Colors.cyan,
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 3),
+                                  border: Border.all(color: kc.background, width: 3),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.black.withOpacity(0.2),
@@ -622,10 +663,11 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
         ),
 
         // Notification Bell (Top Left)
-        const Positioned(
+        Positioned(
           top: 50,
           left: 16,
-          child: NotificationBell(color: Colors.white),
+          child: NotificationBell(
+              color: _plainBanner ? kc.text : Colors.white),
         ),
 
         // Settings Button (Top Right)
@@ -633,7 +675,8 @@ class _ProfileWidgetState extends State<ProfileWidget> with WidgetsBindingObserv
           top: 50,
           right: 16,
           child: IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white),
+            icon: Icon(Icons.settings_outlined,
+                color: _plainBanner ? kc.text : Colors.white),
             onPressed: () {
               Navigator.push(
                 context,
@@ -657,7 +700,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   File? _backgroundPic;
   bool _showSeparator = false;
-  Color _separatorColor = Colors.black;
+  Color _separatorColor = kc.text;
   VoidCallback? _backgroundPicListener;
   VoidCallback? _bubbleListener;
 
@@ -672,6 +715,10 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadBackgroundFromStorage();
 
     _backgroundPicListener = () {
+      // A new background can be saved over the same file path; drop the
+      // old picture from Flutter's image cache so the new one shows.
+      final f = BackgroundPicManager.globalBackgroundPic;
+      if (f != null) FileImage(f).evict();
       if (mounted) {
         setState(() {
           _backgroundPic = BackgroundPicManager.globalBackgroundPic;
@@ -748,7 +795,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       body: Stack(
         children: [
           // Banner, avatar, stats, tabs and the page's scrolling all live in

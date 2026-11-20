@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -205,10 +206,10 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
 
     if (widget.embedded) {
       if (_isLoading && _searchResults.isEmpty) {
-        return const Padding(
+        return Padding(
           padding: EdgeInsets.symmetric(vertical: 24),
           child: Center(
-              child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2)),
+              child: CircularProgressIndicator(color: kc.textFaint, strokeWidth: 2)),
         );
       }
       if (_searchResults.isEmpty) {
@@ -216,7 +217,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(
             typed ? 'No Dailies match' : 'Nothing to suggest yet',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            style: TextStyle(fontSize: 14, color: kc.grey(500)),
           ),
         );
       }
@@ -236,7 +237,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
     }
 
     if (_isLoading && _searchResults.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+      return Center(child: CircularProgressIndicator(color: kc.textFaint));
     }
     if (_searchResults.isEmpty) {
       return typed
@@ -264,7 +265,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
         style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,
-            color: Colors.grey[800])),
+            color: kc.grey(800))),
   );
 
   Widget _centerMessage(IconData icon, String title, String body) {
@@ -272,18 +273,18 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 80, color: Colors.grey[400]),
+          Icon(icon, size: 80, color: kc.grey(400)),
           const SizedBox(height: 16),
           Text(title,
               style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700])),
+                  color: kc.grey(700))),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(body,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 14, color: kc.grey(600)),
                 textAlign: TextAlign.center),
           ),
         ],
@@ -304,15 +305,15 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: kc.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: daily.isPinned ? Colors.cyan : Colors.grey[300]!,
+            color: daily.isPinned ? Colors.cyan : kc.grey(300),
             width: daily.isPinned ? 2 : 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
+              color: AppTheme.isDark ? Colors.transparent : Colors.grey.withOpacity(0.1),
               spreadRadius: 1,
               blurRadius: 3,
               offset: const Offset(0, 2),
@@ -354,16 +355,16 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                           Expanded(
                             child: Text(
                               daily.title,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
-                                  color: Colors.black87),
+                                  color: kc.text),
                             ),
                           ),
                           Icon(
                             isPublic ? Icons.public : Icons.lock_outline,
                             size: 14,
-                            color: Colors.grey[400],
+                            color: kc.grey(400),
                           ),
                           if (daily.isPinned)
                             Container(
@@ -380,7 +381,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                       Text(
                         daily.description,
                         style:
-                        TextStyle(fontSize: 14, color: Colors.grey[700]),
+                        TextStyle(fontSize: 14, color: kc.grey(700)),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -394,14 +395,14 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
-                                color: Colors.grey[100],
+                                color: kc.grey(100),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
                                 tag,
                                 style: TextStyle(
                                     fontSize: 11,
-                                    color: Colors.grey[600],
+                                    color: kc.grey(600),
                                     fontWeight: FontWeight.w500),
                               ),
                             );
@@ -412,7 +413,7 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                       Text(
                         _formatDate(daily.createdAt),
                         style:
-                        TextStyle(fontSize: 11, color: Colors.grey[500]),
+                        TextStyle(fontSize: 11, color: kc.grey(500)),
                       ),
                     ],
                   ),
@@ -453,8 +454,8 @@ class _DailySearchWidgetState extends State<DailySearchWidget> {
                   icon: const Icon(Icons.schedule, size: 16),
                   label: const Text('Request Pending'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.grey[500],
-                    side: BorderSide(color: Colors.grey[300]!),
+                    foregroundColor: kc.grey(500),
+                    side: BorderSide(color: kc.grey(300)),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),

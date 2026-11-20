@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'AccessContacts.dart';
 import 'LinkedFriends.dart';
 import 'user_service.dart';
@@ -145,17 +146,35 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
   }
 
   Future<void> _turnOnNearby() async {
+    if (_turningOnNearby) return;
     setState(() => _turningOnNearby = true);
-    final problem = await NearbyService.turnOn();
+    String? problem;
+    try {
+      // Belt and braces: never more than this, whatever the phone does.
+      problem = await NearbyService.turnOn().timeout(
+        const Duration(seconds: 75),
+        onTimeout: () =>
+        "That took too long. Check that Location is on and try again.",
+      );
+    } catch (e) {
+      problem = "Couldn't turn on Near you. Try again.";
+    } finally {
+      // Whatever happened, the spinner goes away.
+      if (mounted) setState(() => _turningOnNearby = false);
+    }
     if (!mounted) return;
-    setState(() => _turningOnNearby = false);
     if (problem != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(problem),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 4),
       ));
       return;
     }
+    // On: flip the section right away, then fill in who's nearby.
+    setState(() {
+      _nearbyOn = true;
+      _nearby = [];
+    });
     _loadPeople();
   }
 
@@ -177,9 +196,9 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
         margin: const EdgeInsets.only(bottom: 24),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.cyan.withOpacity(0.06),
+          color: kc.adapt(const Color(0xFFF7F8FA)),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.cyan.withOpacity(0.25)),
+          border: Border.all(color: kc.adapt(const Color(0xFFE8EAED))),
         ),
         child: Row(
           children: [
@@ -187,10 +206,10 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.15),
+                color: kc.adapt(const Color(0xFFEDEFF2)),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.near_me_outlined, color: Colors.cyan[700]),
+              child: Icon(Icons.near_me_outlined, color: kc.adapt(const Color(0xFF2E2E2E))),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -204,18 +223,18 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                   Text(
                     'Only your general area (about a city) is shared, and only '
                         'with people who turn this on too.',
-                    style: TextStyle(fontSize: 12.5, color: Colors.grey[700]),
+                    style: TextStyle(fontSize: 12.5, color: kc.grey(700)),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
             _turningOnNearby
-                ? const SizedBox(
+                ? SizedBox(
                 width: 22,
                 height: 22,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2.2, color: Colors.cyan))
+                    strokeWidth: 2.2, color: kc.adapt(const Color(0xFFB0B5BC))))
                 : TextButton(
               onPressed: _turnOnNearby,
               style: TextButton.styleFrom(
@@ -237,13 +256,13 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
         Row(
           children: [
             Expanded(
-                child: _header(Icons.near_me_outlined, Colors.cyan, 'Near You')),
+                child: _header(Icons.near_me_outlined, kc.grey(700), 'Near You')),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: TextButton(
                 onPressed: _turnOffNearby,
                 child: Text('Turn off',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                    style: TextStyle(color: kc.grey(600), fontSize: 13)),
               ),
             ),
           ],
@@ -253,7 +272,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
             padding: const EdgeInsets.only(left: 4, bottom: 24),
             child: Text(
               "No one nearby has turned this on yet. Check back later.",
-              style: TextStyle(fontSize: 13.5, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 13.5, color: kc.grey(600)),
             ),
           )
         else ...[
@@ -274,7 +293,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
             style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey[800])),
+                color: kc.grey(800))),
       ],
     ),
   );
@@ -284,7 +303,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
     if (widget.embedded) return _buildEmbedded();
 
     if (_isLoadingPeople && _isLoadingContacts) {
-      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+      return Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
     }
 
     final q = widget.searchQuery.trim().toLowerCase();
@@ -307,23 +326,23 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
       padding: const EdgeInsets.all(16),
       children: [
         if (_typed && people.isNotEmpty) ...[
-          _header(Icons.people, Colors.cyan, 'People'),
+          _header(Icons.people, kc.grey(700), 'People'),
           ...people.map(_buildKaidoseUserCard),
           const SizedBox(height: 24),
         ],
         if (!_typed && _suggested.isNotEmpty) ...[
-          _header(Icons.person_add_alt_1, Colors.cyan, 'People You May Know'),
+          _header(Icons.person_add_alt_1, kc.grey(700), 'People You May Know'),
           ..._suggested.map(_buildKaidoseUserCard),
           const SizedBox(height: 24),
         ],
         if (!_typed) _nearbySection(),
         if (!_typed && _friends.isNotEmpty) ...[
-          _header(Icons.people, Colors.cyan, 'Your Friends'),
+          _header(Icons.people, kc.grey(700), 'Your Friends'),
           ..._friends.map(_buildKaidoseUserCard),
           const SizedBox(height: 24),
         ],
         if (contacts.isNotEmpty) ...[
-          _header(Icons.contacts, Colors.grey[600]!, 'Phone Contacts'),
+          _header(Icons.contacts, kc.grey(600), 'Phone Contacts'),
           ...contacts.map(_buildContactCard),
         ],
         if (nothing && !_isLoadingPeople)
@@ -331,13 +350,13 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
             child: Column(
               children: [
                 const SizedBox(height: 80),
-                Icon(Icons.people_outline, size: 80, color: Colors.grey[400]),
+                Icon(Icons.people_outline, size: 80, color: kc.grey(400)),
                 const SizedBox(height: 16),
                 Text(_typed ? 'No People Found' : 'Find your people',
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey[700])),
+                        color: kc.grey(700))),
                 const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -345,7 +364,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                     _typed
                         ? 'Try a different name'
                         : 'Search a username to link up with friends',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 14, color: kc.grey(600)),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -358,10 +377,10 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
 
   Widget _buildEmbedded() {
     if (_isLoadingPeople) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
         child: Center(
-            child: CircularProgressIndicator(color: Colors.cyan, strokeWidth: 2)),
+            child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)), strokeWidth: 2)),
       );
     }
     final all = _typed ? _results : _suggested;
@@ -369,7 +388,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Text(_typed ? 'No people match' : 'No suggestions yet',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+            style: TextStyle(fontSize: 14, color: kc.grey(500))),
       );
     }
     final shown = all.take(widget.limit).toList();
@@ -408,7 +427,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: kc.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: Colors.cyan.withOpacity(0.3),
@@ -431,10 +450,10 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                         child: Text(
                           user.username,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
-                            color: Colors.black87,
+                            color: kc.text,
                           ),
                         ),
                       ),
@@ -450,7 +469,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.cyan[700],
+                      color: kc.grey(600),
                     ),
                   ),
                 ],
@@ -461,12 +480,12 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.grey[200],
+                  color: kc.grey(200),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text('Friends',
                     style: TextStyle(
-                        color: Colors.grey[700],
+                        color: kc.grey(700),
                         fontSize: 13,
                         fontWeight: FontWeight.w600)),
               )
@@ -595,10 +614,10 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: kc.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Colors.grey[300]!,
+            color: kc.grey(300),
             width: 1,
           ),
         ),
@@ -608,7 +627,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: kc.grey(300),
                 shape: BoxShape.circle,
               ),
               child: ClipOval(
@@ -622,7 +641,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                         height: 16,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.grey[600],
+                          color: kc.grey(600),
                         ),
                       ),
                     ),
@@ -632,7 +651,7 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
                         width: 44,
                         height: 26,
                         decoration: BoxDecoration(
-                          color: Colors.grey[600],
+                          color: kc.grey(600),
                           borderRadius: const BorderRadius.only(
                             topLeft: Radius.circular(22),
                             topRight: Radius.circular(22),
@@ -648,10 +667,10 @@ class _FriendsSearchWidgetState extends State<FriendsSearchWidget> {
             Expanded(
               child: Text(
                 contact.displayName ?? 'Unknown',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: kc.text,
                 ),
               ),
             ),
@@ -737,22 +756,22 @@ class ContactProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: Icon(Icons.arrow_back, color: kc.text, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
       ),
       body: Center(
         child: Text(
           "$contactName's database",
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w600,
-            color: Colors.black87,
+            color: kc.text,
           ),
         ),
       ),

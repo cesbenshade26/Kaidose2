@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'DailyBubbleService.dart';
@@ -271,7 +272,7 @@ class _YourDailyBubbleCreatorOverlayState
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Delete bubble?'),
@@ -330,8 +331,8 @@ class _YourDailyBubbleCreatorOverlayState
                       color: Colors.white.withOpacity(0.95),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.close,
-                        color: Colors.black87, size: 22),
+                    child: Icon(Icons.close,
+                        color: kc.text, size: 22),
                   ),
                 ),
               ),
@@ -345,7 +346,7 @@ class _YourDailyBubbleCreatorOverlayState
                     margin: const EdgeInsets.symmetric(horizontal: 28),
                     padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: kc.surface,
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
@@ -360,10 +361,10 @@ class _YourDailyBubbleCreatorOverlayState
                       children: [
                         Text(
                           isEditing ? 'Edit Daily Bubble' : 'New Daily Bubble',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w700,
-                            color: Colors.black87,
+                            color: kc.text,
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -377,11 +378,11 @@ class _YourDailyBubbleCreatorOverlayState
                                 height: 96,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: Colors.grey[100],
+                                  color: kc.grey(100),
                                   border: Border.all(
                                     color: hasCover
                                         ? Colors.cyan
-                                        : Colors.grey[400]!,
+                                        : kc.grey(400),
                                     width: 2,
                                   ),
                                 ),
@@ -395,7 +396,7 @@ class _YourDailyBubbleCreatorOverlayState
                                   ),
                                 )
                                     : Icon(Icons.add_a_photo_outlined,
-                                    color: Colors.grey[600], size: 30),
+                                    color: kc.grey(600), size: 30),
                               ),
                               Positioned(
                                 right: -2,
@@ -406,7 +407,7 @@ class _YourDailyBubbleCreatorOverlayState
                                     color: Colors.cyan,
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                        color: Colors.white, width: 2),
+                                        color: kc.background, width: 2),
                                   ),
                                   child: Icon(
                                     hasCover ? Icons.edit : Icons.add,
@@ -422,7 +423,7 @@ class _YourDailyBubbleCreatorOverlayState
                         Text(
                           hasCover ? 'Tap to change cover' : 'Tap to add a cover',
                           style:
-                          TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          TextStyle(fontSize: 12, color: kc.grey(600)),
                         ),
                         const SizedBox(height: 18),
                         TextField(
@@ -430,15 +431,15 @@ class _YourDailyBubbleCreatorOverlayState
                           maxLength: 24,
                           enabled: !_isSaving,
                           textCapitalization: TextCapitalization.sentences,
-                          style: const TextStyle(
-                              fontSize: 15, color: Colors.black87),
+                          style: TextStyle(
+                              fontSize: 15, color: kc.text),
                           decoration: InputDecoration(
                             hintText: 'Bubble name',
-                            hintStyle: TextStyle(color: Colors.grey[500]),
+                            hintStyle: TextStyle(color: kc.grey(500)),
                             counterStyle: TextStyle(
-                                color: Colors.grey[500], fontSize: 11),
+                                color: kc.grey(500), fontSize: 11),
                             filled: true,
-                            fillColor: Colors.grey[100],
+                            fillColor: kc.grey(100),
                             contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 12),
                             border: OutlineInputBorder(
@@ -523,7 +524,7 @@ Future<void> _viewBubble(BuildContext context, int index) async {
   showDialog(
     context: context,
     barrierDismissible: false,
-    builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.cyan)),
+    builder: (_) => Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
   );
 
   final media = await YourDailyBubbleManager.getBubbleMedia(index);
@@ -606,8 +607,8 @@ class YourDailyBubbleRow extends StatelessWidget {
                     height: 52,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.grey[200],
-                      border: Border.all(color: Colors.cyan.withOpacity(0.55), width: 1.5),
+                      color: kc.grey(200),
+                      border: Border.all(color: kc.adapt(const Color(0xFFD5D7DB)), width: 1.5),
                     ),
                     child: item.cover != null
                         ? ClipOval(
@@ -618,14 +619,14 @@ class YourDailyBubbleRow extends StatelessWidget {
                         fit: BoxFit.cover,
                       ),
                     )
-                        : Icon(Icons.person, color: Colors.grey[400], size: 24),
+                        : Icon(Icons.person, color: kc.grey(400), size: 24),
                   ),
                   const SizedBox(height: 3),
                   SizedBox(
                     width: 60,
                     child: Text(
                       item.name.isNotEmpty ? item.name : 'New',
-                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: kc.grey(700)),
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

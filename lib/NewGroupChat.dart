@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'friend_request_service.dart';
 import 'user_service.dart';
 import 'GroupChatService.dart';
 import 'GroupChatScreen.dart';
+import 'GroupAvatar.dart';
 
 /// Pick friends, then create the group.
 class NewGroupChatScreen extends StatefulWidget {
@@ -61,15 +63,15 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
     final myId = _friendService.currentUserId;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        title: const Text('New group',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: Text('New group',
+            style: TextStyle(color: kc.text, fontWeight: FontWeight.bold)),
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black),
+          icon: Icon(Icons.close, color: kc.text),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -82,9 +84,9 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 hintText: 'Search friends',
-                prefixIcon: Icon(Icons.search, color: Colors.grey[600]),
+                prefixIcon: Icon(Icons.search, color: kc.grey(600)),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: kc.grey(100),
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
@@ -98,8 +100,8 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
               stream: _friendService.getAcceptedFriends(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator(color: Colors.cyan));
+                  return Center(
+                      child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
                 }
                 if (snapshot.hasError) {
                   return Center(child: Text('Error: ${snapshot.error}'));
@@ -122,7 +124,7 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
                   return Center(
                     child: Text(
                       query.isEmpty ? 'No friends yet' : 'No friends found',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 15),
+                      style: TextStyle(color: kc.grey(600), fontSize: 15),
                     ),
                   );
                 }
@@ -135,10 +137,8 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
                     final name = friends[i].value;
                     final checked = _selected.containsKey(uid);
                     return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.cyan.withOpacity(0.2),
-                        child: Icon(Icons.person, color: Colors.cyan[700]),
-                      ),
+                      // Their real profile picture.
+                      leading: MemberAvatar(userId: uid, size: 40),
                       title: Text(name,
                           style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.w600)),
@@ -150,7 +150,7 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
                           color: checked ? Colors.cyan : Colors.transparent,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: checked ? Colors.cyan : Colors.grey[400]!,
+                            color: checked ? Colors.cyan : kc.grey(400),
                             width: 2,
                           ),
                         ),
@@ -183,9 +183,9 @@ class _NewGroupChatScreenState extends State<NewGroupChatScreen> {
                   onPressed: ready && !_creating ? _create : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.cyan,
-                    disabledBackgroundColor: Colors.grey[300],
+                    disabledBackgroundColor: kc.grey(300),
                     foregroundColor: Colors.white,
-                    disabledForegroundColor: Colors.grey[600],
+                    disabledForegroundColor: kc.grey(600),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(26),

@@ -41,6 +41,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs access to camera to take profile pictures</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Kaidose uses your microphone to record sound when you film videos.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Kaidose uses your contacts to find friends who are already on Kaidose.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

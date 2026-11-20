@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'friend_request_service.dart';
 import 'message_service.dart';
@@ -7,7 +8,7 @@ import 'SendToDailySelector.dart';
 import 'NativeShareBar.dart';
 import 'GroupAvatar.dart';
 import 'GroupChatService.dart';
-import 'ChatUnread.dart' show ChatAvatar;
+import 'GroupIcon.dart';
 import 'DailyShare.dart';
 import 'AddToMyDaily.dart';
 
@@ -205,8 +206,8 @@ class _ShareSheetState extends State<ShareSheet> {
     final shareText = widget.daily?.text ?? '';
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: kc.surface,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
@@ -224,7 +225,7 @@ class _ShareSheetState extends State<ShareSheet> {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: kc.grey(300),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -235,24 +236,24 @@ class _ShareSheetState extends State<ShareSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Text(
+                  Text(
                     'Share',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Colors.black87,
+                      color: kc.text,
                     ),
                   ),
                   const Spacer(),
                   GestureDetector(
                     onTap: widget.onClose,
-                    child: Icon(Icons.close, color: Colors.grey[600], size: 22),
+                    child: Icon(Icons.close, color: kc.grey(600), size: 22),
                   ),
                 ],
               ),
             ),
 
-            const Divider(height: 1, color: Color(0xFFEEEEEE)),
+            Divider(height: 1, color: kc.adapt(const Color(0xFFEEEEEE))),
 
             const SizedBox(height: 16),
 
@@ -264,9 +265,9 @@ class _ShareSheetState extends State<ShareSheet> {
 
             if (_isSending) ...[
               const SizedBox(height: 12),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(horizontal: 40),
-                child: LinearProgressIndicator(color: Colors.cyan),
+                child: LinearProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
               ),
             ],
 
@@ -281,7 +282,7 @@ class _ShareSheetState extends State<ShareSheet> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
+                      color: kc.grey(600),
                     ),
                   ),
                 ),
@@ -379,7 +380,7 @@ class _FriendSelectorBarState extends State<FriendSelectorBar> {
                 label,
                 style: TextStyle(
                   fontSize: bold ? 11 : 12,
-                  color: Colors.black87,
+                  color: kc.text,
                   fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -400,11 +401,10 @@ class _FriendSelectorBarState extends State<FriendSelectorBar> {
       onTap: a.onTap,
       avatar: Container(
         decoration: BoxDecoration(
-          color: Colors.cyan.withOpacity(0.12),
+          color: kc.adapt(const Color(0xFFF1F3F5)),
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.cyan, width: 1.5),
         ),
-        child: Icon(a.icon, color: Colors.cyan[700], size: 26),
+        child: Icon(a.icon, color: kc.adapt(const Color(0xFF2E2E2E)), size: 26),
       ),
     );
   }
@@ -414,7 +414,7 @@ class _FriendSelectorBarState extends State<FriendSelectorBar> {
     return _bubble(
       label: title,
       onTap: widget.onGroupTap == null ? null : () => widget.onGroupTap!(g, title),
-      avatar: ChatAvatar(name: title, group: true, size: 56),
+      avatar: GroupIcon(iconUrl: g.iconUrl, name: title, size: 56),
     );
   }
 
@@ -457,7 +457,7 @@ class _FriendSelectorBarState extends State<FriendSelectorBar> {
                 return Center(
                   child: Text(
                     'No friends yet',
-                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                    style: TextStyle(color: kc.grey(500), fontSize: 14),
                   ),
                 );
               }
@@ -466,10 +466,10 @@ class _FriendSelectorBarState extends State<FriendSelectorBar> {
                 for (final a in actions) _actionBubble(a),
                 for (final g in groups) _groupBubble(g, currentUid),
                 if (isLoading)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20),
                     child: Center(
-                      child: CircularProgressIndicator(color: Colors.cyan),
+                      child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
                     ),
                   )
                 else

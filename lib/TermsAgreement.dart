@@ -1,6 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'auth_service.dart';
+import 'CommunityGuidelines.dart';
 import 'KaidoseBrand.dart';
 import 'Legal.dart';
 
@@ -61,11 +63,14 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
     ..onTap = Legal.openTerms;
   final TapGestureRecognizer _privacyTap = TapGestureRecognizer()
     ..onTap = Legal.openPrivacy;
+  late final TapGestureRecognizer _guidelinesTap = TapGestureRecognizer()
+    ..onTap = () => CommunityGuidelinesScreen.open(context);
 
   @override
   void dispose() {
     _termsTap.dispose();
     _privacyTap.dispose();
+    _guidelinesTap.dispose();
     super.dispose();
   }
 
@@ -77,12 +82,12 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
     );
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: IconThemeData(color: kc.text),
       ),
       body: SafeArea(
         child: Padding(
@@ -93,7 +98,7 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
               Text('One last thing', style: KaidoseBrand.display(30)),
               const SizedBox(height: 6),
               Text('Please read and agree to our Terms to continue.',
-                  style: TextStyle(fontSize: 15, color: Colors.grey[600])),
+                  style: TextStyle(fontSize: 15, color: kc.grey(600))),
               const SizedBox(height: 18),
 
               // The Terms themselves.
@@ -118,7 +123,7 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
                             style: TextStyle(
                                 fontSize: 14,
                                 height: 1.45,
-                                color: Colors.grey[800]),
+                                color: kc.grey(800)),
                           ),
                         ],
                       ),
@@ -130,7 +135,7 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
               Center(
                 child: Text.rich(
                   TextSpan(
-                    style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                    style: TextStyle(fontSize: 13, color: kc.grey(500)),
                     children: [
                       TextSpan(
                         text: 'Read the full Terms',
@@ -174,6 +179,11 @@ class _TermsAgreementScreenState extends State<TermsAgreementScreen> {
                                 text: 'Terms and Conditions',
                                 style: linkStyle,
                                 recognizer: _termsTap),
+                            const TextSpan(text: ' and '),
+                            TextSpan(
+                                text: 'Community Guidelines',
+                                style: linkStyle,
+                                recognizer: _guidelinesTap),
                             const TextSpan(text: ', and I acknowledge the '),
                             TextSpan(
                                 text: 'Privacy Policy',

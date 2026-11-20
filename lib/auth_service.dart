@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'Legal.dart';
 
 class AuthService {
@@ -10,14 +12,28 @@ class AuthService {
   bool get isLoggedIn => _auth.currentUser != null;
 
   // USERNAMES
-  // Every name is reserved in `usernames/{lowercased name}` (holding the
-  // owner's uid and email). That makes names unique regardless of case
-  // ("Chuck" and "chuck" are the same), makes the claim atomic so two people
-  // can't grab one name at the same moment, and lets sign-up and login look
-  // a name up without the `users` collection being readable by signed-out
-  // people.
+  // Every name is reserved in `usernames/{lowercased name}` (holding just
+  // the owner's uid). That makes names unique regardless of case ("Chuck"
+  // and "chuck" are the same) and makes the claim atomic so two people
+  // can't grab one name at the same moment. Search lists these.
+  //
+  // Logging in with a username needs the account's email before signing
+  // in, so that lives in `login_lookup/{lowercased name}` ({uid, email} or
+  // {uid, phoneAccount: true}). It can be looked up one name at a time but
+  // never listed, and it never holds a phone number.
+  //
+  // Email, phone and birthday live in `user_private/{uid}`, which only the
+  // account itself can read (see PrivateInfo.dart).
   static String _key(String username) =>
       Uri.encodeComponent(username.trim().toLowerCase()).toLowerCase();
+
+  /// The id used for [username] in usernames/ and login_lookup/.
+  static String usernameKey(String username) => _key(username);
+
+  DocumentReference<Map<String, dynamic>> _lookup(String username) =>
+      _firestore.collection('login_lookup').doc(_key(username));
+  DocumentReference<Map<String, dynamic>> _private(String uid) =>
+      _firestore.collection('user_private').doc(uid);
 
   /// True if someone else already holds this name. [exceptUid] lets a person
   /// keep their own name. Returns false if the check itself fails, so a
@@ -42,12 +58,47 @@ class AuthService {
     if (user == null) throw StateError('Not signed in');
     await _firestore.collection('usernames').doc(_key(username)).set({
       'uid': user.uid,
-      'email': user.email ?? '',
     });
+    try {
+      final email = user.email ?? '';
+      await _lookup(username).set({
+        'uid': user.uid,
+        if (email.isNotEmpty) 'email': email else 'phoneAccount': true,
+      });
+    } catch (e) {
+      print('AuthService.reserveUsername: login lookup not saved: $e');
+    }
+  }
+
+  /// Changes the signed-in user's username. Done by the changeUsername
+  /// Cloud Function so it's all-or-nothing (new name claimed, old one
+  /// released, login lookup moved over, friend lists / invitations / group
+  /// chats updated), at most once every 14 days. Returns null when it
+  /// worked, otherwise what to tell the person.
+  Future<String?> changeUsername(String username) async {
+    try {
+      await FirebaseFunctions.instance
+          .httpsCallable('changeUsername')
+          .call({'username': username.trim()});
+      // The copy of the username saved on this phone.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('kaidose_user', username.trim());
+      } catch (_) {}
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'already-exists') return 'That username is taken. Try another.';
+      return e.message ?? "Couldn't change it. Try again.";
+    } catch (_) {
+      return "Couldn't change it. Try again.";
+    }
   }
 
   /// Gives up a name the signed-in user holds.
   Future<void> releaseUsername(String username) async {
+    try {
+      await _lookup(username).delete();
+    } catch (_) {}
     try {
       await _firestore.collection('usernames').doc(_key(username)).delete();
     } catch (e) {
@@ -161,22 +212,30 @@ class AuthService {
       try {
         await _firestore.collection('usernames').doc(_key(username)).set({
           'uid': user.uid,
-          'email': '',
-          'phone': phone,
         });
       } catch (_) {
         await user.delete();
         return {'success': false, 'error': 'username-taken'};
       }
+      // Only says "this is a phone account" so username login can explain;
+      // the number itself is never in here.
+      try {
+        await _lookup(username).set({'uid': user.uid, 'phoneAccount': true});
+      } catch (e) {
+        print('AuthService: login lookup not saved: $e');
+      }
 
-      await _firestore.collection('users').doc(user.uid).set({
-        'uid': user.uid,
-        'email': '',
+      // Private: only this account can read it.
+      await _private(user.uid).set({
         'phone': phone,
-        'username': username,
         'birthYear': birthYear,
         'birthMonth': birthMonth,
         'birthDay': birthDay,
+      });
+
+      await _firestore.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'username': username,
         'createdAt': FieldValue.serverTimestamp(),
         // Proof of agreeing to the Terms + Privacy Policy at sign-up.
         'termsVersion': Legal.termsVersion,
@@ -234,21 +293,28 @@ class AuthService {
         try {
           await _firestore.collection('usernames').doc(_key(username)).set({
             'uid': user.uid,
-            'email': email,
           });
         } catch (_) {
           await user.delete();
           return {'success': false, 'error': 'username-taken'};
         }
+        try {
+          await _lookup(username).set({'uid': user.uid, 'email': email});
+        } catch (e) {
+          print('AuthService: login lookup not saved: $e');
+        }
 
         await user.sendEmailVerification();
-        await _firestore.collection('users').doc(user.uid).set({
-          'uid': user.uid,
-          'email': email,
-          'username': username,
+        // Private: only this account can read it.
+        await _private(user.uid).set({
+          'email': email.trim().toLowerCase(),
           'birthYear': birthYear,
           'birthMonth': birthMonth,
           'birthDay': birthDay,
+        });
+        await _firestore.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'username': username,
           'createdAt': FieldValue.serverTimestamp(),
           // Proof of agreeing to the Terms + Privacy Policy at sign-up.
           'termsVersion': Legal.termsVersion,
@@ -272,12 +338,16 @@ class AuthService {
     try {
       String email = usernameOrEmail.trim();
       if (!email.contains('@')) {
-        final doc =
-        await _firestore.collection('usernames').doc(_key(email)).get();
-        final data = doc.data();
+        var data = (await _lookup(email).get()).data();
+        // Accounts that haven't opened the app since the move still have
+        // it on their name reservation.
+        data ??=
+            (await _firestore.collection('usernames').doc(_key(email)).get())
+                .data();
         final found = data?['email'] as String?;
         if (found == null || found.isEmpty) {
-          if (data != null && data['phone'] != null) {
+          if (data != null &&
+              (data['phoneAccount'] == true || data['phone'] != null)) {
             return {'success': false, 'error': 'phone-account'};
           }
           return {'success': false, 'error': 'Username not found'};

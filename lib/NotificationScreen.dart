@@ -1,5 +1,11 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
+import 'ClipsActivity.dart' show ClipsActivity;
+import 'GroupAvatar.dart';
+import 'NotificationService.dart';
 import 'friend_request_service.dart';
 import 'daily_invitation_service.dart';
 import 'daily_join_request_service.dart';
@@ -13,7 +19,18 @@ import 'UserProfileScreen.dart';
 /// One screen for everything. At the top, "Requests": things waiting on an
 /// answer from you (friend requests, Daily invitations, requests to join your
 /// Dailies), newest first, with Accept / Decline. Below, "Activity": things
-/// that already happened (people accepting your invites).
+/// that already happened: likes and comments on your clips, reactions on
+/// your Daily posts (users/{uid}/activity, written by the server) and
+/// people accepting your invites.
+///
+/// Cyan is kept for what you act on (Accept) and the dot on anything new.
+///
+/// How long things stay (like Instagram / TikTok):
+///   Friend requests       until you answer them
+///   Daily invites and
+///   join requests         [_requestDays] days, then they drop off
+///   Activity              the last [_activityDays] days; older activity
+///                         is cleared from your account when you open this
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({Key? key}) : super(key: key);
 
@@ -24,6 +41,16 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   /// Requests shown before "Show more".
   static const int _collapsedCount = 4;
+
+  /// Unanswered Daily invites and join requests drop off after this.
+  static const int _requestDays = 14;
+
+  /// Activity (likes, comments, reactions, accepted invites) shows for this
+  /// long.
+  static const int _activityDays = 30;
+
+  static bool _within(DateTime t, int days) =>
+      DateTime.now().difference(t) < Duration(days: days);
 
   final FriendRequestService _friendRequestService = FriendRequestService();
   final DailyInvitationService _invitationService = DailyInvitationService();
@@ -36,6 +63,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<DailyInvitation> _invitations = [];
   List<DailyJoinRequest> _joinRequests = [];
   List<DailyInvitation> _accepted = [];
+  List<_Activity> _activity = [];
+
+  /// Activity that was new when this screen opened (gets a dot this visit;
+  /// it's marked seen right away).
+  final Set<String> _fresh = {};
+  bool _freshTaken = false;
 
   // Which of the four lists have answered (with data or an error) at least
   // once, and which failed.
@@ -59,6 +92,54 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _joinRequestService.getPendingJoinRequests(), (v) => _joinRequests = v);
     _listen<DailyInvitation>('accepted',
         _invitationService.getAcceptedInvitations(), (v) => _accepted = v);
+    _listen<_Activity>('activity', _activityStream(), (all) {
+      final v = all.where((a) => _within(a.time, _activityDays)).toList();
+      _clearOld(all.where((a) => !_within(a.time, _activityDays)));
+      _activity = v;
+      if (!_freshTaken) {
+        _freshTaken = true;
+        _fresh.addAll(v.where((a) => !a.seen).map((a) => a.ref.id));
+      }
+      _markSeen(v);
+    });
+  }
+
+  static const int _streams = 5;
+
+  Stream<List<_Activity>> _activityStream() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return Stream.value(const []);
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('activity')
+        .orderBy('createdAt', descending: true)
+        .limit(60)
+        .snapshots()
+        .map((s) => s.docs.map(_Activity.from).toList());
+  }
+
+  /// Activity past [_activityDays] is deleted from your account (only you
+  /// can see it, so nothing else needs it).
+  void _clearOld(Iterable<_Activity> old) {
+    final list = old.toList();
+    if (list.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
+    for (final a in list) {
+      batch.delete(a.ref);
+    }
+    batch.commit().catchError((_) {});
+  }
+
+  /// Opening the screen counts as seeing everything in it.
+  void _markSeen(List<_Activity> items) {
+    final unseen = items.where((a) => !a.seen).toList();
+    if (unseen.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
+    for (final a in unseen) {
+      batch.update(a.ref, {'seen': true});
+    }
+    batch.commit().catchError((_) {});
   }
 
   void _listen<T>(String key, Stream<List<T>> stream, void Function(List<T>) set) {
@@ -95,14 +176,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 26),
+          icon: Icon(Icons.arrow_back, color: kc.text, size: 26),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text('Notifications', style: KaidoseBrand.wordmark(26)),
@@ -112,10 +193,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildBody() {
-    if (_loaded.length < 4) {
-      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+    if (_loaded.length < _streams) {
+      return Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
     }
-    if (_failed.length == 4) {
+    if (_failed.length == _streams) {
       return _emptyState(
         icon: Icons.cloud_off_outlined,
         title: 'Couldn\'t load notifications',
@@ -128,17 +209,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       for (final r in _friendRequests)
         _Request(r.createdAt, () => _buildIncomingRequestCard(r)),
       for (final r in _invitations)
-        _Request(r.timestamp, () => _buildDailyInvitationCard(r)),
+        if (_within(r.timestamp, _requestDays))
+          _Request(r.timestamp, () => _buildDailyInvitationCard(r)),
       for (final r in _joinRequests)
-        _Request(r.timestamp, () => _buildJoinRequestCard(r)),
+        if (_within(r.timestamp, _requestDays))
+          _Request(r.timestamp, () => _buildJoinRequestCard(r)),
     ]..sort((a, b) => b.time.compareTo(a.time));
 
-    if (requests.isEmpty && _accepted.isEmpty) {
+    // Things that already happened, newest first.
+    final activity = <_Request>[
+      for (final a in _activity) _Request(a.time, () => _buildActivityCard(a)),
+      for (final r in _accepted)
+        if (_within(r.timestamp, _activityDays))
+          _Request(r.timestamp, () => _buildAcceptedDailyInvitationCard(r)),
+    ]..sort((a, b) => b.time.compareTo(a.time));
+
+    if (requests.isEmpty && activity.isEmpty) {
       return _emptyState(
         icon: Icons.notifications_none_rounded,
         title: 'You\'re all caught up',
         subtitle:
-        'Friend requests, Daily invites and updates will show up here.',
+        'Friend requests, Daily invites, likes and comments will show up here.',
       );
     }
 
@@ -160,16 +251,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     setState(() => _showAllRequests = !_showAllRequests),
                 child: Text(
                   _showAllRequests ? 'Show less' : 'Show $hidden more',
-                  style: const TextStyle(
-                      color: Colors.cyan, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                      color: kc.grey(700), fontWeight: FontWeight.w600),
                 ),
               ),
             ),
           const SizedBox(height: 12),
         ],
-        if (_accepted.isNotEmpty) ...[
+        if (activity.isNotEmpty) ...[
           _sectionHeader('Activity'),
-          ..._accepted.map(_buildAcceptedDailyInvitationCard),
+          ...activity.map((r) => r.build()),
         ],
       ],
     );
@@ -193,7 +284,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.14),
+                color: kc.grey(200),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -201,7 +292,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: Colors.cyan[800],
+                  color: kc.grey(800),
                 ),
               ),
             ),
@@ -226,10 +317,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               width: 84,
               height: 84,
               decoration: BoxDecoration(
-                color: Colors.grey[100],
+                color: kc.grey(100),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 40, color: Colors.grey[400]),
+              child: Icon(icon, size: 40, color: kc.grey(400)),
             ),
             const SizedBox(height: 18),
             Text(
@@ -237,14 +328,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
-                color: Colors.grey[800],
+                color: kc.grey(800),
               ),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 6),
               Text(
                 subtitle,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 14, color: kc.grey(600)),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -281,6 +372,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     String? declineLabel,
     VoidCallback? onDecline,
     bool highlighted = false,
+    VoidCallback? onTap,
+    bool isNew = false,
   }) {
     final busy = busyId != null && _busy.contains(busyId);
     final hasActions = onAccept != null && onDecline != null;
@@ -295,15 +388,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     }
 
-    return Container(
+    final card = Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        // Requests waiting on you sit on a light grey card; the rest are
+        // plain white with a thin line.
+        color: highlighted ? kc.adapt(const Color(0xFFF6F7F9)) : kc.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: highlighted ? Colors.cyan.withOpacity(0.4) : Colors.grey[300]!,
-          width: highlighted ? 1.5 : 1,
+          color: highlighted ? kc.adapt(const Color(0xFFE6E7EA)) : kc.grey(200),
         ),
       ),
       child: Column(
@@ -321,8 +415,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     const SizedBox(height: 2),
                     RichText(
                       text: TextSpan(
-                        style: const TextStyle(
-                            fontSize: 15, color: Colors.black87, height: 1.3),
+                        style: TextStyle(
+                            fontSize: 15, color: kc.text, height: 1.3),
                         children: [
                           TextSpan(
                             text: name,
@@ -341,11 +435,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     const SizedBox(height: 3),
                     Text(
                       _timeAgo(time),
-                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                      style: TextStyle(fontSize: 12, color: kc.grey(500)),
                     ),
                   ],
                 ),
               ),
+              if (isNew)
+                Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(left: 8, top: 6),
+                  decoration: const BoxDecoration(
+                      color: Colors.cyan, shape: BoxShape.circle),
+                ),
             ],
           ),
           if (hasActions) ...[
@@ -386,8 +488,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     child: OutlinedButton(
                       onPressed: busy ? null : onDecline,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.grey[800],
-                        side: BorderSide(color: Colors.grey.shade300),
+                        foregroundColor: kc.grey(800),
+                        side: BorderSide(color: kc.grey(300)),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
                       ),
@@ -403,6 +505,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ],
       ),
     );
+    if (onTap == null) return card;
+    return GestureDetector(
+        behavior: HitTestBehavior.opaque, onTap: onTap, child: card);
   }
 
   Widget _iconBubble(IconData icon) {
@@ -410,16 +515,128 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       width: 46,
       height: 46,
       decoration: BoxDecoration(
-        color: Colors.cyan.withOpacity(0.12),
+        color: kc.adapt(const Color(0xFFF1F2F4)),
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: Colors.cyan[700], size: 24),
+      child: Icon(icon, color: kc.adapt(const Color(0xFF55595F)), size: 23),
     );
+  }
+
+  /// Their profile picture, with a small badge for what they did.
+  Widget _personWithBadge(String uid, IconData badge, Color badgeColor) {
+    return SizedBox(
+      width: 46,
+      height: 46,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          MemberAvatar(userId: uid, size: 46),
+          Positioned(
+            right: -3,
+            bottom: -3,
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: kc.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: kc.background, width: 2),
+              ),
+              child: Icon(badge, size: 15, color: badgeColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActivityCard(_Activity a) {
+    final isNew = _fresh.contains(a.ref.id);
+    switch (a.kind) {
+      case 'clip_like':
+        return _card(
+          leading: _personWithBadge(
+              a.fromUid, Icons.favorite_rounded, const Color(0xFFFF3B5C)),
+          profileUserId: a.fromUid,
+          name: a.fromUsername,
+          action: 'liked your clip',
+          time: a.time,
+          isNew: isNew,
+          onTap: a.clipId == null
+              ? null
+              : () => ClipsActivity.openMine(context, a.clipId!),
+        );
+      case 'story_like':
+        return _card(
+          leading: _personWithBadge(
+              a.fromUid, Icons.wb_sunny_rounded, const Color(0xFFF4B04F)),
+          profileUserId: a.fromUid,
+          name: a.fromUsername,
+          action: 'liked your story',
+          time: a.time,
+          isNew: isNew,
+        );
+      case 'clip_comment':
+        return _card(
+          leading: _personWithBadge(
+              a.fromUid, Icons.mode_comment_rounded, kc.adapt(const Color(0xFF55595F))),
+          profileUserId: a.fromUid,
+          name: a.fromUsername,
+          action: (a.comment ?? '').isEmpty
+              ? 'commented on your clip'
+              : 'commented:',
+          bold: (a.comment ?? '').isEmpty ? null : a.comment,
+          time: a.time,
+          isNew: isNew,
+          onTap: a.clipId == null
+              ? null
+              : () => ClipsActivity.openMine(context, a.clipId!),
+        );
+      case 'daily_comment':
+        return _card(
+          leading: _personWithBadge(
+              a.fromUid, Icons.mode_comment_rounded, kc.adapt(const Color(0xFF55595F))),
+          profileUserId: a.fromUid,
+          name: a.fromUsername,
+          action: (a.comment ?? '').isEmpty
+              ? 'commented on your post in "${a.dailyTitle ?? 'a Daily'}"'
+              : 'commented on your post in "${a.dailyTitle ?? 'a Daily'}":',
+          bold: (a.comment ?? '').isEmpty ? null : a.comment,
+          time: a.time,
+          isNew: isNew,
+          onTap: a.dailyId == null
+              ? null
+              : () => NotificationService.instance.openDaily(a.dailyId!),
+        );
+      case 'daily_reaction':
+        return _card(
+          leading: _personWithBadge(
+              a.fromUid, Icons.add_reaction_rounded, kc.adapt(const Color(0xFF55595F))),
+          profileUserId: a.fromUid,
+          name: a.fromUsername,
+          action: 'reacted ${a.emoji ?? ''} to your post in'.replaceAll('  ', ' '),
+          bold: a.dailyTitle,
+          time: a.time,
+          isNew: isNew,
+          onTap: a.dailyId == null
+              ? null
+              : () => NotificationService.instance.openDaily(a.dailyId!),
+        );
+      default:
+        return _card(
+          leading: MemberAvatar(userId: a.fromUid, size: 46),
+          profileUserId: a.fromUid,
+          name: a.fromUsername,
+          action: a.text,
+          time: a.time,
+          isNew: isNew,
+        );
+    }
   }
 
   Widget _buildIncomingRequestCard(FriendRequest request) {
     return _card(
-      leading: _avatarBubble(),
+      leading: MemberAvatar(userId: request.fromUserId, size: 46),
       profileUserId: request.fromUserId,
       name: request.fromUsername,
       action: 'wants to link with you',
@@ -470,48 +687,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       action: 'accepted your invite to',
       bold: invitation.dailyTitle,
       time: invitation.timestamp,
-    );
-  }
-
-  /// Person-shaped placeholder avatar, in the same style as Chat and Search.
-  Widget _avatarBubble() {
-    return Container(
-      width: 46,
-      height: 46,
-      decoration: BoxDecoration(
-        color: Colors.cyan.withOpacity(0.2),
-        shape: BoxShape.circle,
-      ),
-      child: ClipOval(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Positioned(
-              top: 11,
-              child: Container(
-                width: 15,
-                height: 15,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle, color: Colors.cyan[700]),
-              ),
-            ),
-            Positioned(
-              bottom: -6,
-              child: Container(
-                width: 40,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: Colors.cyan[700],
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    topRight: Radius.circular(20),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -695,6 +870,60 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     },
   );
+}
+
+/// One like / comment / reaction from users/{uid}/activity.
+class _Activity {
+  final DocumentReference ref;
+  final String kind;
+  final String fromUid;
+  final String fromUsername;
+  final String text;
+  final DateTime time;
+  final bool seen;
+  final String? clipId;
+  final String? comment;
+  final String? dailyId;
+  final String? dailyTitle;
+  final String? emoji;
+
+  _Activity({
+    required this.ref,
+    required this.kind,
+    required this.fromUid,
+    required this.fromUsername,
+    required this.text,
+    required this.time,
+    required this.seen,
+    this.clipId,
+    this.comment,
+    this.dailyId,
+    this.dailyTitle,
+    this.emoji,
+  });
+
+  static _Activity from(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final m = d.data();
+    String? str(String k) {
+      final v = m[k];
+      return v is String && v.isNotEmpty ? v : null;
+    }
+
+    return _Activity(
+      ref: d.reference,
+      kind: str('kind') ?? '',
+      fromUid: str('fromUid') ?? '',
+      fromUsername: str('fromUsername') ?? 'Someone',
+      text: str('text') ?? '',
+      time: (m['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      seen: m['seen'] == true,
+      clipId: str('clipId'),
+      comment: str('comment'),
+      dailyId: str('dailyId'),
+      dailyTitle: str('dailyTitle'),
+      emoji: str('emoji'),
+    );
+  }
 }
 
 /// A pending request plus the time it came in, so friend requests, invites and

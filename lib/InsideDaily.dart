@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
+import 'SunColors.dart';
 import 'SafetyService.dart';
 import 'SafetySheets.dart';
 import 'DailyData.dart';
@@ -19,27 +21,67 @@ import 'FeedService.dart';
 import 'DailyUnread.dart';
 import 'dart:async';
 import 'DailyModeration.dart';
+import 'CoverJump.dart';
+import 'MediaAspect.dart' show MediaAspect, precacheNetworkImage;
+import 'DailyPostActivity.dart' show DailyPostVideoCache;
+import 'CameraCapture.dart';
 
 class InsideDaily extends StatefulWidget {
   final DailyData daily;
 
+  /// Opened by tapping a cover: the post that cover came from. The Daily
+  /// opens right at it (once; see CoverJump), with the newest messages a
+  /// "Latest" tap away.
+  final String? coverMessageId;
+
   const InsideDaily({
     Key? key,
     required this.daily,
+    this.coverMessageId,
   }) : super(key: key);
 
   @override
   State<InsideDaily> createState() => InsideDailyState();
 }
 
-class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin {
+class InsideDailyState extends State<InsideDaily>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  // Time spent looking at this Daily (app in the foreground). Reported to
+  // the feed when you leave, so Dailies you linger in shape both feeds.
+  DateTime? _viewingSince = DateTime.now();
+  Duration _timeSpent = Duration.zero;
+
+  void _pauseTimer() {
+    final since = _viewingSince;
+    if (since != null) _timeSpent += DateTime.now().difference(since);
+    _viewingSince = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _viewingSince ??= DateTime.now();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _pauseTimer();
+    }
+  }
+
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _messageFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   DateTime? _selectedDate;
   bool _showOptionsMenu = false;
   bool _showMediaPicker = false;
-  bool _filterOnlyPromptMessages = false;
+
+  // Opened from a cover: the list starts at that post (the anchor), which
+  // is briefly highlighted. Null = normal (opens at the newest).
+  bool _wantCoverJump = false;
+  String? _anchorId;
+  String? _highlightId;
+
+  // "Latest" button: shown when you're well above the newest messages.
+  bool _showLatest = false;
 
   // Everything queued up to send with the next message — could be zero,
   // one, or several photos/videos picked at once from the gallery grid,
@@ -124,20 +166,10 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     if (!inMine) _loadGuestPrompt();
   }
 
-  /// Today's scheduled prompt if the owner set one, else the Daily's
-  /// standing prompt.
+  /// Today's scheduled prompt, if the owner set one for today. Prompts
+  /// are per day (like covers), so there's no standing prompt anymore.
   Future<void> _loadGuestPrompt() async {
-    var prompt = widget.daily.dailyEntryPrompt.trim();
-    try {
-      final snap = await DailyCoverService.scheduleRef(
-        widget.daily.id,
-        CoverWindow.dateKey(DateTime.now()),
-      ).get();
-      final scheduled = (snap.data()?['prompt'] as String?)?.trim() ?? '';
-      if (scheduled.isNotEmpty) prompt = scheduled;
-    } catch (e) {
-      print('InsideDaily: guest prompt load error: $e');
-    }
+    final prompt = await DailyCoverService.todayPrompt(widget.daily.id);
     if (mounted) setState(() => _guestPrompt = prompt);
   }
 
@@ -158,7 +190,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
           margin: const EdgeInsets.only(left: 16, right: 16),
           padding: const EdgeInsets.fromLTRB(14, 9, 14, 8),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: kc.grey(100),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
           ),
           child: Row(
@@ -170,7 +202,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.6,
-                  color: Colors.cyan,
+                  color: SunColors.ink,
                 ),
               ),
               const SizedBox(width: 10),
@@ -179,15 +211,15 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                   _guestPrompt,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+                    color: kc.text,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.north_east, size: 14, color: Colors.cyan),
+              const Icon(Icons.north_east, size: 14, color: SunColors.ink),
             ],
           ),
         ),
@@ -226,14 +258,14 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey[200]!)),
+        color: kc.surface,
+        border: Border(top: BorderSide(color: kc.grey(200))),
       ),
       child: SafeArea(
         top: false,
         child: Row(
           children: [
-            Icon(Icons.block, size: 20, color: Colors.grey[600]),
+            Icon(Icons.block, size: 20, color: kc.grey(600)),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -249,7 +281,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                     ban.isPermanent
                         ? "You can't post here."
                         : "You can't post here for now · ${ban.timeLeft}",
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 13, color: kc.grey(600)),
                   ),
                 ],
               ),
@@ -260,39 +292,10 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     );
   }
 
-  /// Guests only: a small round "+" in the app bar (same size and style as
-  /// its neighbours) that adds this Daily to My Dailies, then goes away.
-  Widget _buildAddAction() {
-    return Tooltip(
-      message: 'Add to My Dailies',
-      child: GestureDetector(
-        onTap: _addToMyDailies,
-        child: Container(
-          margin: const EdgeInsets.only(right: 14),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            shape: BoxShape.circle,
-          ),
-          child: _addingToMyDailies
-              ? const SizedBox(
-            width: 22,
-            height: 22,
-            child: Padding(
-              padding: EdgeInsets.all(3),
-              child: CircularProgressIndicator(
-                  color: Colors.cyan, strokeWidth: 2),
-            ),
-          )
-              : const Icon(Icons.add, color: Colors.cyan, size: 22),
-        ),
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadCurrentUser(); // NEW: Load username first
     _checkGuestStatus();
     _permsSub = DailyModeration.watchPermissions(widget.daily).listen((p) {
@@ -327,6 +330,10 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
 
     _messageController.addListener(_handleComposeContentChanged);
     _messageFocusNode.addListener(_handleFocusChanged);
+
+    _wantCoverJump =
+        CoverJump.shouldJump(widget.daily.id, widget.coverMessageId);
+    _scrollController.addListener(_updateLatestButton);
 
     _messageStorageListener = () {
       if (mounted) _loadMessages();
@@ -398,11 +405,43 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         _scrollController.position.maxScrollExtent -
             _scrollController.position.pixels <
             160;
-    final jump = !_loadedOnce || atBottom;
+    var jump = !_loadedOnce || atBottom;
+
+    // Opened from a cover (not seen yet): start at that post instead of
+    // the bottom, unless it's already among the newest few.
+    String? anchor;
+    if (!_loadedOnce && _wantCoverJump) {
+      _wantCoverJump = false;
+      final id = widget.coverMessageId!;
+      final i = messages.indexWhere((m) => m.messageId == id);
+      if (i >= 0) {
+        CoverJump.markSeen(widget.daily.id, id);
+        if (i < messages.length - 4) {
+          jump = false;
+          anchor = id;
+          _warmAround(messages, i);
+        }
+      }
+    }
+    // Normal open (at the newest messages): get the posts you'll see first
+    // ready right away: their photos, video still frames and sizes, plus
+    // the newest videos.
+    if (!_loadedOnce && anchor == null && messages.isNotEmpty) {
+      _warmAround(messages, messages.length - 1);
+    }
     _loadedOnce = true;
 
     setState(() {
       _messages = messages;
+      if (anchor != null) {
+        _anchorId = anchor;
+        _highlightId = anchor;
+      }
+    });
+
+    // Opening at a cover post shows "Latest" right away.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateLatestButton();
     });
 
     // Everything just loaded counts as read: clears this Daily's
@@ -416,6 +455,98 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         }
       });
     }
+  }
+
+  /// Gets the posts around [index] (the cover post, or the newest one on a
+  /// normal open) ready: their photos and video
+  /// still frames download and their sizes are worked out (so nothing
+  /// jumps while scrolling up or down from there), and the cover's video
+  /// plus the next one start loading.
+  void _warmAround(List<DailyMessage> messages, int index) {
+    var videos = 0;
+    final from = (index - 10).clamp(0, messages.length);
+    final to = (index + 11).clamp(0, messages.length);
+    // Nearest first, so the ones on screen are ready first.
+    final order = List.generate(to - from, (k) => from + k)
+      ..sort((a, b) => (a - index).abs().compareTo((b - index).abs()));
+    for (final i in order) {
+      for (final item in messages[i].media) {
+        if (!item.path.startsWith('http')) continue;
+        if (!item.isVideo || item.thumb != null) {
+          MediaAspect.of(item.path, isVideo: item.isVideo, thumb: item.thumb);
+        }
+        if (item.isVideo) {
+          final thumb = item.thumb;
+          if (thumb != null) precacheNetworkImage(thumb);
+          if (videos < 2 && (i - index).abs() <= 3) {
+            DailyPostVideoCache.warm(item.path);
+            videos++;
+          }
+        } else {
+          precacheNetworkImage(item.path);
+        }
+      }
+    }
+  }
+
+  void _updateLatestButton() {
+    if (!_scrollController.hasClients) return;
+    final p = _scrollController.position;
+    final show = p.maxScrollExtent - p.pixels > 900;
+    if (show != _showLatest) setState(() => _showLatest = show);
+  }
+
+  /// Down to the newest messages. From far up it hops most of the way
+  /// first, so it doesn't take ages scrolling past everything.
+  Future<void> _jumpToLatest() async {
+    if (!_scrollController.hasClients) return;
+    final p = _scrollController.position;
+    final screen = p.viewportDimension;
+    if (p.maxScrollExtent - p.pixels > screen * 3) {
+      _scrollController.jumpTo(p.maxScrollExtent - screen);
+    }
+    await _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+    // Lazy lists can grow as they're reached: land exactly at the end.
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    }
+  }
+
+  Widget _buildLatestButton() {
+    return GestureDetector(
+      onTap: _jumpToLatest,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: kc.surface,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Latest',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: kc.grey(850))),
+            const SizedBox(width: 4),
+            Icon(Icons.arrow_downward_rounded,
+                size: 18, color: kc.grey(850)),
+          ],
+        ),
+      ),
+    );
   }
 
   void addPromptMessage(String messageText) {
@@ -449,25 +580,46 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     });
   }
 
-  void addPromptMessageWithMedia(String messageText, String? imagePath, String? videoPath) {
+  /// Posts the answer to this Daily's entry prompt (from the prompt pop-up
+  /// in UponOpeningDaily): text and any photos/videos, as one message, the
+  /// same way the normal Send button posts.
+  Future<void> addPromptEntry(String messageText, List<PickedMedia> media) async {
+    final text = messageText.trim();
+    if (_isBanned || (text.isEmpty && media.isEmpty)) return;
+
     final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+    // Right after the Daily opens, your name may not have loaded yet; get it
+    // so the post doesn't go out under "You".
+    var username = _currentUsername;
+    if (username == null || username == 'You') {
+      try {
+        final user = await _userService.getUserById(currentUid);
+        username = user?.username ?? username;
+      } catch (_) {}
+    }
 
     final promptMessage = DailyMessage(
-      text: messageText.trim().isNotEmpty ? messageText : null,
-      imagePath: imagePath,
-      videoPath: videoPath,
+      text: text.isNotEmpty ? text : null,
+      media: media
+          .map((p) => DailyMediaItem(path: p.file.path, isVideo: p.isVideo))
+          .toList(),
       timestamp: DateTime.now(),
       dailyId: widget.daily.id,
       isFromPrompt: true,
       userId: currentUid,
-      username: _currentUsername ?? 'You',
+      username: username ?? 'You',
     );
 
+    if (!mounted) return;
     setState(() {
+      _selectedDate = null;
       _messages.add(promptMessage);
     });
 
-    MessageStorage.addMessage(widget.daily.id, promptMessage);
+    _sending.add(promptMessage.messageId);
+    MessageStorage.addMessage(widget.daily.id, promptMessage)
+        .whenComplete(() => _sending.remove(promptMessage.messageId));
+    FeedService.recordEvent(widget.daily, FeedEvent.post);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
@@ -482,6 +634,9 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pauseTimer();
+    FeedService.recordDailyTime(widget.daily, _timeSpent);
     _banSub?.cancel();
     _permsSub?.cancel();
     _modsSub?.cancel();
@@ -558,68 +713,92 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
     }
   }
 
+  /// Days (midnight) that have at least one message.
+  Set<DateTime> get _daysWithMessages => {
+    for (final m in _messages)
+      DateTime(m.timestamp.year, m.timestamp.month, m.timestamp.day),
+  };
+
+  /// Calendar: jump to one day's messages. Only days that actually have
+  /// messages can be picked, so a filter never comes up empty.
   Future<void> _selectDate(BuildContext context) async {
-    final result = await showDialog<dynamic>(
+    if (_showOptionsMenu) _toggleOptionsMenu();
+    final days = _daysWithMessages;
+    if (days.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No messages to look through yet'),
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
+    final sorted = days.toList()..sort();
+    final first = sorted.first;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final last = sorted.last.isAfter(today) ? sorted.last : today;
+    final current = _selectedDate == null
+        ? null
+        : DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
+    final initial =
+    (current != null && days.contains(current)) ? current : sorted.last;
+
+    final picked = await showDatePicker(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Select Date'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.all_inclusive, color: Colors.cyan),
-                title: const Text('Any time'),
-                subtitle: const Text('Show all messages'),
-                onTap: () => Navigator.pop(context, 'any_time'),
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.calendar_today, color: Colors.cyan),
-                title: const Text('Pick a specific date'),
-                onTap: () => Navigator.pop(context, 'pick_date'),
-              ),
-            ],
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
+      initialEntryMode: DatePickerEntryMode.calendarOnly,
+      helpText: 'Show messages from',
+      confirmText: 'Show',
+      selectableDayPredicate: (d) =>
+          days.contains(DateTime(d.year, d.month, d.day)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: (AppTheme.isDark ? ColorScheme.dark : ColorScheme.light)(
+              primary: Colors.cyan,
+              onPrimary: Colors.white,
+              onSurface: kc.text,
+            ),
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: kc.surface,
+              surfaceTintColor: Colors.transparent,
+              headerBackgroundColor: kc.surface,
+              headerForegroundColor: kc.text,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: Colors.cyan[700]),
+            ),
           ),
+          child: child!,
         );
       },
     );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _selectedDate = picked;
+      _anchorId = null; // date filter: back to a normal list
+      _highlightId = null;
+    });
+    // Start at the top of that day.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) _scrollController.jumpTo(0);
+    });
+  }
 
-    if (result == 'any_time') {
-      setState(() {
-        _selectedDate = null;
-      });
-    } else if (result == 'pick_date') {
-      final DateTime? picked = await showDatePicker(
-        context: context,
-        initialDate: _selectedDate ?? DateTime.now(),
-        firstDate: DateTime(2020),
-        lastDate: DateTime.now(),
-        builder: (context, child) {
-          return Theme(
-            data: Theme.of(context).copyWith(
-              colorScheme: const ColorScheme.light(
-                primary: Colors.cyan,
-                onPrimary: Colors.white,
-                onSurface: Colors.black,
-              ),
-              textButtonTheme: TextButtonThemeData(
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.cyan,
-                ),
-              ),
-            ),
-            child: child!,
-          );
-        },
-      );
-
-      if (picked != null) {
-        setState(() {
-          _selectedDate = picked;
-        });
+  void _clearDateFilter() {
+    setState(() {
+      _selectedDate = null;
+      _anchorId = null;
+    });
+    // Back to the newest messages.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
       }
-    }
+    });
   }
 
   void _toggleOptionsMenu() {
@@ -675,6 +854,16 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       _pendingMedia.addAll(items);
     });
     _closeMediaPicker();
+  }
+
+  /// The camera button (shown while there's nothing typed): take a photo
+  /// or record a video. It joins the pending strip like anything picked from
+  /// the gallery, so you can add a caption before sending.
+  Future<void> _openCamera() async {
+    if (_isBanned) return;
+    final shot = await CameraCapture.capture(context);
+    if (shot == null || !mounted) return;
+    setState(() => _pendingMedia.add(shot));
   }
 
   Future<void> _openDrawPad() async {
@@ -792,6 +981,12 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
 
     final text = _messageController.text.trim();
 
+    // Looking at an older day: your new message wouldn't show, so go back
+    // to everything.
+    if (_selectedDate != null && (text.isNotEmpty || _pendingMedia.isNotEmpty)) {
+      setState(() => _selectedDate = null);
+    }
+
     if (text.isEmpty && _pendingMedia.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -861,7 +1056,14 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       return 'Today';
     }
 
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    if (date.year == yesterday.year &&
+        date.month == yesterday.month &&
+        date.day == yesterday.day) {
+      return 'Yesterday';
+    }
+    final year = date.year == now.year ? '' : ', ${date.year}';
+    return '${months[date.month - 1]} ${date.day}$year';
   }
 
   /// Whether the compose button should show Send (something to actually
@@ -884,10 +1086,6 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       }).toList();
     }
 
-    if (_filterOnlyPromptMessages) {
-      filtered = filtered.where((message) => message.isFromPrompt).toList();
-    }
-
     return filtered;
   }
   /// The Daily's own title font (shared fonts, preloaded at launch: see
@@ -900,7 +1098,10 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
       // extendBodyBehindAppBar means body starts at the very top of the
       // screen now, not below the AppBar — top:8 alone would tuck this
       // under the status bar/title instead of below the toggle button.
-      top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
+      top: MediaQuery.of(context).padding.top +
+          kToolbarHeight +
+          8 +
+          (_showSubBar ? 40 : 0),
       right: 16,
       child: FadeTransition(
         opacity: _optionsAnimation,
@@ -912,7 +1113,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
           child: Container(
             width: 210,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: kc.surface,
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
@@ -926,16 +1127,17 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildOptionItem(Icons.bookmark_outline, 'Saved'),
-                Divider(height: 1, color: Colors.grey[300]),
+                // Your saved posts from this Daily: only in My Dailies.
+                if (!_isGuest) ...[
+                  _buildOptionItem(Icons.bookmark_outline, 'Saved'),
+                  Divider(height: 1, color: kc.grey(300)),
+                ],
                 _buildOptionItem(Icons.add_reaction_outlined, 'Reacted'),
-                Divider(height: 1, color: Colors.grey[300]),
+                Divider(height: 1, color: kc.grey(300)),
                 _buildOptionItem(Icons.comment_outlined, 'Comments'),
-                Divider(height: 1, color: Colors.grey[300]),
-                _buildFilterOptionItem(),
                 if (widget.daily.creatorUid !=
                     FirebaseAuth.instance.currentUser?.uid) ...[
-                  Divider(height: 1, color: Colors.grey[300]),
+                  Divider(height: 1, color: kc.grey(300)),
                   _buildOptionItem(Icons.flag_outlined, 'Report Daily'),
                 ],
               ],
@@ -989,55 +1191,15 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: Colors.black87),
+            Icon(icon, size: 20, color: kc.text),
             const SizedBox(width: 12),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
-                color: Colors.black87,
+                color: kc.text,
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilterOptionItem() {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _filterOnlyPromptMessages = !_filterOnlyPromptMessages;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(Icons.filter_list, size: 20, color: Colors.black87),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Entry Messages Only',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black87,
-                ),
-              ),
-            ),
-            Checkbox(
-              value: _filterOnlyPromptMessages,
-              onChanged: (val) {
-                setState(() {
-                  _filterOnlyPromptMessages = val ?? false;
-                });
-              },
-              activeColor: Colors.cyan,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
             ),
           ],
         ),
@@ -1065,7 +1227,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                   height: 90,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey[300]!, width: 2),
+                    border: Border.all(color: kc.grey(300), width: 2),
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -1082,8 +1244,8 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                       height: 90,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) => Container(
-                        color: Colors.grey[200],
-                        child: Icon(Icons.broken_image, color: Colors.grey[400]),
+                        color: kc.grey(200),
+                        child: Icon(Icons.broken_image, color: kc.grey(400)),
                       ),
                     ),
                   ),
@@ -1114,92 +1276,47 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black, size: 28),
+          icon: Icon(Icons.arrow_back, color: kc.text, size: 28),
           onPressed: () {
             Navigator.pop(context);
           },
         ),
         title: Text(
           widget.daily.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: _getFontForDaily(widget.daily, weight: FontWeight.w600).copyWith(
-            color: Colors.black,
+            color: kc.text,
             fontSize: 18,
             fontWeight: FontWeight.w600,
           ),
         ),
         centerTitle: true,
+        // Just two buttons up here, so the title always has room. Adding a
+        // Daily (guests) and the date filter live in the strip below.
         actions: [
-          if (_isGuest && !_isBanned) _buildAddAction(),
-          // Options menu toggle — used to be an up arrow at the bottom of
-          // the screen; now lives up here, so it reads as a down arrow
-          // (opening the menu) that flips when toggled.
-          GestureDetector(
-            onTap: _toggleOptionsMenu,
-            child: AnimatedRotation(
-              turns: _showOptionsMenu ? 0.5 : 0,
-              duration: const Duration(milliseconds: 300),
-              child: Container(
-                margin: const EdgeInsets.only(right: 14),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.keyboard_arrow_down,
-                  color: Colors.cyan,
-                  size: 22,
-                ),
-              ),
-            ),
-          ),
-          // Clear date filter — only shown while a date filter is active
-          if (_selectedDate != null)
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedDate = null;
-                });
-                _loadMessages();
-              },
-              child: Container(
-                margin: const EdgeInsets.only(right: 14),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.clear,
-                  color: Colors.black87,
-                  size: 22,
-                ),
-              ),
-            ),
-          // Date picker
-          GestureDetector(
+          _barButton(
+            icon: Icons.calendar_today_rounded,
+            active: _selectedDate != null,
             onTap: () => _selectDate(context),
-            child: Container(
-              margin: const EdgeInsets.only(right: 16),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.calendar_today,
-                color: Colors.cyan,
-                size: 22,
-              ),
+          ),
+          const SizedBox(width: 8),
+          AnimatedRotation(
+            turns: _showOptionsMenu ? 0.5 : 0,
+            duration: const Duration(milliseconds: 300),
+            child: _barButton(
+              icon: Icons.keyboard_arrow_down_rounded,
+              onTap: _toggleOptionsMenu,
             ),
           ),
+          const SizedBox(width: 14),
         ],
       ),
       body: Stack(
@@ -1207,18 +1324,44 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
           Column(
             children: [
               Expanded(
-                child: DailyMessageList(
-                  messages: _getFilteredMessages(),
-                  scrollController: _scrollController,
-                  onEdit: _startEditingMessage,
-                  // Reactions and saves write themselves (one field each).
-                  onMessageUpdate: null,
-                  dailyTitle: widget.daily.title,
-                  isPrivateDaily: widget.daily.privacy != 'Public',
-                  permissions: _perms,
-                  ownerUid: widget.daily.creatorUid,
-                  moderatorUids: _moderatorUids,
-                  topPadding: MediaQuery.of(context).padding.top + kToolbarHeight + 12,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: DailyMessageList(
+                        messages: _getFilteredMessages(),
+                        anchorMessageId: _anchorId,
+                        highlightMessageId: _highlightId,
+                        scrollController: _scrollController,
+                        onEdit: _startEditingMessage,
+                        // Reactions and saves write themselves (one field each).
+                        onMessageUpdate: null,
+                        dailyTitle: widget.daily.title,
+                        isPrivateDaily: widget.daily.privacy != 'Public',
+                        permissions: _perms,
+                        ownerUid: widget.daily.creatorUid,
+                        moderatorUids: _moderatorUids,
+                        inMyDailies: !_isGuest,
+                        topPadding: MediaQuery.of(context).padding.top +
+                            kToolbarHeight +
+                            12 +
+                            (_showSubBar ? 40 : 0),
+                      ),
+                    ),
+                    // Back to the newest messages.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 12,
+                      child: Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          child: _showLatest
+                              ? _buildLatestButton()
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
@@ -1237,7 +1380,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: kc.surface,
                     boxShadow: [
                       BoxShadow(
                         color: Colors.grey.withOpacity(0.2),
@@ -1262,19 +1405,19 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
-                              color: Colors.grey[100],
+                              color: kc.grey(100),
                               border: Border(
-                                bottom: BorderSide(color: Colors.grey[300]!, width: 1),
+                                bottom: BorderSide(color: kc.grey(300), width: 1),
                               ),
                             ),
                             child: Row(
                               children: [
                                 const Icon(Icons.edit, color: Colors.cyan, size: 18),
                                 const SizedBox(width: 8),
-                                const Text(
+                                Text(
                                   'Editing message',
                                   style: TextStyle(
-                                    color: Colors.black87,
+                                    color: kc.text,
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -1285,14 +1428,14 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                     decoration: BoxDecoration(
-                                      color: Colors.white,
+                                      color: kc.surface,
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.grey[400]!, width: 1),
+                                      border: Border.all(color: kc.grey(400), width: 1),
                                     ),
-                                    child: const Text(
+                                    child: Text(
                                       'Cancel',
                                       style: TextStyle(
-                                        color: Colors.black87,
+                                        color: kc.text,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -1306,13 +1449,13 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                           children: [
                             Container(
                               decoration: BoxDecoration(
-                                color: Colors.grey[200],
+                                color: kc.grey(200),
                                 shape: BoxShape.circle,
                               ),
                               child: IconButton(
                                 icon: Icon(
                                   Icons.perm_media,
-                                  color: Colors.grey[700],
+                                  color: kc.grey(700),
                                   size: 22,
                                 ),
                                 onPressed: _toggleMediaPicker,
@@ -1322,7 +1465,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                             Expanded(
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: Colors.grey[100],
+                                  color: kc.grey(100),
                                   borderRadius: BorderRadius.circular(24),
                                 ),
                                 child: TextField(
@@ -1333,7 +1476,7 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                                         ? _guestPrompt
                                         : 'Type a message...',
                                     hintStyle: TextStyle(
-                                      color: Colors.grey[500],
+                                      color: kc.grey(500),
                                       fontSize: 16,
                                     ),
                                     border: InputBorder.none,
@@ -1342,9 +1485,9 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                                       vertical: 12,
                                     ),
                                   ),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
-                                    color: Colors.black87,
+                                    color: kc.text,
                                   ),
                                   maxLines: null,
                                   textCapitalization: TextCapitalization.sentences,
@@ -1376,20 +1519,17 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
                               )
                                   : Container(
                                 key: const ValueKey('camera'),
-                                decoration: const BoxDecoration(
-                                  color: Colors.cyan,
+                                decoration: BoxDecoration(
+                                  color: kc.adapt(const Color(0xFFF1F3F5)),
                                   shape: BoxShape.circle,
                                 ),
                                 child: IconButton(
-                                  icon: const Icon(
-                                    Icons.camera_alt,
-                                    color: Colors.white,
+                                  icon: Icon(
+                                    Icons.camera_alt_outlined,
+                                    color: kc.adapt(const Color(0xFF2E2E2E)),
                                     size: 22,
                                   ),
-                                  onPressed: () {
-                                    // Placeholder — quick camera
-                                    // capture wiring comes later.
-                                  },
+                                  onPressed: _openCamera,
                                 ),
                               ),
                             ),
@@ -1459,8 +1599,127 @@ class InsideDailyState extends State<InsideDaily> with TickerProviderStateMixin 
             ),
           ),
 
+          if (_showSubBar) _buildSubBar(),
           if (_showOptionsMenu) _buildOptionsMenu(),
         ],
+      ),
+    );
+  }
+
+  /// Round grey button in the app bar; cyan-filled while [active].
+  Widget _barButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: active ? Colors.cyan : kc.adapt(const Color(0xFFF1F3F5)),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon,
+            color: active ? Colors.white : kc.adapt(const Color(0xFF2E2E2E)), size: 20),
+      ),
+    );
+  }
+
+  /// The strip under the app bar: "Add to My Dailies" for guests, and the
+  /// day you're filtered to (tap the x to see everything again).
+  bool get _showSubBar =>
+      (_isGuest && !_isBanned) || _selectedDate != null;
+
+  Widget _buildSubBar() {
+    Widget chip({
+      required IconData icon,
+      required String label,
+      required VoidCallback onTap,
+      bool filled = false,
+      bool busy = false,
+      Widget? trailing,
+    }) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 32,
+          padding: EdgeInsets.only(left: 10, right: trailing != null ? 4 : 12),
+          decoration: BoxDecoration(
+            color: filled ? Colors.cyan : kc.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: filled ? null : Border.all(color: kc.adapt(const Color(0xFFE2E5E9))),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              busy
+                  ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white),
+              )
+                  : Icon(icon,
+                  size: 16,
+                  color: filled ? Colors.white : kc.grey(700)),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: filled ? Colors.white : kc.text,
+                ),
+              ),
+              if (trailing != null) trailing,
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + kToolbarHeight + 2,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Wrap(
+          spacing: 8,
+          children: [
+            if (_isGuest && !_isBanned)
+              chip(
+                icon: Icons.add_rounded,
+                label: 'Add to My Dailies',
+                filled: true,
+                busy: _addingToMyDailies,
+                onTap: _addToMyDailies,
+              ),
+            if (_selectedDate != null)
+              chip(
+                icon: Icons.calendar_today_rounded,
+                label: _formatDate(_selectedDate),
+                onTap: () => _selectDate(context),
+                trailing: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _clearDateFilter,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 4, 4, 4),
+                    child: Icon(Icons.close_rounded,
+                        size: 16, color: kc.grey(600)),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1475,10 +1734,20 @@ class DailyMessageList extends StatelessWidget {
   final String? dailyTitle;
   final bool isPrivateDaily;
 
+  /// Start the list at this post (opened from a cover) instead of at the
+  /// bottom. Messages load lazily both up and down from it.
+  final String? anchorMessageId;
+
+  /// Briefly highlighted, with a small "From the cover" tag.
+  final String? highlightMessageId;
+
   // Who's looking, for the owner / moderator options on each post.
   final DailyPermissions permissions;
   final String? ownerUid;
   final List<String> moderatorUids;
+
+  /// One of your Dailies (not a guest visit from For You).
+  final bool inMyDailies;
 
   const DailyMessageList({
     Key? key,
@@ -1488,9 +1757,12 @@ class DailyMessageList extends StatelessWidget {
     this.onMessageUpdate,
     this.dailyTitle,
     this.isPrivateDaily = false,
+    this.anchorMessageId,
+    this.highlightMessageId,
     this.permissions = DailyPermissions.none,
     this.ownerUid,
     this.moderatorUids = const [],
+    this.inMyDailies = true,
     this.topPadding = 16,
   }) : super(key: key);
 
@@ -1544,7 +1816,7 @@ class DailyMessageList extends StatelessWidget {
               TextSpan(text: ' ${_timeOfDay(t)}'),
             ],
           ),
-          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          style: TextStyle(fontSize: 12, color: kc.grey(500)),
         ),
       ),
     );
@@ -1560,14 +1832,14 @@ class DailyMessageList extends StatelessWidget {
             Icon(
               Icons.chat_bubble_outline,
               size: 80,
-              color: Colors.grey[300],
+              color: kc.grey(300),
             ),
             const SizedBox(height: 16),
             Text(
               'No messages yet',
               style: TextStyle(
                 fontSize: 18,
-                color: Colors.grey[500],
+                color: kc.grey(500),
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -1576,7 +1848,7 @@ class DailyMessageList extends StatelessWidget {
               'Send a message to get started!',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey[400],
+                color: kc.grey(400),
               ),
             ),
           ],
@@ -1614,45 +1886,145 @@ class DailyMessageList extends StatelessWidget {
       previousMessage = message;
     }
 
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+    final cacheExtent = MediaQuery.of(context).size.height * 1.5;
+
+    Widget buildItem(Object item) {
+      if (item is DateTime) return _buildDateMarker(item);
+      final message = item as DailyMessage;
+      final grouped = groupedIds.contains(message.messageId);
+      final widget = DailyMessageWidget(
+        // Keeps each message's state (loaded media, comment counts) with
+        // that message when the list reloads.
+        key: ValueKey(message.messageId),
+        message: message,
+        isCurrentUser: message.userId == currentUid,
+        showUsername: !grouped,
+        groupedWithPrevious: grouped,
+        dailyTitle: dailyTitle,
+        isPrivateDaily: isPrivateDaily,
+        // Same rule for removing a post as for banning its author.
+        canModerate: _canBan(message.userId, currentUid),
+        canBanAuthor: _canBan(message.userId, currentUid),
+        inMyDailies: inMyDailies,
+        onEdit: onEdit,
+        onSaveToggle: onMessageUpdate,
+        onReactionAdded: (emoji) {
+          if (onMessageUpdate != null) {
+            onMessageUpdate!();
+          }
+        },
+      );
+      return message.messageId == highlightMessageId
+          ? _CoverHighlight(child: widget)
+          : widget;
+    }
+
+    // Opened from a cover: split the list at that post. Older messages
+    // grow upward from it, newer ones downward, both built lazily with the
+    // same build-ahead distance, so scrolling either way is ready.
+    final anchorIndex = anchorMessageId == null
+        ? -1
+        : items.indexWhere(
+            (i) => i is DailyMessage && i.messageId == anchorMessageId);
+    if (anchorIndex >= 0) {
+      // Keep its date marker with it.
+      final split = (anchorIndex > 0 && items[anchorIndex - 1] is DateTime)
+          ? anchorIndex - 1
+          : anchorIndex;
+      final before = items.sublist(0, split).reversed.toList();
+      final after = items.sublist(split);
+      const centerKey = ValueKey('cover-anchor');
+      return CustomScrollView(
+        controller: scrollController,
+        center: centerKey,
+        // The cover post sits a bit below the app bar.
+        anchor: 0.18,
+        cacheExtent: cacheExtent,
+        slivers: [
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+                  (context, i) => i == before.length
+                  ? SizedBox(height: topPadding) // very top
+                  : buildItem(before[i]),
+              childCount: before.length + 1,
+            ),
+          ),
+          SliverList(
+            key: centerKey,
+            delegate: SliverChildBuilderDelegate(
+                  (context, i) => i == after.length
+                  ? const SizedBox(height: 16) // very bottom
+                  : buildItem(after[i]),
+              childCount: after.length + 1,
+            ),
+          ),
+        ],
+      );
+    }
+
     return ListView.builder(
       controller: scrollController,
       padding: EdgeInsets.only(top: topPadding, bottom: 16),
-      // Builds (and so loads) messages about a screen and a half above and
-      // below what's showing: their photos/videos are ready before you
-      // scroll to them, without loading the whole thread at once.
-      cacheExtent: MediaQuery.of(context).size.height * 1.5,
+      cacheExtent: cacheExtent,
       itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        if (item is DateTime) return _buildDateMarker(item);
+      itemBuilder: (context, index) => buildItem(items[index]),
+    );
+  }
+}
 
-        final message = item as DailyMessage;
-        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'current_user';
+/// The post a cover came from, when the Daily is opened from that cover:
+/// a small "From the cover" tag, and a soft cyan glow that fades away.
+class _CoverHighlight extends StatefulWidget {
+  final Widget child;
+  const _CoverHighlight({required this.child});
 
-        final grouped = groupedIds.contains(message.messageId);
+  @override
+  State<_CoverHighlight> createState() => _CoverHighlightState();
+}
 
-        return DailyMessageWidget(
-          // Keeps each message's state (loaded media, comment counts) with
-          // that message when the list reloads.
-          key: ValueKey(message.messageId),
-          message: message,
-          isCurrentUser: message.userId == currentUid,
-          showUsername: !grouped,
-          groupedWithPrevious: grouped,
-          dailyTitle: dailyTitle,
-          isPrivateDaily: isPrivateDaily,
-          // Same rule for removing a post as for banning its author.
-          canModerate: _canBan(message.userId, currentUid),
-          canBanAuthor: _canBan(message.userId, currentUid),
-          onEdit: onEdit,
-          onSaveToggle: onMessageUpdate,
-          onReactionAdded: (emoji) {
-            if (onMessageUpdate != null) {
-              onMessageUpdate!();
-            }
-          },
-        );
-      },
+class _CoverHighlightState extends State<_CoverHighlight> {
+  bool _glow = true;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _glow = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOut,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      decoration: BoxDecoration(
+        color: SunColors.mid.withOpacity(_glow ? 0.16 : 0.0),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 2),
+            child: Row(
+              children: [
+                const Icon(Icons.auto_awesome_rounded, size: 13, color: SunColors.ink),
+                const SizedBox(width: 4),
+                Text('From the cover',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: SunColors.ink)),
+              ],
+            ),
+          ),
+          widget.child,
+        ],
+      ),
     );
   }
 }

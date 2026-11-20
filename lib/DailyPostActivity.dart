@@ -1,6 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'AppColors.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart'
+    show DefaultCacheManager;
 import 'package:flutter/services.dart';
 import 'DailyShare.dart';
 import 'MessageStorage.dart';
@@ -11,6 +15,8 @@ import 'dart:async';
 import 'dart:io';
 import 'PinnedPosts.dart';
 import 'SendDailyMessage.dart';
+import 'DataSaver.dart';
+import 'GroupAvatar.dart';
 
 /// The Dailies tab on a profile: everything a person has posted in Daily
 /// chats, newest first, as a feed of soft cards. Text-only posts, photos,
@@ -277,7 +283,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
     Widget tile(IconData icon, String label, String value,
         {Color? color}) {
       return ListTile(
-        leading: Icon(icon, color: color ?? Colors.black87),
+        leading: Icon(icon, color: color ?? kc.text),
         title: Text(
           label,
           style: TextStyle(
@@ -289,7 +295,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
 
     final choice = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: kc.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -302,7 +308,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
               width: 38,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: kc.grey(300),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -418,12 +424,12 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+      return Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
     }
 
     if (_posts.isEmpty) {
       return RefreshIndicator(
-        color: Colors.cyan,
+        color: kc.adapt(const Color(0xFF8A8F98)),
         onRefresh: _refresh,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -432,7 +438,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
             Icon(
               _failed ? Icons.error_outline : Icons.wb_sunny_outlined,
               size: 64,
-              color: Colors.grey[400],
+              color: kc.grey(400),
             ),
             const SizedBox(height: 14),
             Text(
@@ -441,7 +447,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
+                color: kc.grey(700),
               ),
             ),
             const SizedBox(height: 6),
@@ -454,7 +460,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
                     ? 'What you post in public Dailies shows up here.'
                     : 'Posts in public Dailies show up here.'),
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 14, color: kc.grey(500)),
               ),
             ),
           ],
@@ -463,7 +469,7 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
     }
 
     return RefreshIndicator(
-      color: Colors.cyan,
+      color: kc.adapt(const Color(0xFF8A8F98)),
       onRefresh: _refresh,
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -475,13 +481,13 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
               padding: const EdgeInsets.only(top: 4),
               child: Center(
                 child: _loadingMore
-                    ? const Padding(
+                    ? Padding(
                   padding: EdgeInsets.all(12),
                   child: SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.cyan),
+                        strokeWidth: 2, color: kc.adapt(const Color(0xFFB0B5BC))),
                   ),
                 )
                     : TextButton(
@@ -510,12 +516,64 @@ class _DailyPostActivityState extends State<DailyPostActivity> {
 
 // ---------------------------------------------------------------------------
 
+/// The same card, for posts shown somewhere else (saved posts in Archives
+/// and a Daily's Saved). Shows who posted it, since it's not your profile.
+class DailyPostCard extends StatelessWidget {
+  final DailyMessage message;
+  final String dailyId;
+  final String dailyTitle;
+  final Color color;
+
+  /// Show the Daily's name (off inside that Daily's own Saved).
+  final bool showDaily;
+  final VoidCallback? onLongPress;
+
+  const DailyPostCard({
+    Key? key,
+    required this.message,
+    required this.dailyId,
+    required this.dailyTitle,
+    this.color = Colors.cyan,
+    this.showDaily = true,
+    this.onLongPress,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return _PostCard(
+      post: _Post(message, dailyId, _PublicDaily(dailyTitle, color)),
+      onLongPress: onLongPress ?? () {},
+      showAuthor: true,
+      showDaily: showDaily,
+    );
+  }
+}
+
+/// Starts the next few posts' videos loading (for lists of
+/// [DailyPostCard]s).
+void warmDailyPosts(List<DailyMessage> posts, int index) {
+  for (var j = index; j <= index + 3 && j < posts.length; j++) {
+    for (final item in posts[j].media.take(2)) {
+      if (!item.path.startsWith('http')) continue;
+      MediaAspect.of(item.path, isVideo: item.isVideo, thumb: item.thumb);
+      if (item.isVideo) DailyPostVideoCache.warm(item.path);
+    }
+  }
+}
+
 class _PostCard extends StatelessWidget {
   final _Post post;
   final VoidCallback onLongPress;
+  final bool showAuthor;
+  final bool showDaily;
 
-  const _PostCard({Key? key, required this.post, required this.onLongPress})
-      : super(key: key);
+  const _PostCard({
+    Key? key,
+    required this.post,
+    required this.onLongPress,
+    this.showAuthor = false,
+    this.showDaily = true,
+  }) : super(key: key);
 
   static const _months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -542,7 +600,7 @@ class _PostCard extends StatelessWidget {
       onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.grey[50],
+          color: kc.grey(50),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.grey.withOpacity(0.18)),
         ),
@@ -550,52 +608,80 @@ class _PostCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => DailyShareLink.open(context, post.dailyId),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 9,
-                            height: 9,
-                            decoration: BoxDecoration(
-                                color: color, shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 7),
-                          Flexible(
-                            child: Text(
-                              post.daily.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          Icon(Icons.chevron_right_rounded,
-                              size: 16, color: Colors.grey[500]),
-                        ],
+            if (showAuthor) ...[
+              Row(
+                children: [
+                  MemberAvatar(
+                    userId: m.userId,
+                    size: 28,
+                    openProfileOnTap: true,
+                    username: m.username,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      m.username ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: kc.text,
                       ),
                     ),
                   ),
-                ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            Row(
+              children: [
+                if (!showDaily) const Spacer(),
+                if (showDaily)
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => DailyShareLink.open(context, post.dailyId),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 9,
+                              height: 9,
+                              decoration: BoxDecoration(
+                                  color: color, shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 7),
+                            Flexible(
+                              child: Text(
+                                post.daily.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: kc.text,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            Icon(Icons.chevron_right_rounded,
+                                size: 16, color: kc.grey(500)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 const SizedBox(width: 8),
                 if (post.pinned) ...[
-                  Icon(Icons.push_pin, size: 14, color: Colors.grey[600]),
+                  Icon(Icons.push_pin, size: 14, color: kc.grey(600)),
                   const SizedBox(width: 5),
                 ],
                 Text(
                   _when(m.timestamp),
-                  style: TextStyle(fontSize: 11.5, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 11.5, color: kc.grey(500)),
                 ),
               ],
             ),
@@ -622,10 +708,10 @@ class _PostCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 text,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   height: 1.35,
-                  color: Colors.black87,
+                  color: kc.text,
                 ),
               ),
             ],
@@ -669,12 +755,12 @@ class _MediaStripState extends State<_MediaStrip> {
         active: active,
       );
     } else {
-      child = Image.network(
-        item.path,
+      child = Image(
+        image: CachedNetworkImageProvider(item.path),
         fit: BoxFit.cover,
         width: double.infinity,
         loadingBuilder: (_, w, progress) =>
-        progress == null ? w : Container(color: Colors.grey[200]),
+        progress == null ? w : Container(color: kc.grey(200)),
         errorBuilder: (_, __, ___) => _placeholder(Icons.broken_image_outlined),
       );
     }
@@ -686,8 +772,8 @@ class _MediaStripState extends State<_MediaStrip> {
   }
 
   Widget _placeholder(IconData icon) => Container(
-    color: Colors.grey[200],
-    child: Center(child: Icon(icon, color: Colors.grey[400], size: 34)),
+    color: kc.grey(200),
+    child: Center(child: Icon(icon, color: kc.grey(400), size: 34)),
   );
 
   void _open(DailyMediaItem item) {
@@ -796,8 +882,8 @@ class _FullScreenMedia extends StatelessWidget {
         child: item.isVideo
             ? NetworkVideoPlayer(url: item.path)
             : InteractiveViewer(
-          child: Image.network(
-            item.path,
+          child: Image(
+            image: CachedNetworkImageProvider(item.path),
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => const Icon(
                 Icons.broken_image_outlined,
@@ -853,11 +939,14 @@ class _InlineVideoState extends State<InlineVideo> with WidgetsBindingObserver {
     if (_local) {
       final c = VideoPlayerController.file(File(widget.url));
       try {
-        await c.initialize();
+        await c.initialize().timeout(const Duration(seconds: 12));
         await c.setLooping(true);
         await c.setVolume(0);
-      } catch (_) {
-        c.dispose();
+      } catch (e) {
+        debugPrint('InlineVideo: local video failed ${widget.url} -> $e');
+        try {
+          c.dispose();
+        } catch (_) {}
         if (mounted) setState(() => _failed = true);
         return;
       }
@@ -927,10 +1016,18 @@ class _InlineVideoState extends State<InlineVideo> with WidgetsBindingObserver {
     final visible = fraction >= 0.6 && widget.active && _onTop && _ticking;
     if (visible == _visible && visible == c.value.isPlaying) return;
     _visible = visible;
-    visible ? c.play() : c.pause();
+    try {
+      visible ? c.play() : c.pause();
+    } catch (_) {}
   }
 
   void _toggleSound() {
+    // Couldn't load: tap tries again.
+    if (_failed) {
+      setState(() => _failed = false);
+      _init();
+      return;
+    }
     final c = _c;
     if (c == null) return;
     setState(() => _muted = !_muted);
@@ -972,7 +1069,8 @@ class _InlineVideoState extends State<InlineVideo> with WidgetsBindingObserver {
         children: [
           Container(color: const Color(0xFF14181C)),
           if (c == null && thumb != null && thumb.isNotEmpty)
-            Image.network(thumb,
+            Image(
+                image: CachedNetworkImageProvider(thumb),
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const SizedBox.shrink()),
           if (c != null)
@@ -996,7 +1094,18 @@ class _InlineVideoState extends State<InlineVideo> with WidgetsBindingObserver {
             ),
           if (_failed)
             const Center(
-              child: Icon(Icons.error_outline, color: Colors.white54, size: 36),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh_rounded, color: Colors.white70, size: 34),
+                  SizedBox(height: 6),
+                  Text("Couldn't load video. Tap to retry.",
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ],
+              ),
             ),
           if (c != null)
             Positioned(
@@ -1034,35 +1143,119 @@ class DailyPostVideoCache {
   // url -> ready controller (oldest first). Not in here = in use or unloaded.
   static final Map<String, VideoPlayerController> _ready = {};
   static final Map<String, Future<VideoPlayerController?>> _loading = {};
-  static final Set<String> _inUse = {};
+
+  // Controllers handed out right now (never disposed by the cache), and how
+  // many players are using or waiting on each url.
+  static final Set<VideoPlayerController> _out = {};
+  static final Map<String, int> _users = {};
   static String? _top;
 
-  static Future<VideoPlayerController?> _load(String url) {
-    return _loading[url] ??= () async {
+  static bool _inUse(String url) => (_users[url] ?? 0) > 0;
+
+  static void _release(String url) {
+    final n = (_users[url] ?? 1) - 1;
+    if (n <= 0) {
+      _users.remove(url);
+    } else {
+      _users[url] = n;
+    }
+  }
+
+  /// How long streaming gets to start before we fall back to downloading
+  /// the whole video and playing it from the phone.
+  static const Duration _streamLimit = Duration(seconds: 8);
+
+  /// Videos that wouldn't stream this session: go straight to downloading.
+  static final Set<String> _streamFails = {};
+
+  static Future<VideoPlayerController?> _create(String url) async {
+    // 1. Already downloaded once (kept across launches): play that file.
+    try {
+      final cached = await DefaultCacheManager()
+          .getFileFromCache(url)
+          .timeout(const Duration(seconds: 3));
+      if (cached != null && await cached.file.exists()) {
+        final c = await _openFile(cached.file, url);
+        if (c != null) return c;
+      }
+    } catch (_) {}
+
+    // 2. Stream it.
+    if (!_streamFails.contains(url)) {
       final c = VideoPlayerController.networkUrl(Uri.parse(url));
       try {
-        await c.initialize();
+        await c.initialize().timeout(_streamLimit);
         await c.setLooping(true);
         await c.setVolume(0);
         return c;
       } catch (e) {
-        c.dispose();
-        return null;
-      } finally {
-        _loading.remove(url);
+        debugPrint('DailyPostVideoCache: streaming failed, downloading '
+            'instead. $url -> $e');
+        _streamFails.add(url);
+        _disposeQuietly(c);
       }
-    }();
+    }
+
+    // 3. Some uploads won't stream on iPhone (e.g. an iPhone .MOV that was
+    // labelled as .mp4 when uploaded). Download it and play the file,
+    // which always works; it stays cached for next time.
+    try {
+      final file = await DefaultCacheManager()
+          .getSingleFile(url)
+          .timeout(const Duration(seconds: 90));
+      return await _openFile(file, url);
+    } catch (e) {
+      debugPrint('DailyPostVideoCache: download failed $url -> $e');
+      return null;
+    }
+  }
+
+  static Future<VideoPlayerController?> _openFile(File file, String url) async {
+    final c = VideoPlayerController.file(file);
+    try {
+      await c.initialize().timeout(const Duration(seconds: 12));
+      await c.setLooping(true);
+      await c.setVolume(0);
+      return c;
+    } catch (e) {
+      debugPrint('DailyPostVideoCache: file play failed $url -> $e');
+      _disposeQuietly(c);
+      return null;
+    }
+  }
+
+  static void _disposeQuietly(VideoPlayerController c) {
+    Future(() async {
+      try {
+        await c.dispose();
+      } catch (_) {}
+    });
+  }
+
+  /// One load per url at a time; whoever asks while it's loading gets it.
+  static Future<VideoPlayerController?> _load(String url) {
+    // The block body matters: `() => _loading.remove(url)` would return
+    // this very future, and whenComplete would wait on itself forever
+    // (the video then never finished loading).
+    return _loading[url] ??= _create(url).whenComplete(() {
+      _loading.remove(url);
+    });
   }
 
   /// Start loading [url] if it isn't ready or playing already.
   static void warm(String url) {
-    if (_ready.containsKey(url) || _inUse.contains(url) || _loading.containsKey(url)) {
+    // Data saver on cellular: load when it's actually played, not ahead.
+    if (DataSaver.active) return;
+    if (_ready.containsKey(url) || _inUse(url) || _loading.containsKey(url)) {
       return;
     }
     _load(url).then((c) {
       if (c == null) return;
-      if (_inUse.contains(url) || _ready.containsKey(url)) {
-        c.dispose(); // someone already has one
+      // A player asked for it while it loaded: it's theirs now. (This used
+      // to dispose it out from under them: "used after being disposed".)
+      if (_out.contains(c) || _inUse(url)) return;
+      if (_ready.containsKey(url)) {
+        c.dispose(); // another copy is already parked
         return;
       }
       _ready[url] = c;
@@ -1070,25 +1263,28 @@ class DailyPostVideoCache {
     });
   }
 
-  /// A ready controller for [url] (loaded now if needed). Hand it back
-  /// with [giveBack] when done.
+  /// A ready controller for [url] (loaded now if needed), only for you.
+  /// Hand it back with [giveBack] when done.
   static Future<VideoPlayerController?> take(String url) async {
-    _inUse.add(url);
-    final ready = _ready.remove(url);
-    if (ready != null) return ready;
-    final c = await _load(url);
-    // warm() may have parked the same load in _ready meanwhile.
-    final parked = _ready.remove(url);
-    if (parked != null && parked != c) {
-      c?.dispose();
-      return parked;
+    _users[url] = (_users[url] ?? 0) + 1;
+    var c = _ready.remove(url);
+    if (c == null) {
+      c = await _load(url);
+      // The same video on screen twice: the other player got that one, so
+      // this one gets its own.
+      if (c != null && _out.contains(c)) c = await _create(url);
     }
-    if (c == null) _inUse.remove(url);
+    if (c == null) {
+      _release(url);
+      return null;
+    }
+    _out.add(c);
     return c;
   }
 
   static void giveBack(String url, VideoPlayerController c) {
-    _inUse.remove(url);
+    _out.remove(c);
+    _release(url);
     try {
       c.pause();
       c.setVolume(0);

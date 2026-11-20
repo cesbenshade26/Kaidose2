@@ -11,9 +11,10 @@ import 'MessageStorage.dart';
 import 'SendDailyMessage.dart';
 import 'UnifiedMediaPicker.dart';
 import 'user_service.dart';
+import 'CameraCapture.dart';
 
-/// Post one message to several of your Dailies at once: a text box with a
-/// media button beside it, a checklist of your Dailies, and Send.
+/// Post one message to several of your Dailies at once: a text box with
+/// camera and media buttons beside it, a checklist of your Dailies, and Send.
 ///
 /// Built to live inside the Add sheet (see AddSheet.dart), which supplies
 /// [onBack]/[onClose] for its header; with neither given there is no
@@ -122,6 +123,16 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
       _media = [..._media, ...items];
       _showPicker = false;
     });
+  }
+
+  /// Camera: take a photo or record a video. It joins the attached media
+  /// above the list, so you can add text and pick Dailies before sending.
+  Future<void> _openCamera() async {
+    if (_sending) return;
+    if (_showPicker) setState(() => _showPicker = false);
+    final shot = await CameraCapture.capture(context);
+    if (shot == null || !mounted) return;
+    setState(() => _media = [..._media, shot]);
   }
 
   Future<void> _openDrawPad() async {
@@ -314,6 +325,23 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
           ),
           const SizedBox(width: 10),
           GestureDetector(
+            onTap: _openCamera,
+            child: Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: context.colors.surfaceMuted,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.camera_alt_outlined,
+                size: 22,
+                color: context.colors.textMuted,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
             onTap: _togglePicker,
             child: Container(
               width: 46,
@@ -452,7 +480,7 @@ class _AddDailyMessageState extends State<AddDailyMessage> {
     if (dailies.isEmpty && _loadingDailies) {
       return Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
-        child: Center(child: CircularProgressIndicator(color: context.colors.accent)),
+        child: Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
       );
     }
 

@@ -7,6 +7,16 @@ import 'chat_reactions.dart';
 import 'ChatMedia.dart';
 import 'UnifiedMediaPicker.dart';
 
+/// Thrown by [GroupChatService.createGroup] when nobody picked allows
+/// being added to group chats.
+class GroupAddsBlocked implements Exception {
+  final List<String> usernames;
+  GroupAddsBlocked(this.usernames);
+  @override
+  String toString() =>
+      "${usernames.join(', ')} can't be added to group chats";
+}
+
 /// A group chat. Stored at groupChats/{id}.
 class GroupChat {
   final String id;
@@ -20,6 +30,13 @@ class GroupChat {
   final String? name;
   final String? wallpaperUrl;
   final bool wallpaperTopDark;
+
+  /// The group's photo (any member can set it). Null = the default icon.
+  final String? iconUrl;
+
+  /// The font the group's name is shown in (one of DailyFonts.options).
+  /// Null = the app's normal font.
+  final String? font;
   final List<String> pinnedBy;
   final List<String> mutedBy;
   final String? lastKind; // message | photo | clip | daily
@@ -37,6 +54,8 @@ class GroupChat {
     this.name,
     this.wallpaperUrl,
     this.wallpaperTopDark = false,
+    this.iconUrl,
+    this.font,
     this.pinnedBy = const [],
     this.mutedBy = const [],
     this.lastKind,
@@ -57,6 +76,8 @@ class GroupChat {
       name: d['name'] as String?,
       wallpaperUrl: d['wallpaperUrl'] as String?,
       wallpaperTopDark: d['wallpaperTopDark'] == true,
+      iconUrl: d['iconUrl'] as String?,
+      font: d['font'] as String?,
       pinnedBy: List<String>.from(d['pinnedBy'] ?? const []),
       mutedBy: List<String>.from(d['mutedBy'] ?? const []),
       lastKind: d['lastKind'] as String?,
@@ -194,19 +215,46 @@ class GroupChatService {
         .map((d) => d.exists ? GroupChat.fromDoc(d) : null);
   }
 
+  /// Of [uids], the people who turned off "Let friends add me to group
+  /// chats" (Settings → Privacy). They can't be put in a new group.
+  Future<Set<String>> cantBeAdded(Iterable<String> uids) async {
+    final out = <String>{};
+    await Future.wait(uids.map((id) async {
+      try {
+        final d = await FirebaseFirestore.instance.collection('users').doc(id).get();
+        if (d.data()?['groupAddsOff'] == true) out.add(id);
+      } catch (_) {}
+    }));
+    return out;
+  }
+
   /// [others] maps uid -> username for everyone except the current user.
+  /// Anyone who doesn't allow being added to group chats is left out (the
+  /// group says so); if that leaves nobody, throws [GroupAddsBlocked].
   Future<String> createGroup({
     required Map<String, String> others,
     required String myUsername,
   }) async {
     final uid = currentUserId!;
-    final usernames = {uid: myUsername, ...others};
+    final blocked = await cantBeAdded(others.keys);
+    final allowed = Map<String, String>.from(others)
+      ..removeWhere((id, _) => blocked.contains(id));
+    if (allowed.isEmpty) {
+      throw GroupAddsBlocked(
+          blocked.map((id) => others[id] ?? 'Someone').toList());
+    }
+    final usernames = {uid: myUsername, ...allowed};
     final doc = await _groups.add({
-      'memberIds': [uid, ...others.keys],
+      'memberIds': [uid, ...allowed.keys],
       'memberUsernames': usernames,
       'createdBy': uid,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    if (blocked.isNotEmpty) {
+      final names = blocked.map((id) => others[id] ?? 'Someone').join(', ');
+      await _systemMessage(doc.id,
+          "$names can't be added to group chats, so they weren't added");
+    }
     return doc.id;
   }
 
@@ -421,6 +469,55 @@ class GroupChatService {
   }
 
   Future<bool> _isTopDark(File file) => ChatMediaUploader.isTopDark(file);
+
+  /// The group's photo, shown in Chats and inside the group. Anyone in the
+  /// group can change it. Pass null to go back to the default icon.
+  Future<void> setIcon(String groupId, File? file,
+      {required String byUsername}) async {
+    if (file == null) {
+      await _groups.doc(groupId).update({'iconUrl': FieldValue.delete()});
+      await _systemMessage(groupId, '$byUsername removed the group photo');
+      return;
+    }
+    final url = await _uploadImage(
+        file, 'groupChats/$groupId/icon_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        maxWidth: 512);
+    await _groups.doc(groupId).update({'iconUrl': url});
+    await _systemMessage(groupId, '$byUsername changed the group photo');
+  }
+
+  /// Group photo from a picture already sent in the chat. It's copied (not
+  /// just linked), so it stays even if that message disappears later.
+  Future<void> setIconFromUrl(String groupId, String imageUrl,
+      {required String byUsername}) async {
+    final data =
+    await FirebaseStorage.instance.refFromURL(imageUrl).getData(25 * 1024 * 1024);
+    if (data == null) throw Exception('Picture not found');
+    final small = await FlutterImageCompress.compressWithList(
+      data,
+      minWidth: 512,
+      minHeight: 512,
+      quality: 82,
+      format: CompressFormat.jpeg,
+    );
+    final ref = FirebaseStorage.instance.ref(
+        'groupChats/$groupId/icon_${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await ref.putData(small, SettableMetadata(contentType: 'image/jpeg'));
+    final url = await ref.getDownloadURL();
+    await _groups.doc(groupId).update({'iconUrl': url});
+    await _systemMessage(groupId, '$byUsername changed the group photo');
+  }
+
+  /// The font for the group's name, shown everywhere the name is. Pass
+  /// DailyFonts.defaultFont (or null) for the normal font.
+  Future<void> setFont(String groupId, String? font,
+      {required String byUsername}) async {
+    final plain = font == null || font == 'Default';
+    await _groups.doc(groupId).update({
+      'font': plain ? FieldValue.delete() : font,
+    });
+    await _systemMessage(groupId, '$byUsername changed the group font');
+  }
 
   /// Empty name clears it (falls back to the member list).
   Future<void> renameGroup(String groupId, String name,

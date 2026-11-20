@@ -80,26 +80,39 @@ class ReactionPicker extends StatelessWidget {
   final Function(String) onReactionSelected;
   const ReactionPicker({Key? key, required this.onReactionSelected}) : super(key: key);
 
+  // Never wider than the screen minus a margin on each side; on narrower
+  // phones the emojis shrink just enough to fit (11 at full size need
+  // ~460px, wider than most phones).
+  static const double _screenMargin = 12;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: context.isDark ? context.colors.surfaceMuted : context.colors.surface,
-        borderRadius: BorderRadius.circular(25),
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: ReactionEmojis.emojis.map((emoji) {
-          return GestureDetector(
-            onTap: () => onReactionSelected(emoji),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(emoji, style: const TextStyle(fontSize: 28)),
-            ),
-          );
-        }).toList(),
+    final maxWidth = MediaQuery.of(context).size.width - _screenMargin * 2;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: context.isDark ? context.colors.surfaceMuted : context.colors.surface,
+          borderRadius: BorderRadius.circular(25),
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: ReactionEmojis.emojis.map((emoji) {
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onReactionSelected(emoji),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

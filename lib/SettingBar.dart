@@ -1,53 +1,47 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'Customization.dart';
-import 'SecurityInfo.dart';
 import 'auth_service.dart';
 import 'ProfilePicManager.dart';
 import 'BioManager.dart';
 import 'BackgroundPicManager.dart';
-import 'SavedScreen.dart';
+import 'Archives.dart';
+import 'YourActivity.dart';
 import 'ClipsActivity.dart' show MyClipsCache;
 import 'NotificationService.dart';
-import 'package:flutter/services.dart';
-import 'SafetySheets.dart' show BlockedAccountsScreen;
-import 'Moderation.dart';
+import 'PrivacySettings.dart';
+import 'DisplaySettings.dart';
+import 'HelpAbout.dart';
+import 'ContentData.dart';
+import 'ReportProblem.dart' show ProblemReportsScreen;
 import 'AdminReportsScreen.dart';
-import 'AccountDeletion.dart';
 import 'GroupAvatar.dart';
-import 'Legal.dart';
+import 'AccountScreen.dart';
+import 'SettingsWidgets.dart';
+import 'NotificationSettings.dart';
 
-// Settings Screen
+/// Settings: your account card at the top, then the rest in groups.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 1,
-      ),
-      body: const SingleChildScrollView(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ProfileSettingsSection(),
-          ],
-        ),
-      ),
+    return const SettingsPage(
+      title: 'Settings',
+      children: [ProfileSettingsSection()],
     );
   }
 }
 
-// Profile Settings Section
+/// Everything on the Settings page (kept as its own widget, and the home
+/// of [signOutAndLeave], which other screens use).
 class ProfileSettingsSection extends StatelessWidget {
   const ProfileSettingsSection({Key? key}) : super(key: key);
 
   /// Clears this phone's account state and goes back to the opening
-  /// screen. Used by Logout and after deleting the account.
+  /// screen. Used by Log out and after deleting the account.
   static Future<void> signOutAndLeave(BuildContext context,
       {bool accountDeleted = false}) async {
     // Stop push notifications for this account on this phone. Must run
@@ -74,225 +68,154 @@ class ProfileSettingsSection extends StatelessWidget {
     );
   }
 
-  Widget _tile(
-      BuildContext context, {
-        required IconData icon,
-        required String title,
-        String? subtitle,
-        Color? color,
-        required VoidCallback onTap,
-      }) {
-    return ListTile(
-      leading: Icon(icon, color: color ?? Colors.grey, size: 28),
-      title: Text(
-        title,
-        style: TextStyle(
-            fontSize: 16, fontWeight: FontWeight.w500, color: color),
-      ),
-      subtitle: subtitle == null
-          ? null
-          : Text(subtitle, style: TextStyle(fontSize: 12.5, color: Colors.grey[600])),
-      trailing: Icon(Icons.chevron_right, color: color ?? Colors.grey),
-      onTap: onTap,
-    );
-  }
+  void _open(BuildContext context, Widget screen) => Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => screen),
+  );
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8.0),
-          child: Text(
-            'Account Settings',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Saved & Archives (temporary home until it gets a better spot)
-        ListTile(
-          leading: const Icon(Icons.bookmark_rounded, color: Colors.grey, size: 28),
-          title: const Text(
-            'Saved & Archives',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SavedScreen()),
-            );
-          },
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        // Customization Option
-        ListTile(
-          leading: const Icon(Icons.palette, color: Colors.grey, size: 28),
-          title: const Text(
-            'Customization',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const CustomizationScreen()),
-            );
-          },
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        // Security Info Option
-        ListTile(
-          leading: const Icon(Icons.security, color: Colors.grey, size: 28),
-          title: const Text(
-            'Security Info',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SecurityInfoScreen()),
-            );
-          },
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
+        const SizedBox(height: 6),
+        _AccountCard(onTap: () => _open(context, const AccountScreen())),
 
-        // ── Privacy & safety ──
-        const Padding(
-          padding: EdgeInsets.only(top: 18, bottom: 8),
-          child: Text(
-            'Privacy & Safety',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+        SettingsGroup(
+          children: [
+            SettingsTile(
+              icon: Icons.palette_outlined,
+              title: 'Edit profile',
+              subtitle: 'Profile picture, background, bio',
+              onTap: () => _open(context, const CustomizationScreen()),
             ),
-          ),
+            SettingsTile(
+              icon: Icons.notifications_none_rounded,
+              title: 'Notifications',
+              onTap: () => _open(context, const NotificationSettingsScreen()),
+            ),
+            SettingsTile(
+              icon: Icons.lock_outline_rounded,
+              title: 'Privacy',
+              subtitle: 'Near you, story, blocked and muted, phone access',
+              onTap: () => _open(context, const PrivacySettingsScreen()),
+            ),
+            SettingsTile(
+              icon: Icons.brightness_6_outlined,
+              title: 'Display',
+              onTap: () => _open(context, const DisplaySettingsScreen()),
+            ),
+            SettingsTile(
+              icon: Icons.data_usage_rounded,
+              title: 'Content & data',
+              subtitle: 'Data saver, cache, Not interested, download your data',
+              onTap: () => _open(context, const ContentDataScreen()),
+            ),
+            SettingsTile(
+              icon: Icons.bookmarks_outlined,
+              title: 'Archives',
+              subtitle: 'Your folders of saved posts and clips',
+              onTap: () => _open(context, const ArchivesScreen()),
+            ),
+            SettingsTile(
+              icon: Icons.history_rounded,
+              title: 'Your activity',
+              subtitle: 'Likes, reactions, comments and watch history',
+              onTap: () => _open(context, const YourActivityScreen()),
+            ),
+          ],
         ),
-        _tile(
-          context,
-          icon: Icons.block_rounded,
-          title: 'Blocked accounts',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const BlockedAccountsScreen()),
-          ),
+
+        SettingsGroup(
+          children: [
+            SettingsTile(
+              icon: Icons.help_outline_rounded,
+              title: 'Help & About',
+              subtitle: 'Contact support, report a problem, guidelines, terms',
+              onTap: () => _open(context, const HelpAboutScreen()),
+            ),
+          ],
         ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        _tile(
-          context,
-          icon: Icons.menu_book_rounded,
-          title: 'Community Guidelines',
-          onTap: () => TermsGate.show(context),
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        _tile(
-          context,
-          icon: Icons.description_outlined,
-          title: 'Terms and Conditions',
-          onTap: Legal.openTerms,
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        _tile(
-          context,
-          icon: Icons.privacy_tip_outlined,
-          title: 'Privacy Policy',
-          onTap: Legal.openPrivacy,
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        _tile(
-          context,
-          icon: Icons.mail_outline_rounded,
-          title: 'Contact support',
-          subtitle: kSupportEmail,
-          onTap: () {
-            Clipboard.setData(const ClipboardData(text: kSupportEmail));
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Email address copied'),
-              duration: Duration(seconds: 2),
-            ));
-          },
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
+
         // Only shows for admin accounts (users/{uid}.isAdmin == true).
         FutureBuilder<bool>(
           future: AdminAccess.isAdmin(),
           builder: (context, snap) {
             if (snap.data != true) return const SizedBox.shrink();
-            return Column(
+            return SettingsGroup(
+              title: 'Admin',
               children: [
-                _tile(
-                  context,
+                SettingsTile(
                   icon: Icons.shield_outlined,
-                  title: 'Reports (admin)',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const AdminReportsScreen()),
-                  ),
+                  title: 'Reports',
+                  onTap: () => _open(context, const AdminReportsScreen()),
                 ),
-                const Divider(color: Colors.grey, thickness: 0.5),
+                SettingsTile(
+                  icon: Icons.bug_report_outlined,
+                  title: 'Problem reports',
+                  onTap: () => _open(context, const ProblemReportsScreen()),
+                ),
               ],
             );
           },
         ),
-        const SizedBox(height: 12),
-
-        // Logout Option
-        ListTile(
-          leading: const Icon(Icons.logout, color: Colors.red, size: 28),
-          title: const Text(
-            'Logout',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.red),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.red),
-          onTap: () async {
-            final shouldLogout = await showDialog<bool>(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: const Text('Logout'),
-                  content: const Text('Are you sure you want to logout?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(true),
-                      style: TextButton.styleFrom(foregroundColor: Colors.red),
-                      child: const Text('Logout'),
-                    ),
-                  ],
-                );
-              },
-            );
-
-            if (shouldLogout == true && context.mounted) {
-              await signOutAndLeave(context);
-            }
-          },
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
-        // Delete account (required in-app; will move to its own screen)
-        _tile(
-          context,
-          icon: Icons.delete_forever_outlined,
-          title: 'Delete account',
-          color: Colors.red,
-          onTap: () => AccountDeletion.start(
-            context,
-                () => signOutAndLeave(context, accountDeleted: true),
-          ),
-        ),
-        const Divider(color: Colors.grey, thickness: 0.5),
       ],
+    );
+  }
+}
+
+/// Your picture, username and "Account" at the top of Settings.
+class _AccountCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AccountCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return Material(
+      color: kc.surface,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              if (uid != null) MemberAvatar(userId: uid, size: 54),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (uid != null)
+                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(uid)
+                            .snapshots(),
+                        builder: (context, snap) => Text(
+                          (snap.data?.data()?['username'] as String?) ?? ' ',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: SettingsStyle.ink),
+                        ),
+                      ),
+                    const SizedBox(height: 2),
+                    Text('Account, login, account status',
+                        style:
+                        TextStyle(fontSize: 13, color: SettingsStyle.subtle)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: kc.grey(400)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

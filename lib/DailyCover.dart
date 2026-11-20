@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'DailyFonts.dart';
 import 'DailyData.dart';
@@ -15,6 +16,8 @@ import 'DailyUnread.dart';
 import 'DailyWarmup.dart';
 import 'DailyModeration.dart';
 import 'DailyIcon.dart';
+import 'CoverJump.dart';
+import 'GroupAvatar.dart' show MemberAvatar;
 
 /// The cover card for a single Daily, as shown in the Dailies list.
 ///
@@ -272,8 +275,8 @@ class _DailyCoverState extends State<DailyCover> {
     return PopupMenuButton<String>(
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-      icon: Icon(Icons.more_vert, color: Colors.grey[600], size: 22),
-      color: Colors.white,
+      icon: Icon(Icons.more_vert, color: kc.grey(600), size: 22),
+      color: kc.surface,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       onSelected: (value) {
@@ -296,16 +299,16 @@ class _DailyCoverState extends State<DailyCover> {
           );
         }
       },
-      itemBuilder: (context) => const [
+      itemBuilder: (context) => [
         PopupMenuItem<String>(
           value: 'interested',
           child: Row(
             children: [
               Icon(Icons.thumb_up_alt_outlined,
-                  size: 20, color: Colors.black87),
+                  size: 20, color: kc.text),
               SizedBox(width: 12),
               Text('Interested',
-                  style: TextStyle(fontSize: 16, color: Colors.black87)),
+                  style: TextStyle(fontSize: 16, color: kc.text)),
             ],
           ),
         ),
@@ -314,10 +317,10 @@ class _DailyCoverState extends State<DailyCover> {
           child: Row(
             children: [
               Icon(Icons.visibility_off_outlined,
-                  size: 20, color: Colors.black87),
+                  size: 20, color: kc.text),
               SizedBox(width: 12),
               Text('Not interested',
-                  style: TextStyle(fontSize: 16, color: Colors.black87)),
+                  style: TextStyle(fontSize: 16, color: kc.text)),
             ],
           ),
         ),
@@ -376,32 +379,35 @@ class _DailyCoverState extends State<DailyCover> {
     showDialog(
       context: context,
       builder: (BuildContext context) => AlertDialog(
+        backgroundColor: kc.surface,
+        surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
-        title: const Text(
+        title: Text(
           'Delete Daily?',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
+            color: kc.text,
           ),
         ),
         content: Text(
           'Are you sure you want to delete "${daily.title}"? This action cannot be undone.',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
-            color: Colors.black87,
+            color: kc.text,
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
+            child: Text(
               'Cancel',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey,
+                color: kc.grey(500),
               ),
             ),
           ),
@@ -431,8 +437,35 @@ class _DailyCoverState extends State<DailyCover> {
     );
   }
 
+  /// The post this card's cover came from, if opening should go straight
+  /// to it (a cover is showing and you haven't been taken to it yet).
+  String? get _coverJumpTarget {
+    final cover = DailyCoverService.lastKnown(widget.daily.id);
+    if (cover == null || !cover.isShowable) return null;
+    final id = cover.jumpMessageId;
+    return CoverJump.shouldJump(widget.daily.id, id) ? id : null;
+  }
+
+  /// Finger down: get the Daily ready to open (its thread, newest videos),
+  /// and if it'll open at the cover post, that post's video and the posts
+  /// around it.
+  void _warmForOpen() {
+    final jumpTo = _coverJumpTarget;
+    final cover = DailyCoverService.lastKnown(widget.daily.id);
+    DailyWarmup.warm(
+      widget.daily.id,
+      videos: true,
+      aroundMessageId: jumpTo,
+      coverVideoUrl: (jumpTo != null && cover?.isVideo == true)
+          ? cover?.mediaUrl
+          : null,
+    );
+  }
+
   Future<void> _handleTap() async {
     final daily = widget.daily;
+    // Opened from its cover: start at the cover's post (once).
+    final coverMessageId = _coverJumpTarget;
 
     if (widget.forYou) {
       // Not one of the viewer's Dailies, so no "viewed" bookkeeping.
@@ -440,20 +473,29 @@ class _DailyCoverState extends State<DailyCover> {
       FeedService.recordInteraction(daily);
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => InsideDaily(daily: daily)),
+        MaterialPageRoute(
+            builder: (context) =>
+                InsideDaily(daily: daily, coverMessageId: coverMessageId)),
       );
       return;
     }
 
     bool wasUnviewed = !widget.hasBeenViewed;
 
-    if (wasUnviewed && daily.dailyEntryPrompt.isNotEmpty) {
-      // Mark as viewed AFTER showing the prompt (moved inside UponOpeningDaily)
+    // Only today's scheduled prompt counts (prompts are per day, like
+    // covers).
+    final prompt =
+    wasUnviewed ? await DailyCoverService.todayPrompt(daily.id) : '';
+    if (!mounted) return;
+
+    if (wasUnviewed && prompt.isNotEmpty) {
+      // Marked as viewed once they answer or skip (inside UponOpeningDaily).
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => UponOpeningDaily(
             daily: daily,
+            prompt: prompt,
           ),
         ),
       );
@@ -463,7 +505,8 @@ class _DailyCoverState extends State<DailyCover> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => InsideDaily(daily: daily),
+          builder: (context) =>
+              InsideDaily(daily: daily, coverMessageId: coverMessageId),
         ),
       );
     }
@@ -474,10 +517,10 @@ class _DailyCoverState extends State<DailyCover> {
     // Neutral card: white body, dark grey outline (heavier when pinned).
     // The "new today" signal is the small cyan badge, not a tint.
     return BoxDecoration(
-      color: Colors.white,
+      color: kc.surface,
       borderRadius: BorderRadius.circular(18),
       border: Border.all(
-        color: Colors.grey[800]!,
+        color: kc.grey(800),
         width: (daily.isPinned && !widget.forYou) ? 2 : 1,
       ),
       boxShadow: [
@@ -491,7 +534,8 @@ class _DailyCoverState extends State<DailyCover> {
     );
   }
 
-  bool get _hasPrompt => widget.daily.dailyEntryPrompt.trim().isNotEmpty;
+  bool get _hasPrompt =>
+      (DailyCoverService.knownPrompt(widget.daily.id) ?? '').isNotEmpty;
 
   /// Cyan dot on the icon: My Dailies -> not opened yet today;
   /// For You -> this Daily has an entry prompt waiting.
@@ -577,7 +621,7 @@ class _DailyCoverState extends State<DailyCover> {
               decoration: BoxDecoration(
                 color: Colors.cyan,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: kc.background, width: 2),
               ),
             ),
           ),
@@ -590,7 +634,7 @@ class _DailyCoverState extends State<DailyCover> {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: const BoxDecoration(
-        color: Colors.cyan,
+        color: Color(0xFF2E2E2E),
         shape: BoxShape.circle,
       ),
       child: const Icon(
@@ -617,10 +661,10 @@ class _DailyCoverState extends State<DailyCover> {
     return PopupMenuButton<String>(
       icon: Icon(
         Icons.more_vert,
-        color: Colors.grey[600],
+        color: kc.grey(600),
         size: 24,
       ),
-      color: Colors.white,
+      color: kc.surface,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -656,14 +700,14 @@ class _DailyCoverState extends State<DailyCover> {
                 Icon(
                   daily.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
                   size: 20,
-                  color: Colors.black87,
+                  color: kc.text,
                 ),
                 const SizedBox(width: 12),
                 Text(
                   daily.isPinned ? 'Unpin' : 'Pin',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
-                    color: Colors.black87,
+                    color: kc.text,
                   ),
                 ),
               ],
@@ -673,17 +717,17 @@ class _DailyCoverState extends State<DailyCover> {
 
         if (isUserCreated) {
           menuItems.add(
-            const PopupMenuItem<String>(
+            PopupMenuItem<String>(
               value: 'manage',
               child: Row(
                 children: [
-                  Icon(Icons.settings, size: 20, color: Colors.black87),
+                  Icon(Icons.settings, size: 20, color: kc.text),
                   SizedBox(width: 12),
                   Text(
                     'Manage',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.black87,
+                      color: kc.text,
                     ),
                   ),
                 ],
@@ -737,12 +781,12 @@ class _DailyCoverState extends State<DailyCover> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
+                      child: _FitTitle(
                         daily.title,
                         style: _getFontForDaily(daily, weight: FontWeight.w700).copyWith(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
-                          color: Colors.black87,
+                          color: kc.text,
                         ),
                       ),
                     ),
@@ -758,7 +802,7 @@ class _DailyCoverState extends State<DailyCover> {
                   daily.description,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey[700],
+                    color: kc.grey(700),
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -770,7 +814,7 @@ class _DailyCoverState extends State<DailyCover> {
                     _formatDate(daily.createdAt),
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey[500],
+                      color: kc.grey(500),
                     ),
                   ),
                 ],
@@ -788,8 +832,8 @@ class _DailyCoverState extends State<DailyCover> {
   Widget _buildCoverCard(
       BuildContext context, Color dailyColor, DailyCoverData cover) {
     final daily = widget.daily;
-    final imageUrl = cover.effectiveImageUrl!;
-    // No hook (AI hooks turned off, or none could be written): no line.
+    // No hook (AI hooks turned off, none could be written, or a text
+    // cover, where the text is the hook): no line.
     final hook = cover.effectiveHook;
 
     return Container(
@@ -805,14 +849,12 @@ class _DailyCoverState extends State<DailyCover> {
                 _iconSquare(size: 44, iconSize: 26),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
+                  child: _FitTitle(
                     daily.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                     style: _getFontForDaily(daily, weight: FontWeight.w700).copyWith(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: Colors.black87,
+                      color: kc.text,
                     ),
                   ),
                 ),
@@ -835,7 +877,7 @@ class _DailyCoverState extends State<DailyCover> {
                   fontSize: 15.5,
                   height: 1.3,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey[850],
+                  color: kc.grey(850),
                 ),
               ),
             )
@@ -843,73 +885,142 @@ class _DailyCoverState extends State<DailyCover> {
             const SizedBox(height: 10),
           // The cover is the focus: almost the card's full width, with a
           // thin white strip between it and the outline, and allowed to be
-          // tall (up to 1.2x its width).
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                _imageInset, 0, _imageInset, _imageInset),
-            child: LayoutBuilder(builder: (context, box) {
-              final maxH = (box.maxWidth * _maxImageAspect)
-                  .clamp(0.0, _maxImageHeight)
-                  .toDouble();
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: maxH),
-                  child: Stack(
-                    children: [
-                      CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        // Disk-backed — unlike Image.network, this survives
-                        // app restarts, so a cold launch after the first
-                        // one doesn't re-download every cover from scratch.
-                        placeholder: (context, url) => Container(
-                          height: box.maxWidth * 0.75,
+          // tall (up to 1.2x its width). A text post shows as a quote card.
+          if (cover.showsTextCover)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  _imageInset, 0, _imageInset, _imageInset),
+              child: _quoteCard(cover),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  _imageInset, 0, _imageInset, _imageInset),
+              child: LayoutBuilder(builder: (context, box) {
+                final maxH = (box.maxWidth * _maxImageAspect)
+                    .clamp(0.0, _maxImageHeight)
+                    .toDouble();
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: maxH),
+                    child: Stack(
+                      children: [
+                        CachedNetworkImage(
+                          imageUrl: cover.effectiveImageUrl!,
                           width: double.infinity,
-                          color: Colors.grey[200],
-                          child: const Center(
-                            child: SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                color: Colors.cyan,
-                                strokeWidth: 2.5,
+                          fit: BoxFit.cover,
+                          // Disk-backed — unlike Image.network, this survives
+                          // app restarts, so a cold launch after the first
+                          // one doesn't re-download every cover from scratch.
+                          placeholder: (context, url) => Container(
+                            height: box.maxWidth * 0.75,
+                            width: double.infinity,
+                            color: kc.grey(200),
+                            child: Center(
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  color: kc.adapt(const Color(0xFFB0B5BC)),
+                                  strokeWidth: 2.5,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        errorWidget: (context, url, error) => Container(
-                          height: 120,
-                          width: double.infinity,
-                          color: Colors.grey[200],
-                          child: Icon(Icons.broken_image_outlined,
-                              color: Colors.grey[400], size: 36),
-                        ),
-                      ),
-                      if (cover.showsVideoBadge)
-                        Positioned(
-                          left: 10,
-                          bottom: 10,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(
-                              color: Colors.black54,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.play_arrow_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
+                          errorWidget: (context, url, error) => Container(
+                            height: 120,
+                            width: double.infinity,
+                            color: kc.grey(200),
+                            child: Icon(Icons.broken_image_outlined,
+                                color: kc.grey(400), size: 36),
                           ),
                         ),
-                    ],
+                        if (cover.showsVideoBadge)
+                          Positioned(
+                            left: 10,
+                            bottom: 10,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// A text post as the cover: the words big on soft cyan, with who said
+  /// it small underneath. Text size steps down as it gets longer.
+  Widget _quoteCard(DailyCoverData cover) {
+    final text = cover.text!.trim();
+    final size = text.length <= 60
+        ? 23.0
+        : text.length <= 140
+        ? 19.0
+        : 16.5;
+    final name = cover.authorName;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+      decoration: BoxDecoration(
+        color: Colors.cyan.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.cyan.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.format_quote_rounded, size: 30, color: Colors.cyan[600]),
+          const SizedBox(height: 2),
+          Text(
+            text,
+            maxLines: 7,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: size,
+              height: 1.3,
+              fontWeight: FontWeight.w700,
+              color: kc.text,
+            ),
+          ),
+          if (name != null && name.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                if (cover.authorUid != null) ...[
+                  MemberAvatar(userId: cover.authorUid!, size: 22),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: kc.grey(600),
+                    ),
                   ),
                 ),
-              );
-            }),
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -924,7 +1035,7 @@ class _DailyCoverState extends State<DailyCover> {
     return GestureDetector(
       // Finger down: its newest videos start loading too, so they're
       // playing by the time the Daily opens.
-      onTapDown: (_) => DailyWarmup.warm(widget.daily.id, videos: true),
+      onTapDown: (_) => _warmForOpen(),
       onTap: _handleTap,
       child: StreamBuilder<DailyCoverData?>(
         stream: _coverStream,
@@ -952,6 +1063,61 @@ class _DailyCoverState extends State<DailyCover> {
           );
         },
       ),
+    );
+  }
+}
+
+/// A Daily's title on its card. Titles wrap at spaces as usual (up to two
+/// lines). When a single word is too long to fit on a line (e.g.
+/// "testingdailyfeed"), the title shrinks a little, down to 75% of its
+/// size, so the word isn't split mid-letter; past that it ends with "…".
+class _FitTitle extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  const _FitTitle(this.text, {required this.style});
+
+  static const double _minScale = 0.6;
+
+  double _widest(TextStyle style, TextScaler scaler) {
+    var widest = 0.0;
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      final tp = TextPainter(
+        text: TextSpan(text: word, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      if (tp.width > widest) widest = tp.width;
+    }
+    return widest;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return LayoutBuilder(
+      builder: (context, box) {
+        var fitted = style;
+        final size = style.fontSize ?? 18;
+        final widest = _widest(style, scaler);
+        if (box.maxWidth.isFinite && widest > box.maxWidth && widest > 0) {
+          final scale = (box.maxWidth / widest).clamp(_minScale, 1.0);
+          // A hair under, so rounding never pushes it back over the edge.
+          fitted = style.copyWith(fontSize: size * scale * 0.98);
+        }
+        // One long word ("testingdailyfeed") stays on one line: shrunk to
+        // fit, or cut with "..." if it's extremely long, never split in the
+        // middle of the word.
+        final oneWord = !text.trim().contains(RegExp(r'\s'));
+        return Text(
+          text,
+          maxLines: oneWord ? 1 : 2,
+          softWrap: !oneWord,
+          overflow: TextOverflow.ellipsis,
+          style: fitted,
+        );
+      },
     );
   }
 }

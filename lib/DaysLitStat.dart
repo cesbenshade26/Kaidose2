@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 
 /// "Days lit": how many different days someone has shown up in Kaidose
 /// (posted in a Daily, answered a Daily's prompt, or posted a clip). It only
@@ -97,20 +98,20 @@ class DaysLitStat extends StatelessWidget {
                           : const [],
                     ),
                     child: Icon(
-                      started ? Icons.wb_sunny_rounded : Icons.wb_sunny_outlined,
+                      started ? Icons.wb_twilight_rounded : Icons.wb_twilight_outlined,
                       size: 21,
                       color: litToday
                           ? Colors.white
-                          : (started ? Colors.amber[800] : Colors.grey[500]),
+                          : (started ? Colors.amber[800] : kc.grey(500)),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Text(
                     _withCommas(days),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
-                      color: Colors.black,
+                      color: kc.text,
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -119,7 +120,7 @@ class DaysLitStat extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: Colors.grey[700],
+                      color: kc.grey(700),
                     ),
                   ),
                 ],

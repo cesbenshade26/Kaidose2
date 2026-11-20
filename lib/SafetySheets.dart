@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:flutter/services.dart';
 import 'GroupAvatar.dart';
 import 'SafetyService.dart';
@@ -12,7 +13,7 @@ Widget _handle() => Center(
     height: 4,
     margin: const EdgeInsets.only(top: 10, bottom: 8),
     decoration: BoxDecoration(
-      color: Colors.grey[300],
+      color: kc.grey(300),
       borderRadius: BorderRadius.circular(2),
     ),
   ),
@@ -20,8 +21,8 @@ Widget _handle() => Center(
 
 Widget _sheet(BuildContext context, List<Widget> children) {
   return Container(
-    decoration: const BoxDecoration(
-      color: Colors.white,
+    decoration: BoxDecoration(
+      color: kc.surface,
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
     ),
     padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 8),
@@ -67,17 +68,17 @@ class SafetyMenu {
         for (final it in items)
           ListTile(
             leading: Icon(it.icon,
-                color: it.destructive ? Colors.red : Colors.black87),
+                color: it.destructive ? Colors.red : kc.text),
             title: Text(it.label,
                 style: TextStyle(
                   fontSize: 15.5,
                   fontWeight: FontWeight.w600,
-                  color: it.destructive ? Colors.red : Colors.black87,
+                  color: it.destructive ? Colors.red : kc.text,
                 )),
             subtitle: it.subtitle == null
                 ? null
                 : Text(it.subtitle!,
-                style: TextStyle(fontSize: 12.5, color: Colors.grey[600])),
+                style: TextStyle(fontSize: 12.5, color: kc.grey(600))),
             onTap: () {
               Navigator.pop(sheetContext);
               it.onTap();
@@ -117,7 +118,7 @@ class BlockFlow {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text('Block $name?'),
@@ -252,7 +253,7 @@ class UserActions {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text('Remove $name?'),
@@ -403,8 +404,8 @@ class _ReportSheetState extends State<_ReportSheet> {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxH),
         child: Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: kc.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           ),
           padding: EdgeInsets.only(
@@ -432,7 +433,7 @@ class _ReportSheetState extends State<_ReportSheet> {
             const SizedBox(height: 4),
             Text(sub,
                 style: TextStyle(
-                    fontSize: 13.5, color: Colors.grey[600], height: 1.3)),
+                    fontSize: 13.5, color: kc.grey(600), height: 1.3)),
           ],
         ],
       ),
@@ -462,7 +463,7 @@ class _ReportSheetState extends State<_ReportSheet> {
                   title: Text(r.label,
                       style: const TextStyle(
                           fontSize: 15.5, fontWeight: FontWeight.w500)),
-                  trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
+                  trailing: Icon(Icons.chevron_right, color: kc.grey(400)),
                   onTap: () => setState(() => _reason = r),
                 ),
             ],
@@ -497,7 +498,7 @@ class _ReportSheetState extends State<_ReportSheet> {
             margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.cyan.withOpacity(0.08),
+              color: kc.adapt(const Color(0xFFF4F5F7)),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Text(
@@ -518,7 +519,7 @@ class _ReportSheetState extends State<_ReportSheet> {
             decoration: InputDecoration(
               hintText: 'Add details (optional)',
               filled: true,
-              fillColor: Colors.grey[100],
+              fillColor: kc.grey(100),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide.none,
@@ -572,10 +573,10 @@ class _ReportSheetState extends State<_ReportSheet> {
           width: 64,
           height: 64,
           decoration: BoxDecoration(
-            color: Colors.cyan.withOpacity(0.12),
+            color: kc.adapt(const Color(0xFFE8F5E9)),
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.check_rounded, color: Colors.cyan[700], size: 36),
+          child: Icon(Icons.check_rounded, color: Colors.green[600], size: 36),
         ),
         const SizedBox(height: 14),
         const Text('Thanks for letting us know',
@@ -586,7 +587,7 @@ class _ReportSheetState extends State<_ReportSheet> {
             "We'll review it and take it down if it breaks our Community "
                 "Guidelines. They won't know who reported them.",
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: Colors.grey[700], height: 1.35),
+            style: TextStyle(fontSize: 14, color: kc.grey(700), height: 1.35),
           ),
         ),
         if (canBlock)
@@ -649,11 +650,11 @@ class BlockedAccountsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SafetyService.instance;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
         title: const Text('Blocked accounts'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: kc.background,
+        foregroundColor: kc.text,
         surfaceTintColor: Colors.transparent,
         elevation: 0.5,
       ),
@@ -668,10 +669,10 @@ class BlockedAccountsScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.block_rounded, size: 56, color: Colors.grey[300]),
+                    Icon(Icons.block_rounded, size: 56, color: kc.grey(300)),
                     const SizedBox(height: 12),
                     Text("You haven't blocked anyone",
-                        style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+                        style: TextStyle(fontSize: 16, color: kc.grey(600))),
                   ],
                 ),
               ),
@@ -734,8 +735,8 @@ class _BlockedRowState extends State<_BlockedRow> {
               if (mounted) setState(() => _busy = false);
             },
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.black87,
-              side: BorderSide(color: Colors.grey[300]!),
+              foregroundColor: kc.text,
+              side: BorderSide(color: kc.grey(300)),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18)),
             ),

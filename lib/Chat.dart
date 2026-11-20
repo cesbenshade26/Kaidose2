@@ -6,7 +6,6 @@ import 'user_service.dart';
 import 'AddToDaily.dart';
 import 'ChatScreen.dart';
 import 'ManageChat.dart';
-import 'KaidoseBrand.dart';
 import 'AddChatSheet.dart';
 import 'NewGroupChat.dart';
 import 'GroupChatService.dart';
@@ -15,7 +14,7 @@ import 'ManageGroupChat.dart';
 import 'UserProfileScreen.dart';
 import 'ChatUnread.dart';
 import 'GroupAvatar.dart';
-
+import 'GroupIcon.dart';
 
 class ChatWidget extends StatefulWidget {
   const ChatWidget({Key? key}) : super(key: key);
@@ -278,7 +277,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
 
     return _withDivider(
       ChatRow(
-        avatar: ChatAvatar(name: title, group: true),
+        avatar: GroupIcon(iconUrl: group.iconUrl, name: title),
         title: title,
         subtitle: subtitle,
         time: chatAgo(group.lastMessageAt),
@@ -462,10 +461,10 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
                 ? TextField(
               controller: _searchController,
               autofocus: true,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Search chats...',
                 hintStyle: TextStyle(
-                  color: Colors.grey,
+                  color: kc.grey(500),
                   fontSize: 18,
                 ),
                 border: InputBorder.none,
@@ -477,7 +476,12 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
             )
                 : Text(
               'Chats',
-              style: KaidoseBrand.wordmark(32),
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: context.colors.text,
+              ),
             ),
             centerTitle: false,
             actions: [
@@ -520,7 +524,7 @@ class _ChatWidgetState extends State<ChatWidget> with AutomaticKeepAliveClientMi
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
-            child: CircularProgressIndicator(color: context.chatColors.accent),
+            child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
           );
         }
 

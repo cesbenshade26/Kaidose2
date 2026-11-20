@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
 
@@ -142,13 +143,13 @@ class DailyIconTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final glyph = Icon(icon, color: Colors.grey[800], size: size * 0.5);
+    final glyph = Icon(icon, color: kc.grey(800), size: size * 0.5);
     final path = customIconPath;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: kc.grey(100),
         borderRadius: BorderRadius.circular(radius),
       ),
       child: path == null

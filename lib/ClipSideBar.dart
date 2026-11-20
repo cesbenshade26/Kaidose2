@@ -4,12 +4,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'Share.dart';
 import 'ArchiveStorage.dart';
 import 'SavedItemStorage.dart';
-import 'SendDailyMessage.dart';
 import 'SelectArchiveFolder.dart';
-import 'user_service.dart';
 import 'FeedService.dart';
 import 'SafetyService.dart';
 import 'SafetySheets.dart';
+import 'LikePrefs.dart';
+import 'ReduceMotion.dart';
 
 typedef LikeTrigger = void Function();
 
@@ -52,10 +52,16 @@ class _ClipSideBarState extends State<ClipSideBar>
 
   bool _liked = false;
   int _likeCount = 0;
+  // The creator hid like counts on their clips (Settings → Privacy → Likes).
+  bool _creatorHidesLikes = false;
   int _commentCount = 0;
   bool _loadingLike = false;
   bool _isSaving = false;
-  bool _isSaved = false;
+  // Live from your saved items (Archives).
+  bool get _isSaved => SavedItems.isClipSaved(widget.clipId);
+  void _savedChanged() {
+    if (mounted) setState(() {});
+  }
 
   // The heart's "pop" when liked (squish, overshoot, settle) and a small
   // dip when unliked. Nullable so dispose() is safe even if initState
@@ -68,6 +74,7 @@ class _ClipSideBarState extends State<ClipSideBar>
   @override
   void initState() {
     super.initState();
+    SavedItems.items.addListener(_savedChanged);
 
     _popController = AnimationController(
       vsync: this,
@@ -105,6 +112,7 @@ class _ClipSideBarState extends State<ClipSideBar>
 
   @override
   void dispose() {
+    SavedItems.items.removeListener(_savedChanged);
     _popController?.dispose();
     super.dispose();
   }
@@ -115,6 +123,7 @@ class _ClipSideBarState extends State<ClipSideBar>
       final clipDoc =
       await _firestore.collection('clips').doc(widget.clipId).get();
       final likeCount = clipDoc.data()?['likeCount'] ?? 0;
+      final hides = clipDoc.data()?['hideLikes'] == true;
       final commentCount = clipDoc.data()?['commentCount'] ?? 0;
       final likeDoc = await _firestore
           .collection('clips')
@@ -125,6 +134,7 @@ class _ClipSideBarState extends State<ClipSideBar>
       if (mounted) {
         setState(() {
           _likeCount = likeCount;
+          _creatorHidesLikes = hides;
           _commentCount = commentCount is num ? commentCount.toInt() : 0;
           _liked = likeDoc.exists;
         });
@@ -141,7 +151,8 @@ class _ClipSideBarState extends State<ClipSideBar>
     final wasLiked = _liked;
 
     _poppingLike = !wasLiked;
-    _popController?.forward(from: 0);
+    // The pop is skipped when the phone's Reduce Motion is on.
+    if (!ReduceMotion.of(context)) _popController?.forward(from: 0);
     setState(() {
       _loadingLike = true;
       _liked = !wasLiked;
@@ -210,83 +221,64 @@ class _ClipSideBarState extends State<ClipSideBar>
     }
   }
 
+  void _snack(String text, {SnackBarAction? action}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(text),
+        action: action,
+        duration: const Duration(seconds: 3),
+      ));
+  }
+
+  /// Bookmark: saved already -> unsave. Otherwise into your only folder
+  /// straight away (with "Change" to pick others), or pick when you have
+  /// more than one.
   Future<void> _handleSaveTap() async {
     if (_isSaving) return;
+    final key = SavedItems.clipKey(widget.clipId);
+    if (_isSaved) {
+      await SavedItems.unsave(key);
+      _snack('Removed from saved');
+      return;
+    }
     setState(() => _isSaving = true);
-
     try {
       await ArchiveStorage.loadFromStorage();
-      final archives = ArchiveStorage.archives;
-
-      final clipDoc = await _firestore.collection('clips').doc(widget.clipId).get();
-      if (!clipDoc.exists) {
-        throw Exception('Clip not found');
-      }
-
-      final data = clipDoc.data()!;
-      final videoUrl = data['videoUrl'] as String? ?? '';
-      final caption = data['caption'] as String? ?? '';
-
-      if (videoUrl.isEmpty) {
-        throw Exception('Clip has no video URL');
-      }
-
-      String username = 'You';
-      if (_uid != null) {
-        final user = await UserService().getUserById(_uid!);
-        if (user?.username != null && user!.username.isNotEmpty) {
-          username = user.username;
+      final folders = ArchiveStorage.archives;
+      if (folders.length <= 1) {
+        final only = folders.isEmpty ? ArchiveStorage.defaultId : folders.first.id;
+        final ok = await SavedItems.saveClip(widget.clipId, [only]);
+        if (!ok) {
+          _snack("Couldn't save. Try again.");
+          return;
         }
-      }
-
-      // messageId is the clip's own id, so re-saving the same clip
-      // naturally dedupes via SavedItemStorage's existing check.
-      final message = DailyMessage(
-        text: caption.isNotEmpty ? caption : null,
-        videoPath: videoUrl,
-        timestamp: DateTime.now(),
-        messageId: widget.clipId,
-        dailyId: 'clip',
-        userId: _uid ?? 'current_user',
-        username: username,
-      );
-
-      if (archives.length == 1) {
-        await SavedItemStorage.saveItem(archives[0].id, message);
-        if (mounted) {
-          setState(() => _isSaved = true);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Saved to ${archives[0].name}'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
+        _snack(
+          'Saved to ${folders.isEmpty ? 'Your Archives' : folders.first.name}',
+          action: SnackBarAction(
+            label: 'Change',
+            onPressed: () async {
+              final picked = await showSaveToSheet(context,
+                  selected: SavedItems.get(key)?.archiveIds ?? const [],
+                  alreadySaved: true);
+              if (picked != null) await SavedItems.setFolders(key, picked);
+            },
+          ),
+        );
       } else if (mounted) {
-        final saved = await Navigator.push<bool>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SelectArchiveFolderScreen(
-              message: message,
-              showDailyOption: false,
-            ),
-          ),
-        );
-        if (saved == true && mounted) {
-          setState(() => _isSaved = true);
+        final picked = await showSaveToSheet(context);
+        if (picked == null || picked.isEmpty) return;
+        final ok = await SavedItems.saveClip(widget.clipId, picked);
+        if (!ok) {
+          _snack("Couldn't save. Try again.");
+          return;
         }
-      }
-    } catch (e) {
-      print('ClipSideBar: save error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving clip: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+        final names = picked
+            .map((id) => ArchiveStorage.byId(id)?.name)
+            .whereType<String>()
+            .toList();
+        _snack(names.length == 1 ? 'Saved to ${names.first}' : 'Saved');
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -310,6 +302,14 @@ class _ClipSideBarState extends State<ClipSideBar>
     return count.toString();
   }
 
+  /// Your own clips always show it. Others' clips don't when their creator
+  /// hid it, or you turned off like counts for yourself.
+  bool get _showLikeCount {
+    final mine = widget.creatorUid != null && widget.creatorUid == _uid;
+    if (mine) return true;
+    return !_creatorHidesLikes && !LikePrefs.hideOthers;
+  }
+
   @override
   Widget build(BuildContext context) {
     // Tight, even spacing; a 44px tap area for every button; a count only
@@ -321,7 +321,7 @@ class _ClipSideBarState extends State<ClipSideBar>
         // Like: the heart squishes, pops past full size and settles as it
         // fills in; unliking gives a small dip.
         _SideButton(
-          label: _formatCount(_likeCount),
+          label: _showLikeCount ? _formatCount(_likeCount) : '',
           onTap: triggerLike,
           child: AnimatedBuilder(
             animation: _popController ?? const AlwaysStoppedAnimation(0.0),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'FriendsSearch.dart';
 import 'DailySearch.dart';
 import 'ClipSearch.dart';
@@ -76,14 +77,14 @@ class _SearchScreenState extends State<SearchScreen> {
     // scroll down through results and slide back as soon as you scroll up
     // a little (floating + snap), so the search box is never far away.
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       body: NestedScrollView(
         floatHeaderSlivers: true,
         headerSliverBuilder: (context, innerScrolled) => [
           SliverAppBar(
             floating: true,
             snap: true,
-            backgroundColor: Colors.white,
+            backgroundColor: kc.background,
             surfaceTintColor: Colors.transparent,
             scrolledUnderElevation: 0,
             elevation: 0,
@@ -108,19 +109,19 @@ class _SearchScreenState extends State<SearchScreen> {
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       padding: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: kc.grey(100),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
           if (!widget.isTab)
             IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.black, size: 22),
+              icon: Icon(Icons.arrow_back, color: kc.text, size: 22),
               onPressed: () => Navigator.pop(context),
             )
           else
             const SizedBox(width: 10),
-          const Icon(Icons.search, color: Colors.grey, size: 20),
+          Icon(Icons.search, color: kc.grey(500), size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(
@@ -129,18 +130,18 @@ class _SearchScreenState extends State<SearchScreen> {
               autofocus: !widget.isTab,
               textInputAction: TextInputAction.search,
               onSubmitted: _remember,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Search people, Dailies, topics',
-                hintStyle: TextStyle(color: Colors.grey, fontSize: 16),
+                hintStyle: TextStyle(color: kc.grey(500), fontSize: 16),
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.symmetric(vertical: 12),
               ),
-              style: const TextStyle(fontSize: 16, color: Colors.black),
+              style: TextStyle(fontSize: 16, color: kc.text),
             ),
           ),
           if (_searchController.text.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+              icon: Icon(Icons.close, color: kc.grey(500), size: 20),
               onPressed: _searchController.clear,
             ),
         ],
@@ -173,7 +174,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ? FontWeight.w700
                                 : FontWeight.w500,
                             color:
-                            _selectedTabIndex == i ? Colors.black : Colors.grey,
+                            _selectedTabIndex == i ? kc.text : kc.grey(500),
                           ),
                         ),
                       ),
@@ -196,7 +197,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
-          Divider(height: 1, color: Colors.grey[200]),
+          Divider(height: 1, color: kc.grey(200)),
         ],
       ),
     );
@@ -276,9 +277,9 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             for (final r in _recent)
               ActionChip(
-                avatar: Icon(Icons.history, size: 16, color: Colors.grey[600]),
+                avatar: Icon(Icons.history, size: 16, color: kc.grey(600)),
                 label: Text(r),
-                backgroundColor: Colors.grey[100],
+                backgroundColor: kc.grey(100),
                 side: BorderSide.none,
                 onPressed: () => _useSuggestion(r),
               ),
@@ -295,9 +296,9 @@ class _SearchScreenState extends State<SearchScreen> {
             for (final t in _topics)
               ActionChip(
                 label: Text(t),
-                labelStyle: const TextStyle(
-                    color: Colors.black87, fontWeight: FontWeight.w500),
-                backgroundColor: Colors.cyan.withOpacity(0.1),
+                labelStyle: TextStyle(
+                    color: kc.text, fontWeight: FontWeight.w500),
+                backgroundColor: kc.adapt(const Color(0xFFF1F3F5)),
                 side: BorderSide.none,
                 onPressed: () => _useSuggestion(t),
               ),
@@ -318,13 +319,13 @@ class _SearchScreenState extends State<SearchScreen> {
             style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: Colors.grey[800]),
+                color: kc.grey(800)),
           ),
         ),
         if (onTap != null)
           GestureDetector(
             onTap: onTap,
-            child: Icon(Icons.chevron_right, color: Colors.grey[500]),
+            child: Icon(Icons.chevron_right, color: kc.grey(500)),
           ),
       ],
     ),

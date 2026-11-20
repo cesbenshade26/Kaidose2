@@ -111,9 +111,17 @@ class BubbleTimeLabel extends StatelessWidget {
   }
 }
 
-/// A filled message bubble: yours in cyan on the right, everyone else's in
-/// light grey on the left. Corners on the sender's side tighten inside a run
-/// so consecutive messages read as one block.
+/// One message: yours on the right, everyone else's on the left.
+///
+/// Text sits in a filled bubble (cyan for you, light grey for others).
+/// A photo or video has no bubble around it: it stands on its own with
+/// rounded corners, keeps its own shape, and any caption is its own normal
+/// bubble tucked just under it. A message sent in from a Daily gets a small
+/// "↗ ___ Daily" pill: over the corner of the photo for media, just above
+/// the bubble for text.
+///
+/// Corners on the sender's side tighten inside a run so consecutive
+/// messages read as one block.
 class ChatBubble extends StatelessWidget {
   final bool isMe;
   final String text;
@@ -125,7 +133,7 @@ class ChatBubble extends StatelessWidget {
   final BubbleRun run;
   final VoidCallback? onImageTap;
 
-  /// "Sent from ___ Daily" tag shown at the top of the bubble, and what
+  /// Which Daily this was sent in from (e.g. "counter test Daily"), and what
   /// tapping it does (open that Daily).
   final String? sourceLabel;
   final VoidCallback? onSourceTap;
@@ -149,181 +157,304 @@ class ChatBubble extends StatelessWidget {
   static const double _joined = 6;
   static const double _tail = 4;
 
-  /// A small grey tab that rises out of the top of the bubble (same look as
-  /// the Daily prompt tab), saying which Daily this was sent from.
-  Widget _sourceTab(BuildContext context) {
+  /// Text bubbles can use 75% of the screen; photos and videos a bit less,
+  /// so they don't swallow the conversation.
+  static const double _textWidth = 0.75;
+  static const double _mediaWidth = 0.64;
+  static const double _mediaMaxHeight = 380;
+
+  bool get _hasImage => imageUrl != null && imageUrl!.isNotEmpty;
+  bool get _hasVideo => videoUrl != null && videoUrl!.isNotEmpty;
+  bool get _hasMedia => _hasImage || _hasVideo;
+  bool get _hasTextPart =>
+      text.isNotEmpty ||
+          parentText != null ||
+          (footer != null && footer!.isNotEmpty && !_hasMedia);
+
+  /// Corners for one piece of the message. [top]/[bottom] say whether this
+  /// piece is the top or bottom of the whole run (so it gets the round or
+  /// tail corner on the sender's side); otherwise that corner is joined.
+  BorderRadius _radius({required bool top, required bool bottom}) {
+    final t = top ? _round : _joined;
+    final b = bottom ? _tail : _joined;
+    return BorderRadius.only(
+      topLeft: Radius.circular(isMe ? _round : t),
+      bottomLeft: Radius.circular(isMe ? _round : b),
+      topRight: Radius.circular(isMe ? t : _round),
+      bottomRight: Radius.circular(isMe ? b : _round),
+    );
+  }
+
+  // ─── "Sent from a Daily" ─────────────────────────────────────────────────
+
+  /// Dark see-through pill laid over the top corner of a photo or video.
+  Widget _sourcePillOnMedia() {
     return GestureDetector(
       onTap: onSourceTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 7, 12, 6),
+        constraints: const BoxConstraints(maxWidth: 200),
+        padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
         decoration: BoxDecoration(
-          color: context.colors.surfaceMuted,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+          color: Colors.black.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'SENT FROM',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.6,
-                color: context.colors.accent,
-              ),
-            ),
-            const SizedBox(width: 8),
+            const Icon(Icons.north_east, size: 12, color: Colors.white),
+            const SizedBox(width: 5),
             Flexible(
               child: Text(
                 sourceLabel!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: context.colors.text,
                 ),
               ),
             ),
-            if (onSourceTap != null) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.north_east, size: 13, color: context.colors.accent),
-            ],
           ],
         ),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final maxW = MediaQuery.of(context).size.width * 0.75;
-    final bg = isMe ? Colors.cyan : context.colors.line;
-    final fg = isMe ? Colors.white : context.colors.text;
-
-    // Sender-side corners tighten inside a run; the last one is the tail.
-    final top = run.first ? _round : _joined;
-    final bottom = run.last ? _tail : _joined;
-    // With a source tab on top, the corner under the tab squares off so the
-    // two read as one piece.
-    final hasTab = sourceLabel != null;
-    final radius = BorderRadius.only(
-      topLeft: Radius.circular(isMe ? _round : (hasTab ? 0 : top)),
-      bottomLeft: Radius.circular(isMe ? _round : bottom),
-      topRight: Radius.circular(isMe ? (hasTab ? 0 : top) : _round),
-      bottomRight: Radius.circular(isMe ? bottom : _round),
-    );
-
-    final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
-    final hasVideo = videoUrl != null && videoUrl!.isNotEmpty;
-    final hasTextPart =
-        text.isNotEmpty || parentText != null || (footer != null);
-
-    final bubbleBox = Container(
-      constraints: BoxConstraints(maxWidth: maxW),
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(color: bg, borderRadius: radius),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (hasImage)
-            GestureDetector(
-              onTap: onImageTap,
-              child: Image.network(
-                imageUrl!,
-                width: maxW,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    width: maxW,
-                    height: 200,
-                    color: context.colors.border,
-                    child: Center(
-                      child:
-                      CircularProgressIndicator(color: context.colors.accent),
-                    ),
-                  );
-                },
-                errorBuilder: (_, __, ___) => Container(
-                  width: maxW,
-                  height: 140,
-                  color: context.colors.border,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.broken_image_outlined,
-                          size: 36, color: context.colors.textFaint),
-                      const SizedBox(height: 6),
-                      Text('Image no longer available',
-                          style: TextStyle(
-                              color: context.colors.textMuted, fontSize: 12)),
-                    ],
+  /// Small muted line just above a text bubble. It has a faint backing so
+  /// it stays readable over a chat wallpaper.
+  Widget _sourceLineAboveText(BuildContext context) {
+    final muted = context.colors.textMuted;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3, left: 4, right: 4),
+      child: GestureDetector(
+        onTap: onSourceTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: context.colors.background.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.north_east, size: 11, color: muted),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  'From $sourceLabel',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: muted,
                   ),
                 ),
               ),
-            ),
-          if (hasVideo)
-            SizedBox(
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Media ───────────────────────────────────────────────────────────────
+
+  Widget _media(BuildContext context, double maxW, BorderRadius radius) {
+    final Widget content;
+    if (_hasImage) {
+      content = GestureDetector(
+        onTap: onImageTap,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: maxW,
+            maxHeight: _mediaMaxHeight,
+            minWidth: maxW * 0.55,
+            minHeight: 120,
+          ),
+          // No fixed size: the photo keeps its own shape (tall stays tall,
+          // wide stays wide) inside the limits above.
+          child: Image.network(
+            imageUrl!,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return Container(
+                width: maxW,
+                height: 260,
+                color: context.colors.surfaceMuted,
+                child: Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: context.colors.textFaint),
+                  ),
+                ),
+              );
+            },
+            errorBuilder: (_, __, ___) => Container(
               width: maxW,
-              child: AspectRatio(
-                aspectRatio: 9 / 16,
-                child: NetworkVideoPlayer(url: videoUrl!),
+              height: 140,
+              color: context.colors.surfaceMuted,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.broken_image_outlined,
+                      size: 32, color: context.colors.textFaint),
+                  const SizedBox(height: 6),
+                  Text('Image no longer available',
+                      style: TextStyle(
+                          color: context.colors.textMuted, fontSize: 12)),
+                ],
               ),
             ),
-          if (hasTextPart)
-            Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (parentText != null)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.only(left: 8),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          left: BorderSide(
-                              color: fg.withOpacity(0.5), width: 2.5),
-                        ),
-                      ),
-                      child: Text(
-                        parentText!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontStyle: FontStyle.italic,
-                          color: fg.withOpacity(0.8),
-                        ),
-                      ),
-                    ),
-                  if (text.isNotEmpty)
-                    Text(text,
-                        style: TextStyle(
-                            fontSize: 15.5, height: 1.25, color: fg)),
-                  if (footer != null && footer!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 5),
-                      child: Text(
-                        footer!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: fg.withOpacity(0.7),
-                        ),
-                      ),
-                    ),
-                ],
+          ),
+        ),
+      );
+    } else {
+      // Phone videos are almost always tall; cap the height so one video
+      // doesn't fill the whole screen.
+      final w = (_mediaMaxHeight * 9 / 16).clamp(0.0, maxW);
+      content = SizedBox(
+        width: w,
+        child: AspectRatio(
+          aspectRatio: 9 / 16,
+          child: NetworkVideoPlayer(url: videoUrl!),
+        ),
+      );
+    }
+
+    // Disappearing timer with no caption to hold it: a chip on the media.
+    final timerOnMedia = !_hasTextPart && footer != null && footer!.isNotEmpty;
+
+    return ClipRRect(
+      borderRadius: radius,
+      child: Stack(
+        children: [
+          Container(color: context.colors.surfaceMuted, child: content),
+          if (sourceLabel != null)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: _sourcePillOnMedia(),
+            ),
+          if (timerOnMedia)
+            Positioned(
+              bottom: 8,
+              right: 8,
+              child: Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  footer!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
         ],
       ),
     );
+  }
+
+  // ─── Text ────────────────────────────────────────────────────────────────
+
+  Widget _textBubble(BuildContext context, double maxW, BorderRadius radius) {
+    final bg = isMe ? Colors.cyan : context.colors.line;
+    final fg = isMe ? Colors.white : context.colors.text;
+
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxW),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(color: bg, borderRadius: radius),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (parentText != null)
+            Container(
+              margin: EdgeInsets.only(bottom: text.isNotEmpty ? 6 : 0),
+              padding: const EdgeInsets.only(left: 8),
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: fg.withOpacity(0.5), width: 2.5),
+                ),
+              ),
+              child: Text(
+                parentText!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: fg.withOpacity(0.8),
+                ),
+              ),
+            ),
+          if (text.isNotEmpty)
+            Text(text,
+                style: TextStyle(fontSize: 15.5, height: 1.25, color: fg)),
+          if (footer != null && footer!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Text(
+                footer!,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: fg.withOpacity(0.7),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Build ───────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final screenW = MediaQuery.of(context).size.width;
+    final textW = screenW * _textWidth;
+    final mediaW = screenW * _mediaWidth;
+
+    final pieces = <Widget>[];
+
+    if (_hasMedia) {
+      // Media on top; the caption (if any) is its own bubble right under it.
+      pieces.add(_media(
+        context,
+        mediaW,
+        _radius(top: run.first, bottom: run.last && !_hasTextPart),
+      ));
+      if (_hasTextPart) {
+        pieces.add(const SizedBox(height: 2));
+        pieces.add(_textBubble(
+          context,
+          textW,
+          _radius(top: false, bottom: run.last),
+        ));
+      }
+    } else {
+      if (sourceLabel != null) pieces.add(_sourceLineAboveText(context));
+      pieces.add(_textBubble(
+        context,
+        textW,
+        _radius(top: run.first, bottom: run.last),
+      ));
+    }
 
     return Padding(
       padding: EdgeInsets.only(top: run.first ? 8 : 2),
@@ -343,25 +474,7 @@ class ChatBubble extends StatelessWidget {
                 ),
               ),
             ),
-          if (!hasTab)
-            bubbleBox
-          else
-            ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxW),
-              child: IntrinsicWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment:
-                      isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: _sourceTab(context),
-                    ),
-                    bubbleBox,
-                  ],
-                ),
-              ),
-            ),
+          ...pieces,
         ],
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'user_service.dart';
 import 'chat_reactions.dart';
 import 'GroupChatService.dart';
@@ -11,6 +12,8 @@ import 'GroupMediaScreen.dart';
 import 'ManageGroupChat.dart';
 import 'UnifiedMediaPicker.dart';
 import 'DailyShare.dart';
+import 'DailyFonts.dart';
+import 'GroupIcon.dart';
 
 class GroupChatScreen extends StatefulWidget {
   final String groupId;
@@ -27,6 +30,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _inputFocus = FocusNode();
+
+  // Made once, not on every rebuild (the keyboard opening rebuilds this
+  // screen every frame; a fresh stream each time re-downloaded everything).
+  late final Stream<GroupChat?> _groupStream =
+  _service.watchGroup(widget.groupId);
+  late final Stream<List<GroupMessage>> _messagesStream =
+  _service.getMessages(widget.groupId);
 
   String _currentUsername = 'You';
   bool _isLoading = true;
@@ -116,7 +126,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
+                  border: Border.all(color: kc.background, width: 1.5),
                 ),
                 child: MemberAvatar(userId: ids[i], size: size - 3),
               ),
@@ -138,7 +148,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<GroupChat?>(
-      stream: _service.watchGroup(widget.groupId),
+      stream: _groupStream,
       builder: (context, groupSnap) {
         final group = groupSnap.data;
         final myId = _service.currentUserId;
@@ -163,11 +173,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     // photo is dark, the bar's text and icons turn white.
     final hasWallpaper = group?.wallpaperUrl != null;
     final light = hasWallpaper && group!.wallpaperTopDark;
-    final barColor = light ? Colors.white : Colors.black;
+    // A wallpaper decides on its own (white over a dark top, black over a
+    // light one) in both light and dark mode; without one, the app's color.
+    final barColor =
+    light ? Colors.white : (hasWallpaper ? Colors.black : kc.text);
     final topPad = MediaQuery.of(context).padding.top + kToolbarHeight;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -175,7 +188,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         scrolledUnderElevation: 0,
         elevation: 0,
         systemOverlayStyle:
-        light ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        light
+            ? SystemUiOverlayStyle.light
+            : (hasWallpaper ? SystemUiOverlayStyle.dark : AppTheme.pageOverlay),
         iconTheme: IconThemeData(color: barColor),
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: barColor),
@@ -188,11 +203,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             group == null ? 'Group chat' : group.displayName(myId),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: barColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
+            // The group's own font, if it picked one (Manage chat → name).
+            style: DailyFonts.style(group?.font, fontWeight: FontWeight.w700)
+                .copyWith(color: barColor, fontSize: 18),
           ),
         ),
         actions: [
@@ -203,7 +216,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               onTap: _openManage,
               child: Padding(
                 padding: const EdgeInsets.only(right: 14),
-                child: _memberFaces(group, barColor),
+                child: group.iconUrl != null && group.iconUrl!.isNotEmpty
+                    ? GroupIcon(
+                    iconUrl: group.iconUrl,
+                    name: group.displayName(myId),
+                    size: 32)
+                    : _memberFaces(group, barColor),
               ),
             ),
         ],
@@ -243,10 +261,10 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             children: [
               Expanded(
                 child: _isLoading
-                    ? const Center(
-                    child: CircularProgressIndicator(color: Colors.cyan))
+                    ? Center(
+                    child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))))
                     : StreamBuilder<List<GroupMessage>>(
-                  stream: _service.getMessages(widget.groupId),
+                  stream: _messagesStream,
                   builder: (context, snapshot) {
                     final messages = snapshot.data ?? [];
                     return ListView.builder(
@@ -280,14 +298,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 5),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.85),
+                                  color: kc.background.withOpacity(0.85),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
                                   m.text,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                      fontSize: 12, color: Colors.grey[600]),
+                                      fontSize: 12, color: kc.grey(600)),
                                 ),
                               ),
                             ),
@@ -330,9 +348,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: kc.grey(50),
         borderRadius: BorderRadius.circular(12),
-        border: const Border(left: BorderSide(color: Colors.cyan, width: 4)),
+        border: Border(left: BorderSide(color: kc.grey(400), width: 3)),
       ),
       child: Row(
         children: [
@@ -385,7 +403,7 @@ class GroupMessageWidget extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Material(
-        color: Colors.white,
+        color: kc.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         child: SafeArea(
           child: Column(
@@ -396,7 +414,7 @@ class GroupMessageWidget extends StatelessWidget {
                 height: 4,
                 margin: const EdgeInsets.only(top: 12, bottom: 20),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: kc.grey(300),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -413,7 +431,7 @@ class GroupMessageWidget extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               ListTile(
-                leading: const Icon(Icons.reply, color: Colors.black87),
+                leading: Icon(Icons.reply, color: kc.text),
                 title: const Text('Reply'),
                 onTap: () {
                   Navigator.pop(context);

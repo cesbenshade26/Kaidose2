@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'DailyCoverData.dart';
 
 /// Owner-only switch: "AI cover captions" on or off for one Daily.
@@ -35,7 +36,7 @@ class DailyAiHooksSwitch extends StatelessWidget {
           subtitle: Text(
             'A short line written about the cover photo. Captions you write '
                 'in the schedule always show instead.',
-            style: TextStyle(fontSize: 12.5, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 12.5, color: kc.grey(600)),
           ),
           value: enabled,
           onChanged: snap.hasData

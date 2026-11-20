@@ -2,6 +2,7 @@ import 'MusicSearch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
@@ -442,6 +443,168 @@ class FriendDailyService {
         .map((d) => d.data()['friendUserId'] as String)
         .toSet());
   }
+
+  // ─── Who viewed / liked your story ──────────────────────────────────────────
+  //
+  // users/{owner}/daily_story/{day}/viewers/{viewerUid} {uid, username, viewedAt}
+  // users/{owner}/daily_story/{day}/likes/{likerUid}    {uid, username, likedAt}
+  //
+  // Only the owner can read the lists (a liker can also read their own like,
+  // to show the sun filled in). A new like notifies the owner (Cloud
+  // Function notifyStoryLike).
+
+  static String? _myUsername;
+
+  static Future<String> _myName() async {
+    final cached = _myUsername;
+    if (cached != null) return cached;
+    try {
+      final doc = await _firestore.collection('users').doc(currentUid).get();
+      final name = doc.data()?['username'] as String?;
+      if (name != null && name.isNotEmpty) _myUsername = name;
+      return name ?? 'Someone';
+    } catch (_) {
+      return 'Someone';
+    }
+  }
+
+  static DocumentReference<Map<String, dynamic>> _dayRef(String ownerUid) =>
+      _firestore
+          .collection('users')
+          .doc(ownerUid)
+          .collection('daily_story')
+          .doc(_today);
+
+  /// Puts you on [ownerUid]'s viewer list for today's story.
+  static Future<void> recordStoryView(String ownerUid) async {
+    final uid = currentUid;
+    if (uid == null || uid == ownerUid) return;
+    try {
+      await _dayRef(ownerUid).collection('viewers').doc(uid).set({
+        'uid': uid,
+        'username': await _myName(),
+        'viewedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('FriendDailyService: record view error: $e');
+    }
+  }
+
+  /// Whether you've given [ownerUid]'s story today a sun.
+  static Future<bool> isStoryLiked(String ownerUid) async {
+    final uid = currentUid;
+    if (uid == null) return false;
+    try {
+      final doc =
+      await _dayRef(ownerUid).collection('likes').doc(uid).get();
+      return doc.exists;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Gives (or takes back) a sun on [ownerUid]'s story today.
+  static Future<void> setStoryLiked(String ownerUid, bool liked) async {
+    final uid = currentUid;
+    if (uid == null || uid == ownerUid) return;
+    final ref = _dayRef(ownerUid).collection('likes').doc(uid);
+    try {
+      if (liked) {
+        await ref.set({
+          'uid': uid,
+          'username': await _myName(),
+          'likedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await ref.delete();
+      }
+    } catch (e) {
+      print('FriendDailyService: like error: $e');
+    }
+  }
+
+  /// Everyone who has seen your story today, newest first, with whether
+  /// they gave it a sun. Updates live.
+  static Stream<List<StoryViewer>> myStoryViewers() {
+    final uid = currentUid;
+    if (uid == null) return Stream.value(const <StoryViewer>[]);
+    final day = _dayRef(uid);
+
+    late final StreamController<List<StoryViewer>> out;
+    StreamSubscription? viewersSub;
+    StreamSubscription? likesSub;
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? viewers;
+    var likes = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    void emit() {
+      final seen = viewers;
+      if (seen == null || out.isClosed) return;
+      final list = <StoryViewer>[];
+      final ids = <String>{};
+      for (final d in seen) {
+        ids.add(d.id);
+        final m = d.data();
+        list.add(StoryViewer(
+          uid: d.id,
+          username: (m['username'] as String?) ?? 'Someone',
+          time: (m['viewedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          liked: likes.containsKey(d.id),
+        ));
+      }
+      // A like whose view didn't save still counts.
+      likes.forEach((id, d) {
+        if (ids.contains(id)) return;
+        final m = d.data();
+        list.add(StoryViewer(
+          uid: id,
+          username: (m['username'] as String?) ?? 'Someone',
+          time: (m['likedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          liked: true,
+        ));
+      });
+      list.sort((a, b) => b.time.compareTo(a.time));
+      out.add(list);
+    }
+
+    out = StreamController<List<StoryViewer>>(
+      onListen: () {
+        viewersSub = day.collection('viewers').snapshots().listen((s) {
+          viewers = s.docs;
+          emit();
+        }, onError: (e) {
+          print('FriendDailyService: viewers stream error: $e');
+          viewers ??= const [];
+          emit();
+        });
+        likesSub = day.collection('likes').snapshots().listen((s) {
+          likes = {for (final d in s.docs) d.id: d};
+          emit();
+        }, onError: (e) {
+          print('FriendDailyService: likes stream error: $e');
+        });
+      },
+      onCancel: () async {
+        await viewersSub?.cancel();
+        await likesSub?.cancel();
+      },
+    );
+    return out.stream;
+  }
+}
+
+/// One person on your story's viewer list.
+class StoryViewer {
+  final String uid;
+  final String username;
+  final DateTime time;
+  final bool liked;
+
+  const StoryViewer({
+    required this.uid,
+    required this.username,
+    required this.time,
+    required this.liked,
+  });
 }
 
 extension StartWithFuture<T> on Stream<T> {

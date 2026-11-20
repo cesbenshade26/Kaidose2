@@ -1,5 +1,7 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'AppColors.dart';
 import 'Add.dart';
 import 'KaidoseBrand.dart';
 import 'NotificationBell.dart';
@@ -574,7 +576,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: selected ? Colors.black : Colors.grey[600],
+                    color: selected ? kc.text : kc.grey(600),
                   ),
                   child: Text(label),
                 ),
@@ -595,13 +597,13 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
         child: Container(
           height: 40,
           decoration: BoxDecoration(
-            color: Colors.grey[200],
+            color: kc.grey(200),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Row(
             children: [
               const SizedBox(width: 14),
-              Icon(Icons.search, size: 20, color: Colors.grey[600]),
+              Icon(Icons.search, size: 20, color: kc.grey(600)),
               const SizedBox(width: 8),
               Expanded(
                 child: TextField(
@@ -622,7 +624,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                 onTap: _closeSearch,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Icon(Icons.close, size: 20, color: Colors.grey[600]),
+                  child: Icon(Icons.close, size: 20, color: kc.grey(600)),
                 ),
               ),
             ],
@@ -637,7 +639,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
         height: 40,
         padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
-          color: Colors.grey[200],
+          color: kc.grey(200),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Stack(
@@ -652,7 +654,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                 heightFactor: 1.0,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: kc.surface,
                     borderRadius: BorderRadius.circular(17),
                     boxShadow: [
                       BoxShadow(
@@ -680,7 +682,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Icon(Icons.search,
-                          size: 20, color: Colors.grey[700]),
+                          size: 20, color: kc.grey(700)),
                     ),
                   ),
                 ),
@@ -708,7 +710,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
-                color: selected ? Colors.black : Colors.grey[500],
+                color: selected ? kc.text : kc.grey(500),
               ),
               child: Text(label),
             ),
@@ -718,7 +720,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               height: 2.5,
               width: selected ? 22 : 0,
               decoration: BoxDecoration(
-                color: Colors.black,
+                color: kc.text,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -747,9 +749,9 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
               child: Container(
                 padding: EdgeInsets.only(top: topInset, left: 8, right: 4),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.86),
+                  color: kc.background.withOpacity(0.86),
                   border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade300, width: 0.5),
+                    bottom: BorderSide(color: kc.grey(300), width: 0.5),
                   ),
                 ),
                 height: topInset + 48,
@@ -760,12 +762,13 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
                     const Spacer(),
                     NotificationBell(
                       size: 26,
+                      color: kc.text,
                       onBeforeOpen: _rememberPosition,
                       onAfterClose: _restorePosition,
                     ),
                     IconButton(
-                      icon: const Icon(Icons.add_circle_outline,
-                          color: Colors.black, size: 26),
+                      icon: Icon(Icons.add_circle_outline,
+                          color: kc.text, size: 26),
                       onPressed: _onAddPressed,
                     ),
                   ],
@@ -808,7 +811,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
       return SliverToBoxAdapter(
         child: _store.error != null
             ? _centered(Text('Error: ${_store.error}'))
-            : _centered(const CircularProgressIndicator(color: Colors.cyan)),
+            : _centered(CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
       );
     }
 
@@ -823,7 +826,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
     if (q.isNotEmpty && publishedDailies.isEmpty) {
       return SliverToBoxAdapter(
         child: _centered(Text('No Dailies match "$_query"',
-            style: TextStyle(fontSize: 15, color: Colors.grey[600]))),
+            style: TextStyle(fontSize: 15, color: kc.grey(600)))),
       );
     }
 
@@ -866,7 +869,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
           Icon(
             Icons.photo_camera_outlined,
             size: 80,
-            color: Colors.grey[400],
+            color: kc.grey(400),
           ),
           const SizedBox(height: 16),
           Text(
@@ -874,7 +877,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w600,
-              color: Colors.grey[700],
+              color: kc.grey(700),
             ),
           ),
           const SizedBox(height: 8),
@@ -882,7 +885,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
             'Start your day by posting your first daily',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey[600],
+              color: kc.grey(600),
             ),
             textAlign: TextAlign.center,
           ),
@@ -917,7 +920,7 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Colors.grey[700],
+              color: kc.grey(700),
             ),
           ),
         ],
@@ -941,92 +944,100 @@ class _DailiesWidgetState extends State<DailiesWidget> with WidgetsBindingObserv
 
     final topInset = MediaQuery.of(context).padding.top;
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
-            child: RefreshIndicator(
-              color: Colors.cyan,
-              edgeOffset: topInset + 8,
-              onRefresh: _onRefresh,
-              child: CustomScrollView(
-                controller: _scroll,
-                cacheExtent: _buildAhead,
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      key: _headerKey,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(
-                              left: 14, right: 8, top: 56, bottom: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Dailies',
-                                style: KaidoseBrand.wordmark(32),
-                              ),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // Notifications (friend requests, invites,
-                                  // join requests)
-                                  NotificationBell(
-                                    onBeforeOpen: _rememberPosition,
-                                    onAfterClose: _restorePosition,
-                                  ),
-                                  // Opens the Add sheet
-                                  IconButton(
-                                    icon: const Icon(Icons.add_circle_outline,
-                                        color: Colors.black, size: 28),
-                                    onPressed: _onAddPressed,
-                                  ),
-                                ],
-                              ),
-                            ],
+    // Status bar icons follow light/dark mode (no app bar here to do it).
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.pageOverlay,
+      child: Scaffold(
+        backgroundColor: kc.background,
+        body: Stack(
+          children: [
+            NotificationListener<ScrollNotification>(
+              onNotification: _onScrollNotification,
+              child: RefreshIndicator(
+                color: kc.adapt(const Color(0xFF8A8F98)),
+                edgeOffset: topInset + 8,
+                onRefresh: _onRefresh,
+                child: CustomScrollView(
+                  controller: _scroll,
+                  cacheExtent: _buildAhead,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        key: _headerKey,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(
+                                left: 14, right: 8, top: 56, bottom: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                // Home screen: the app's name, like other apps'
+                                // home feeds. The For You / My Dailies switch
+                                // below says where you are.
+                                Text(
+                                  'Kaidose',
+                                  style: KaidoseBrand.wordmark(32),
+                                ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Notifications (friend requests, invites,
+                                    // join requests)
+                                    NotificationBell(
+                                      color: kc.text,
+                                      onBeforeOpen: _rememberPosition,
+                                      onAfterClose: _restorePosition,
+                                    ),
+                                    // Opens the Add sheet
+                                    IconButton(
+                                      icon: Icon(Icons.add_circle_outline,
+                                          color: kc.text, size: 28),
+                                      onPressed: _onAddPressed,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        StoryBar(
-                          onTapOwnStory: _openPhotoCarousel,
-                          hasOwnPhotosToday: _todaysStoryItems.isNotEmpty,
-                          hasViewedAllOwnPhotos: _hasViewedAllPhotos,
-                        ),
-                        const SizedBox(height: 4),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          child: KeyedSubtree(
-                            key: ValueKey(_searchOpen && !_showForYou),
-                            child: _buildToggle(),
+                          StoryBar(
+                            onTapOwnStory: _openPhotoCarousel,
+                            hasOwnPhotosToday: _todaysStoryItems.isNotEmpty,
+                            hasViewedAllOwnPhotos: _hasViewedAllPhotos,
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
+                          const SizedBox(height: 4),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            child: KeyedSubtree(
+                              key: ValueKey(_searchOpen && !_showForYou),
+                              child: _buildToggle(),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ),
                     ),
-                  ),
-                  SliverFadeTransition(
-                    opacity: CurvedAnimation(
-                        parent: _fade, curve: Curves.easeOut),
-                    sliver: _showForYou
-                        ? DailyForYouSliver(controller: _forYou)
-                        : _buildMyDailiesSliver(),
-                  ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                ],
+                    SliverFadeTransition(
+                      opacity: CurvedAnimation(
+                          parent: _fade, curve: Curves.easeOut),
+                      sliver: _showForYou
+                          ? DailyForYouSliver(controller: _forYou)
+                          : _buildMyDailiesSliver(),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                  ],
+                ),
               ),
             ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _buildFloatingBar(),
-          ),
-        ],
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _buildFloatingBar(),
+            ),
+          ],
+        ),
       ),
     );
   }

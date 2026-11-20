@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'DailyData.dart';
 import 'DailyList.dart';
@@ -158,7 +159,7 @@ class DailyForYouSliver extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         if (controller.isLoading) {
-          return _box(const CircularProgressIndicator(color: Colors.cyan));
+          return _box(CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))));
         }
 
         if (controller.hasError) {
@@ -197,14 +198,14 @@ class DailyForYouSliver extends StatelessWidget {
             delegate: SliverChildBuilderDelegate(
                   (context, index) {
                 if (index >= shown.length) {
-                  return const Padding(
+                  return Padding(
                     padding: EdgeInsets.symmetric(vertical: 16),
                     child: Center(
                       child: SizedBox(
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(
-                            color: Colors.cyan, strokeWidth: 2.5),
+                            color: kc.adapt(const Color(0xFFB0B5BC)), strokeWidth: 2.5),
                       ),
                     ),
                   );
@@ -243,21 +244,21 @@ class DailyForYouSliver extends StatelessWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, size: 80, color: Colors.grey[400]),
+        Icon(icon, size: 80, color: kc.grey(400)),
         const SizedBox(height: 16),
         Text(
           title,
           style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
-              color: Colors.grey[700]),
+              color: kc.grey(700)),
         ),
         const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 40),
           child: Text(
             body,
-            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 14, color: kc.grey(600)),
             textAlign: TextAlign.center,
           ),
         ),

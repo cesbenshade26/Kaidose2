@@ -1,6 +1,9 @@
 import 'StoryPhotoFrame.dart';
 import 'StoryMusic.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'AppColors.dart';
+import 'SunColors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'dart:convert';
@@ -18,6 +21,8 @@ import 'StoryRing.dart';
 import 'DailyShare.dart';
 import 'SafetyService.dart';
 import 'SafetySheets.dart';
+import 'ChatScreen.dart';
+import 'GroupAvatar.dart';
 import 'package:video_player/video_player.dart';
 
 // Story circles, sized to match Instagram's.
@@ -255,7 +260,6 @@ class _OwnStoryCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final showCyanRing = hasPhotos && !hasViewedAll;
-    final profilePic = ProfilePicManager.globalProfilePic;
 
     return Padding(
       padding: const EdgeInsets.only(right: 12),
@@ -264,49 +268,102 @@ class _OwnStoryCircle extends StatelessWidget {
         children: [
           GestureDetector(
             onTapDown: hasPhotos ? (details) => onTap(details.globalPosition) : null,
-            child: Container(
+            child: SizedBox(
               width: _kRing,
               height: _kRing,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: showCyanRing ? Colors.cyan : Colors.grey[350]!,
-                  width: showCyanRing ? 3 : 1.5,
-                ),
-              ),
-              child: Container(
-                margin: const EdgeInsets.all(_kGap),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.grey[300],
-                ),
-                child: ClipOval(
-                  child: profilePic != null && profilePic.existsSync()
-                      ? Image.file(
-                    profilePic,
-                    fit: BoxFit.cover,
-                    width: _kPic,
-                    height: _kPic,
-                    key: ValueKey(profilePic.path),
-                  )
-                      : const _DefaultAvatar(size: _kPic),
+              child: SunRing(
+                active: showCyanRing,
+                child: Container(
+                  margin: const EdgeInsets.all(_kGap),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: kc.grey(300),
+                  ),
+                  child: const ClipOval(child: _OwnPicture(size: _kPic)),
                 ),
               ),
             ),
           ),
           const SizedBox(height: 4),
-          const SizedBox(
+          SizedBox(
             width: _kRing + 6,
             child: Text(
               'Your story',
               maxLines: 1,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.black87),
+              style: TextStyle(fontSize: 12, color: kc.text),
               overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Your profile picture in the "Your story" bubble.
+///
+/// The picture is a file on the phone that gets refreshed from the server
+/// right after launch. If it's caught mid-refresh it can't be read for a
+/// moment, which used to show Flutter's grey box with a red X until you
+/// left the tab. Now: it shows the default picture, tries again a moment
+/// later, and redraws whenever the picture changes.
+class _OwnPicture extends StatefulWidget {
+  final double size;
+  const _OwnPicture({required this.size});
+
+  @override
+  State<_OwnPicture> createState() => _OwnPictureState();
+}
+
+class _OwnPictureState extends State<_OwnPicture> {
+  int _tries = 0;
+  late final VoidCallback _listener = () {
+    if (mounted) setState(() => _tries = 0);
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    ProfilePicManager.addListener(_listener);
+  }
+
+  @override
+  void dispose() {
+    ProfilePicManager.removeListener(_listener);
+    super.dispose();
+  }
+
+  void _retrySoon(File file) {
+    if (_tries >= 3) return;
+    _tries++;
+    Future.delayed(Duration(milliseconds: 400 * _tries), () async {
+      await FileImage(file).evict();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = _DefaultAvatar(size: widget.size);
+    final file = ProfilePicManager.globalProfilePic;
+    if (file == null || !file.existsSync()) return fallback;
+    DateTime? modified;
+    try {
+      modified = file.lastModifiedSync();
+    } catch (_) {}
+    return Image.file(
+      file,
+      fit: BoxFit.cover,
+      width: widget.size,
+      height: widget.size,
+      gaplessPlayback: true,
+      // A new picture (same file path, rewritten) loads fresh.
+      key: ValueKey('${file.path}|$modified|$_tries'),
+      errorBuilder: (_, __, ___) {
+        _retrySoon(file);
+        return fallback;
+      },
     );
   }
 }
@@ -369,32 +426,28 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
         children: [
           GestureDetector(
             onTapDown: (details) => _openStory(details.globalPosition),
-            child: Container(
+            child: SizedBox(
               width: _kRing,
               height: _kRing,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: !widget.hasViewed ? Colors.cyan : Colors.grey[350]!,
-                  width: !widget.hasViewed ? 3 : 1.5,
-                ),
-              ),
-              child: Container(
-                margin: const EdgeInsets.all(_kGap),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.grey[300],
-                ),
-                child: ClipOval(
-                  child: _profilePicBase64 != null
-                      ? Image.memory(
-                    base64Decode(_profilePicBase64!),
-                    fit: BoxFit.cover,
-                    width: _kPic,
-                    height: _kPic,
-                    errorBuilder: (_, __, ___) => const _DefaultAvatar(size: _kPic),
-                  )
-                      : const _DefaultAvatar(size: _kPic),
+              child: SunRing(
+                active: !widget.hasViewed,
+                child: Container(
+                  margin: const EdgeInsets.all(_kGap),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: kc.grey(300),
+                  ),
+                  child: ClipOval(
+                    child: _profilePicBase64 != null
+                        ? Image.memory(
+                      base64Decode(_profilePicBase64!),
+                      fit: BoxFit.cover,
+                      width: _kPic,
+                      height: _kPic,
+                      errorBuilder: (_, __, ___) => const _DefaultAvatar(size: _kPic),
+                    )
+                        : const _DefaultAvatar(size: _kPic),
+                  ),
                 ),
               ),
             ),
@@ -405,7 +458,7 @@ class _FriendStoryCircleState extends State<_FriendStoryCircle> {
             child: Text(
               widget.friendUsername,
               maxLines: 1,
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              style: TextStyle(fontSize: 12, color: kc.text),
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
             ),
@@ -468,6 +521,7 @@ class OwnStoryViewer extends StatelessWidget {
       items: items,
       username: 'Your story',
       initialIndex: initialIndex,
+      isOwn: true,
       onShown: (i) => OwnStory.markViewed(items[i].file.path),
     );
   }
@@ -489,6 +543,8 @@ class FriendStory {
     if (!context.mounted || items.isEmpty) return;
 
     await FriendDailyService.markStoryViewed(userId);
+    // Shows up on their viewer list.
+    FriendDailyService.recordStoryView(userId);
 
     // If you've already watched some of today's posts and they've posted
     // more since, open at the first new one (the old ones stay one tap back).
@@ -524,6 +580,10 @@ class FriendStoryViewer extends StatefulWidget {
   /// Called with each post's index as it comes on screen.
   final void Function(int index)? onShown;
 
+  /// Your own story: shows who viewed it (and gave it a sun) instead of
+  /// the chat and sun buttons.
+  final bool isOwn;
+
   const FriendStoryViewer({
     Key? key,
     required this.items,
@@ -531,6 +591,7 @@ class FriendStoryViewer extends StatefulWidget {
     this.userId = '',
     this.initialIndex = 0,
     this.onShown,
+    this.isOwn = false,
   }) : super(key: key);
 
   @override
@@ -549,6 +610,136 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
     super.initState();
     _progressController = AnimationController(vsync: this, duration: _photoDuration);
     _startProgress();
+    if (_isFriend) {
+      FriendDailyService.isStoryLiked(widget.userId).then((liked) {
+        if (mounted && liked != _liked) setState(() => _liked = liked);
+      });
+    }
+    if (widget.isOwn) _viewers = FriendDailyService.myStoryViewers();
+  }
+
+  /// Someone else's story (not yours, and opened with their uid).
+  bool get _isFriend =>
+      !widget.isOwn &&
+          widget.userId.isNotEmpty &&
+          widget.userId != FriendDailyService.currentUid;
+
+  // ─── Sun like + chat (friends' stories) ────────────────────────────────────
+
+  bool _liked = false;
+
+  void _toggleLike() {
+    final liked = !_liked;
+    setState(() => _liked = liked);
+    HapticFeedback.lightImpact();
+    FriendDailyService.setStoryLiked(widget.userId, liked);
+  }
+
+  /// Close the story and open your 1:1 chat with them.
+  void _openChat() {
+    final nav = Navigator.of(context);
+    nav.pop();
+    nav.push(MaterialPageRoute(
+      builder: (_) => ChatScreen(
+        friendUserId: widget.userId,
+        friendUsername: widget.username,
+      ),
+    ));
+  }
+
+  Widget _friendActions(double bottomInset) {
+    return Positioned(
+      right: 6,
+      bottom: bottomInset + 8,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StoryIconButton(
+            icon: Icons.chat_bubble_outline_rounded,
+            onTap: _openChat,
+          ),
+          _SunLikeButton(liked: _liked, onTap: _toggleLike),
+        ],
+      ),
+    );
+  }
+
+  // ─── Viewers (your own story) ──────────────────────────────────────────────
+
+  Stream<List<StoryViewer>>? _viewers;
+
+  /// Pauses the story, shows who viewed it, and carries on after.
+  Future<void> _openViewers() async {
+    if (!widget.isOwn) return;
+    _progressController.stop();
+    await StoryViewersSheet.show(context);
+    if (!mounted) return;
+    final index = _currentIndex;
+    _progressController.forward().then((_) {
+      if (mounted && index == _currentIndex) _nextPhoto();
+    });
+  }
+
+  Widget _ownActivity(double bottomInset) {
+    return Positioned(
+      right: 10,
+      bottom: bottomInset + 12,
+      child: StreamBuilder<List<StoryViewer>>(
+        stream: _viewers,
+        builder: (context, snap) {
+          final safety = SafetyService.instance;
+          final list = (snap.data ?? const <StoryViewer>[])
+              .where((v) => !safety.isHidden(v.uid))
+              .toList();
+          final likes = list.where((v) => v.liked).length;
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openViewers,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.38),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.18), width: 0.8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.visibility_outlined,
+                      size: 17, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${list.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (likes > 0) ...[
+                    const SizedBox(width: 12),
+                    const SunGlyph(size: 17, filled: true),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$likes',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 4),
+                  Icon(Icons.keyboard_arrow_up_rounded,
+                      size: 18, color: Colors.white.withOpacity(0.8)),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   // Videos play for their real length instead of the 5 seconds a photo
@@ -614,7 +805,9 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
           onTap: _openSourceDaily,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7),
+                maxWidth: (widget.isOwn || _isFriend)
+                    ? MediaQuery.of(context).size.width - 170
+                    : MediaQuery.of(context).size.width * 0.7),
             child: Container(
               padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
               decoration: BoxDecoration(
@@ -758,6 +951,12 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
+        // Swipe up on your own story to see who viewed it.
+        onVerticalDragEnd: widget.isOwn
+            ? (d) {
+          if ((d.primaryVelocity ?? 0) < -250) _openViewers();
+        }
+            : null,
         onTapUp: (details) {
           final x = details.globalPosition.dx;
           final width = MediaQuery.of(context).size.width;
@@ -787,6 +986,10 @@ class _FriendStoryViewerState extends State<FriendStoryViewer>
 
             // "From ___" tag when the post came from a public Daily
             _sourceTag(bottomInset),
+
+            // Friend's story: chat + sun. Yours: who viewed it.
+            if (_isFriend) _friendActions(bottomInset),
+            if (widget.isOwn) _ownActivity(bottomInset),
 
             // Progress bars, just under the status bar
             Positioned(
@@ -891,7 +1094,7 @@ class _DefaultAvatar extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      color: Colors.grey[300],
+      color: kc.grey(300),
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -902,7 +1105,7 @@ class _DefaultAvatar extends StatelessWidget {
               height: size * 0.3125,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.grey[600],
+                color: kc.grey(600),
               ),
             ),
           ),
@@ -912,7 +1115,7 @@ class _DefaultAvatar extends StatelessWidget {
               width: size * 0.875,
               height: size * 0.5,
               decoration: BoxDecoration(
-                color: Colors.grey[600],
+                color: kc.grey(600),
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(size * 0.4375),
                   topRight: Radius.circular(size * 0.4375),
@@ -951,5 +1154,330 @@ class StorySeen {
         await p.setInt(_key(uid), count);
       }
     } catch (_) {}
+  }
+}
+// ─── Story buttons: chat, sun like, viewers list ─────────────────────────────
+
+/// A plain white icon over the story (like the X up top).
+class _StoryIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _StoryIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Icon(
+          icon,
+          color: Colors.white,
+          size: 27,
+          shadows: const [Shadow(color: Colors.black45, blurRadius: 6)],
+        ),
+      ),
+    );
+  }
+}
+
+/// The Kaidose sun: filled with the icon's yellow gradient, or a white
+/// outline.
+class SunGlyph extends StatelessWidget {
+  final double size;
+  final bool filled;
+  const SunGlyph({Key? key, required this.size, required this.filled})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (!filled) {
+      return Icon(
+        Icons.wb_sunny_outlined,
+        size: size,
+        color: Colors.white,
+        shadows: const [Shadow(color: Colors.black45, blurRadius: 6)],
+      );
+    }
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (rect) => SunColors.gradient.createShader(rect),
+      child: Icon(Icons.wb_sunny_rounded, size: size, color: Colors.white),
+    );
+  }
+}
+
+/// Tap to give a story a sun. Pops and sends out a little ring of light
+/// when it lights up.
+class _SunLikeButton extends StatefulWidget {
+  final bool liked;
+  final VoidCallback onTap;
+  const _SunLikeButton({required this.liked, required this.onTap});
+
+  @override
+  State<_SunLikeButton> createState() => _SunLikeButtonState();
+}
+
+class _SunLikeButtonState extends State<_SunLikeButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pop = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+
+  @override
+  void didUpdateWidget(_SunLikeButton old) {
+    super.didUpdateWidget(old);
+    if (widget.liked && !old.liked) _pop.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 28.0;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: AnimatedBuilder(
+            animation: _pop,
+            builder: (context, _) {
+              final t = _pop.value;
+              // Up to 1.3x and back, with a ring that grows and fades.
+              final scale = _pop.isAnimating
+                  ? 1 + 0.3 * Curves.easeOut.transform(t < 0.4 ? t / 0.4 : (1 - t) / 0.6)
+                  : 1.0;
+              return Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  if (_pop.isAnimating)
+                    Opacity(
+                      opacity: (1 - t).clamp(0.0, 1.0),
+                      child: Transform.scale(
+                        scale: 0.8 + 1.1 * Curves.easeOut.transform(t),
+                        child: const SizedBox(
+                          width: size,
+                          height: size,
+                          child: CustomPaint(
+                            painter: SunRingPainter(active: true, width: 2, sun: true),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Transform.scale(
+                    scale: scale,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 120),
+                      child: SunGlyph(
+                        key: ValueKey(widget.liked),
+                        size: size,
+                        filled: widget.liked,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Viewers" sheet on your own story: everyone who's seen it today, newest
+/// first, with a sun next to the people who gave it one.
+class StoryViewersSheet {
+  StoryViewersSheet._();
+
+  static Future<void> show(BuildContext context) {
+    final viewers = FriendDailyService.myStoryViewers();
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _ViewersSheet(viewers: viewers),
+    );
+  }
+}
+
+class _ViewersSheet extends StatelessWidget {
+  final Stream<List<StoryViewer>> viewers;
+  const _ViewersSheet({required this.viewers});
+
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'Just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.7;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: BoxDecoration(
+        color: kc.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: StreamBuilder<List<StoryViewer>>(
+        stream: viewers,
+        builder: (context, snap) {
+          final safety = SafetyService.instance;
+          final list = (snap.data ?? const <StoryViewer>[])
+              .where((v) => !safety.isHidden(v.uid))
+              .toList();
+          final likes = list.where((v) => v.liked).length;
+          final loading = !snap.hasData;
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: kc.grey(300),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                child: Row(
+                  children: [
+                    Text(
+                      'Viewers',
+                      style: TextStyle(
+                        color: kc.text,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(Icons.visibility_outlined,
+                        size: 17, color: kc.textMuted),
+                    const SizedBox(width: 5),
+                    Text('${list.length}',
+                        style: TextStyle(
+                            color: kc.textMuted,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 14),
+                    const SunGlyph(size: 17, filled: true),
+                    const SizedBox(width: 5),
+                    Text('$likes',
+                        style: TextStyle(
+                            color: kc.textMuted,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: kc.line),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.cyan),
+                  ),
+                )
+              else if (list.isEmpty)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(24, 36, 24, 40 + bottomInset),
+                  child: Column(
+                    children: [
+                      Icon(Icons.visibility_outlined,
+                          size: 34, color: kc.textFaint),
+                      const SizedBox(height: 10),
+                      Text(
+                        'No views yet',
+                        style: TextStyle(
+                          color: kc.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Friends who watch your story today show up here.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: kc.textMuted, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.fromLTRB(0, 6, 0, 12 + bottomInset),
+                    itemCount: list.length,
+                    itemBuilder: (context, i) {
+                      final v = list[i];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 8),
+                        child: Row(
+                          children: [
+                            MemberAvatar(
+                              userId: v.uid,
+                              size: 42,
+                              username: v.username,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    v.username,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: kc.text,
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _ago(v.time),
+                                    style: TextStyle(
+                                        color: kc.textMuted, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (v.liked)
+                              const SunGlyph(size: 22, filled: true),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }

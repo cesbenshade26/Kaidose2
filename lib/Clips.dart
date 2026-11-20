@@ -11,6 +11,8 @@ import 'UserProfileScreen.dart';
 import 'MediaPreloader.dart';
 import 'ClipMusic.dart';
 import 'GroupAvatar.dart';
+import 'DataSaver.dart';
+import 'ReduceMotion.dart';
 
 class ClipsWidget extends StatefulWidget {
   final bool isTabActive;
@@ -162,7 +164,7 @@ class _ClipsWidgetState extends State<ClipsWidget> {
       url: (c) => c.isPhoto ? (c.photoUrl ?? '') : c.videoUrl,
       isImage: (c) => c.isPhoto,
       photos: (c) => c.allPhotos,
-      ahead: 3,
+      ahead: DataSaver.clipsAhead,
       behind: 1,
     );
   }
@@ -350,7 +352,7 @@ class _ClipsWidgetState extends State<ClipsWidget> {
   Widget _buildFeed() {
     if (_loadingFeed) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.cyan),
+        child: CircularProgressIndicator(color: Color(0xFFB0B5BC)),
       );
     }
 
@@ -699,6 +701,8 @@ class _ClipPageState extends State<_ClipPage>
 
   void _onDoubleTap(Offset position) {
     _likeTrigger?.call();
+    // Reduce Motion (phone setting): like it, but no floating heart.
+    if (ReduceMotion.of(context)) return;
     setState(() {
       _floatingHeartPosition = position;
       _showFloatingHeart = true;
@@ -969,7 +973,7 @@ class _ClipPageState extends State<_ClipPage>
                 _controller!,
                 allowScrubbing: true,
                 colors: const VideoProgressColors(
-                  playedColor: Colors.cyan,
+                  playedColor: Colors.white,
                   bufferedColor: Colors.white30,
                   backgroundColor: Colors.white10,
                 ),
@@ -1013,7 +1017,7 @@ class _ClipPageState extends State<_ClipPage>
       return Container(
         color: Colors.black,
         child: const Center(
-            child: CircularProgressIndicator(color: Colors.cyan)),
+            child: CircularProgressIndicator(color: Color(0xFFB0B5BC))),
       );
     }
     if (_hasError) {

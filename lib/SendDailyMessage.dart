@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'AppColors.dart';
 import 'dart:io';
 import 'ArchiveStorage.dart';
 import 'SelectArchiveFolder.dart';
@@ -223,17 +225,17 @@ Widget _brokenMediaPlaceholder(double width) {
     width: width,
     height: 200,
     decoration: BoxDecoration(
-      color: Colors.grey[200],
+      color: kc.grey(200),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
     ),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey[400]),
+        Icon(Icons.broken_image_outlined, size: 48, color: kc.grey(400)),
         const SizedBox(height: 8),
         Text(
           'Media no longer available',
-          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+          style: TextStyle(color: kc.grey(600), fontSize: 14),
         ),
       ],
     ),
@@ -283,16 +285,16 @@ class _DailyMessageMediaCarouselState extends State<_DailyMessageMediaCarousel> 
     }
 
     return _isNetworkVideoPath(path)
-        ? Image.network(
-      path,
+        ? Image(
+      image: CachedNetworkImageProvider(path),
       gaplessPlayback: true,
       fit: BoxFit.cover,
       loadingBuilder: (context, child, progress) {
         if (progress == null) return child;
         return Container(
-          color: Colors.grey[200],
-          child: const Center(
-            child: CircularProgressIndicator(color: Colors.cyan),
+          color: kc.grey(200),
+          child: Center(
+            child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
           ),
         );
       },
@@ -345,7 +347,7 @@ class _DailyMessageMediaCarouselState extends State<_DailyMessageMediaCarousel> 
                       height: 7,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: isActive ? Colors.white : Colors.white.withOpacity(0.4),
+                        color: isActive ? kc.surface : Colors.white.withOpacity(0.4),
                         boxShadow: const [
                           BoxShadow(color: Colors.black26, blurRadius: 2),
                         ],
@@ -454,7 +456,7 @@ class _CarouselVideoPageState extends State<_CarouselVideoPage> {
       return Container(
         color: Colors.black,
         child: Center(
-          child: Icon(Icons.error_outline, color: Colors.grey[600], size: 40),
+          child: Icon(Icons.error_outline, color: kc.grey(600), size: 40),
         ),
       );
     }
@@ -463,7 +465,7 @@ class _CarouselVideoPageState extends State<_CarouselVideoPage> {
     if (controller == null || !controller.value.isInitialized) {
       return Container(
         color: Colors.black,
-        child: const Center(child: CircularProgressIndicator(color: Colors.cyan)),
+        child: Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)))),
       );
     }
 
@@ -522,6 +524,10 @@ class DailyMessageWidget extends StatefulWidget {
   /// ban other moderators).
   final bool canBanAuthor;
 
+  /// This is one of your Dailies (not a guest visit from For You): saving
+  /// can keep a post "only in this Daily" (its Saved screen).
+  final bool inMyDailies;
+
   const DailyMessageWidget({
     Key? key,
     required this.message,
@@ -532,6 +538,7 @@ class DailyMessageWidget extends StatefulWidget {
     this.isPrivateDaily = false,
     this.canModerate = false,
     this.canBanAuthor = false,
+    this.inMyDailies = true,
     this.onReply,
     this.onEdit,
     this.onSaveToggle,
@@ -543,9 +550,8 @@ class DailyMessageWidget extends StatefulWidget {
 }
 
 class _DailyMessageWidgetState extends State<DailyMessageWidget> {
-  bool _showOptionsMenu = false;
   bool _showComments = false;
-  // Short text messages only: whether the react/comment/save row is open.
+  // Text messages: whether the react/comment/share/save row is open.
   bool _actionsExpanded = false;
   int _commentCount = 0;
   final MessageService _messageService = MessageService();
@@ -554,10 +560,26 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   void initState() {
     super.initState();
     _loadCommentCount();
+    SavedItems.items.addListener(_savedChanged);
+  }
+
+  @override
+  void dispose() {
+    SavedItems.items.removeListener(_savedChanged);
+    super.dispose();
+  }
+
+  /// Saved by YOU (each person's saves are their own).
+  bool get _saved => SavedItems.isPostSaved(
+      widget.message.dailyId, widget.message.messageId);
+
+  void _savedChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadCommentCount() async {
-    final count = await CommentStorage.getCommentCount(widget.message.messageId);
+    final count = await CommentStorage.getCommentCount(
+        widget.message.dailyId, widget.message.messageId);
     if (mounted) setState(() => _commentCount = count);
   }
 
@@ -566,8 +588,8 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: kc.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
@@ -581,7 +603,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: Colors.grey[300],
+                    color: kc.grey(300),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -689,19 +711,38 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     }
   }
 
-  void _toggleSave() async {
-    setState(() => widget.message.isSaved = !widget.message.isSaved);
-    MessageStorage.setSaved(
-        widget.message.dailyId, widget.message.messageId, widget.message.isSaved);
-    if (widget.message.isSaved) {
+  /// Bookmark: saved already -> unsave. Otherwise "Save to…": folders,
+  /// or (in your own Dailies) only in this Daily.
+  Future<void> _toggleSave() async {
+    final m = widget.message;
+    final key = SavedItems.postKey(m.dailyId, m.messageId);
+    final messenger = ScaffoldMessenger.of(context);
+    void say(String t) => messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+          SnackBar(content: Text(t), duration: const Duration(seconds: 2)));
+
+    if (_saved) {
+      await SavedItems.unsave(key);
+      say('Removed from saved');
+    } else {
       await ArchiveStorage.loadFromStorage();
-      if (context.mounted) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SelectArchiveFolderScreen(message: widget.message),
-          ),
-        );
+      if (!mounted) return;
+      final picked = await showSaveToSheet(context,
+          allowDailyOnly: widget.inMyDailies);
+      if (picked == null) return;
+      final ok = await SavedItems.savePost(
+          dailyId: m.dailyId, messageId: m.messageId, archiveIds: picked);
+      if (!ok) {
+        say("Couldn't save. Try again.");
+      } else if (picked.isEmpty) {
+        say('Saved in this Daily');
+      } else {
+        final names = picked
+            .map((id) => ArchiveStorage.byId(id)?.name)
+            .whereType<String>()
+            .toList();
+        say(names.length == 1 ? 'Saved to ${names.first}' : 'Saved');
       }
     }
     if (widget.onSaveToggle != null) widget.onSaveToggle!();
@@ -751,34 +792,35 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     );
   }
 
-  void _toggleOptionsMenu() => setState(() => _showOptionsMenu = !_showOptionsMenu);
-
   // ─── Shared pieces ─────────────────────────────────────────────────────────
 
   Widget _actionIcon({
     required IconData icon,
-    required Color color,
     required VoidCallback onTap,
+    Color? color,
     int count = 0,
     bool mirror = false,
   }) {
+    final c = color ?? kc.grey(700);
+    final glyph = Icon(icon, size: 20, color: c);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            mirror
-                ? Transform.flip(
-                flipX: true, child: Icon(icon, size: 20, color: color))
-                : Icon(icon, size: 18, color: color),
+            mirror ? Transform.flip(flipX: true, child: glyph) : glyph,
             if (count > 0) ...[
-              const SizedBox(width: 3),
+              const SizedBox(width: 4),
               Text(
                 '$count',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: kc.grey(700),
+                ),
               ),
             ],
           ],
@@ -787,36 +829,35 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     );
   }
 
-  /// React, comment, save — kept together at the left edge so they line up
-  /// down the screen no matter how long each message is.
+  /// React and comment on the left; share and save on the right.
   Widget _buildActions() {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         _actionIcon(
           icon: Icons.add_reaction_outlined,
-          color: Colors.grey[600]!,
           onTap: _showReactionPicker,
         ),
         _actionIcon(
-          icon: Icons.comment_outlined,
-          color: Colors.grey[600]!,
+          icon: _showComments
+              ? Icons.mode_comment_rounded
+              : Icons.mode_comment_outlined,
+          color: _showComments ? Colors.cyan : null,
           onTap: _handleReply,
           count: _commentCount,
         ),
-        _actionIcon(
-          icon: widget.message.isSaved ? Icons.bookmark : Icons.bookmark_border,
-          color: widget.message.isSaved ? Colors.cyan : Colors.grey[600]!,
-          onTap: _toggleSave,
-        ),
+        const Spacer(),
         if (widget.dailyTitle != null)
         // Same share arrow as Clips.
           _actionIcon(
             icon: Icons.reply_rounded,
             mirror: true,
-            color: Colors.grey[600]!,
             onTap: _shareToChat,
           ),
+        _actionIcon(
+          icon: _saved ? Icons.bookmark : Icons.bookmark_border,
+          color: _saved ? Colors.cyan : null,
+          onTap: _toggleSave,
+        ),
       ],
     );
   }
@@ -856,7 +897,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: kc.grey(700),
                 ),
               ),
             ),
@@ -881,7 +922,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.black87)),
+            child: Text('Cancel', style: TextStyle(color: kc.text)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
@@ -904,8 +945,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     ));
   }
 
-  /// Long-press on a text message (the three-dot button only exists on
-  /// media cards now). The author can edit or delete; anyone else gets
+  /// Long-press on any message, or the ⋯ on a photo/video. The author can edit or delete; anyone else gets
   /// report / block (plus remove and ban for the owner and moderators).
   void _showMessageOptions() {
     if (!widget.isCurrentUser) {
@@ -914,7 +954,7 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
     }
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: kc.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1002,161 +1042,132 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Row(
         children: [
-          Icon(Icons.block_rounded, size: 14, color: Colors.grey[400]),
+          Icon(Icons.block_rounded, size: 14, color: kc.grey(400)),
           const SizedBox(width: 6),
           Text('Post from someone you blocked',
               style: TextStyle(
                   fontSize: 12.5,
                   fontStyle: FontStyle.italic,
-                  color: Colors.grey[500])),
+                  color: kc.grey(500))),
         ],
       ),
     );
   }
 
-  /// Text-only messages: a bubble that is only as wide as its content
-  /// (capped at 85% of the screen), text on top, actions below it, no date.
-  static const TextStyle _bubbleTextStyle = TextStyle(
+  /// Text messages: a soft grey bubble only as wide as its words (yours get
+  /// a faint cyan tint). The action row stays hidden, so quick back-and-forth
+  /// reads like a chat, until the message has comments or reactions; then
+  /// it's always there. Tapping a bubble opens or closes the row.
+  static TextStyle get _bubbleTextStyle => TextStyle(
     fontSize: 15,
-    color: Colors.black87,
+    color: kc.text,
     height: 1.3,
   );
 
-  // Roughly the width of the react/comment/save row.
-  static const double _actionsRowWidth = 118;
+  Color get _bubbleColor => widget.isCurrentUser
+      ? (AppTheme.isDark ? kc.accentSoft : kc.adapt(const Color(0xFFE6F7FA)))
+      : kc.adapt(const Color(0xFFF1F3F5));
 
-  /// A message is "short" when it is a single line narrower than the
-  /// actions row — those get a bare pill that opens on tap, since the
-  /// icons would otherwise be bigger than the message itself.
-  bool _isShortText(String text, double maxWidth) {
-    if (text.contains('\n')) return false;
-    final painter = TextPainter(
-      text: TextSpan(text: text, style: _bubbleTextStyle),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout(maxWidth: maxWidth - 28);
-    return !painter.didExceedMaxLines && painter.width < _actionsRowWidth;
-  }
-
-  /// What a collapsed short message still shows without a tap, trailing its
-  /// text on the same line: a comment count and/or a saved bookmark.
-  Widget _buildCollapsedState() {
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_commentCount > 0) ...[
-            Icon(Icons.comment_outlined, size: 13, color: Colors.grey[600]),
-            const SizedBox(width: 3),
-            Text('$_commentCount',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          ],
-          if (_commentCount > 0 && widget.message.isSaved)
-            const SizedBox(width: 8),
-          if (widget.message.isSaved)
-            const Icon(Icons.bookmark, size: 13, color: Colors.cyan),
-        ],
-      ),
-    );
-  }
+  bool get _hasActivity =>
+      _commentCount > 0 || widget.message.reactions.isNotEmpty;
 
   Widget _buildTextBubble(BuildContext context) {
-    final maxWidth = MediaQuery.of(context).size.width * 0.85;
+    final maxWidth = MediaQuery.of(context).size.width * 0.82;
     final text = widget.message.text ?? '';
-    final isShort = _isShortText(text, maxWidth);
-    // Long messages always show their actions; short ones only when opened
-    // (or while their comments are showing, which need the row open).
-    final showActions = !isShort || _actionsExpanded || _showComments;
-    final hasCollapsedState =
-        isShort && !showActions && (_commentCount > 0 || widget.message.isSaved);
+    final showActions = _hasActivity || _actionsExpanded || _showComments;
+    final reactions = widget.message.reactions;
 
-    return Container(
-      margin: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 1 : 5, 16, 1),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 2 : 8, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.showUsername) _buildUsername(),
           GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _actionsExpanded = !_actionsExpanded),
             onLongPress: _showMessageOptions,
-            onTap: isShort
-                ? () => setState(() => _actionsExpanded = !_actionsExpanded)
-                : null,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                alignment: Alignment.topLeft,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: Colors.cyan.withOpacity(0.35), width: 1),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (isShort)
-                      // One line: whatever trails the text (the open action
-                      // row, or the small comment/saved markers) sits to its
-                      // right, so opening it never pushes the messages below
-                      // down — important when messages are stacked tight.
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.fromLTRB(14, 7,
-                                  (showActions || hasCollapsedState) ? 8 : 14, 7),
-                              child: Text(text, style: _bubbleTextStyle),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
+              alignment: Alignment.topLeft,
+              child: ConstrainedBox(
+                // With the row open, wide enough for react/comment on the
+                // left and share/save on the right.
+                constraints: BoxConstraints(
+                  maxWidth: maxWidth,
+                  minWidth: showActions ? 200 : 0,
+                ),
+                child: IntrinsicWidth(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _bubbleColor,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                              14, 8, 14, showActions ? 2 : 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Flexible(
+                                  child: Text(text, style: _bubbleTextStyle)),
+                              // Saved by you, while the row is closed.
+                              if (_saved && !showActions) ...[
+                                const SizedBox(width: 6),
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 2),
+                                  child: Icon(Icons.bookmark,
+                                      size: 13, color: Colors.cyan),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (reactions.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+                            child: DailyMessageReactionsDisplay(
+                              reactions: reactions,
+                              currentUserId: 'current_user',
+                              onReactionTap: (emoji) =>
+                                  _toggleReaction(emoji, reactions),
                             ),
-                            if (showActions)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: _buildActions(),
-                              )
-                            else if (hasCollapsedState)
-                              _buildCollapsedState(),
-                          ],
-                        )
-                      else ...[
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 7, 14, 0),
-                          child: Text(text, style: _bubbleTextStyle),
-                        ),
-                        // Flush left under the text, so the bubble is only as
-                        // wide as the text.
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(9, 0, 14, 1),
-                          child: _buildActions(),
-                        ),
+                          ),
+                        if (showActions)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 0, 4, 2),
+                            child: _buildActions(),
+                          ),
                       ],
-                      if (widget.message.reactions.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-                          child: DailyMessageReactionsDisplay(
-                            reactions: widget.message.reactions,
-                            currentUserId: 'current_user',
-                            onReactionTap: (emoji) =>
-                                _toggleReaction(emoji, widget.message.reactions),
-                          ),
-                        ),
-                      if (_showComments)
-                        SizedBox(
-                          width: maxWidth,
-                          child: MessageCommentsSection(
-                            messageId: widget.message.messageId,
-                            onCommentsChanged: _loadCommentCount,
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+          // Comments open under the message, as their own little card.
+          if (_showComments)
+            Container(
+              width: maxWidth,
+              margin: const EdgeInsets.only(top: 4),
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: kc.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: kc.adapt(const Color(0xFFE8EAED))),
+              ),
+              child: MessageCommentsSection(
+                dailyId: widget.message.dailyId,
+                messageId: widget.message.messageId,
+                onCommentsChanged: _loadCommentCount,
+              ),
+            ),
         ],
       ),
     );
@@ -1197,212 +1208,155 @@ class _DailyMessageWidgetState extends State<DailyMessageWidget> {
   Widget _buildMediaCard(BuildContext context, double? aspect) {
     final screen = MediaQuery.of(context).size;
     final maxWidth = screen.width * 0.85;
-    final single = widget.message.media.length == 1;
+    final media = widget.message.media;
+    final single = media.length == 1;
     // A tall video/photo gets a narrower card instead of a huge one or one
     // with empty space beside it; wide ones use the full width.
     final mediaSize = MediaAspect.box(aspect,
-        maxW: maxWidth, maxH: screen.height * 0.55, minW: 210);
+        maxW: maxWidth, maxH: screen.height * 0.55, minW: 220);
     final messageWidth = single ? mediaSize.width : maxWidth;
     final compact = messageWidth < 270;
+    final caption = widget.message.text ?? '';
+    final reactions = widget.message.reactions;
 
-    return Container(
-      margin: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 2 : 6, 16, 2),
+    Widget singleMedia() {
+      final item = media.first;
+      if (item.isVideo) {
+        // Fills its box edge to edge, plays when on screen, ready ahead
+        // of time. Works for a download URL or a still-uploading file.
+        return SizedBox(
+          width: mediaSize.width,
+          height: mediaSize.height,
+          child: ColoredBox(
+            color: Colors.black,
+            child: InlineVideo(
+              key: ValueKey(_firstPath),
+              url: _firstPath,
+              thumb: item.thumb,
+            ),
+          ),
+        );
+      }
+      return SizedBox(
+        width: mediaSize.width,
+        height: mediaSize.height,
+        child: _isNetworkVideoPath(_firstPath)
+            ? Image(
+          image: CachedNetworkImageProvider(_firstPath),
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              color: kc.adapt(const Color(0xFFF1F3F5)),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: kc.grey(400)),
+                ),
+              ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) =>
+              _brokenMediaPlaceholder(messageWidth),
+        )
+            : Image.file(
+          File(_firstPath),
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) =>
+              _brokenMediaPlaceholder(messageWidth),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, widget.groupedWithPrevious ? 4 : 10, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.showUsername) _buildUsername(),
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: messageWidth,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.cyan.withOpacity(0.35), width: 1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.cyan.withOpacity(0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.message.media.length == 1 && !widget.message.media.first.isVideo)
-                      ClipRRect(
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                        child: SizedBox(
-                          width: mediaSize.width,
-                          height: mediaSize.height,
-                          child: _isNetworkVideoPath(_firstPath)
-                              ? Image.network(
-                            _firstPath,
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            loadingBuilder: (context, child, progress) {
-                              if (progress == null) return child;
-                              return Container(
-                                color: Colors.grey[200],
-                                child: const Center(
-                                  child: CircularProgressIndicator(color: Colors.cyan),
-                                ),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) =>
-                                _brokenMediaPlaceholder(messageWidth),
-                          )
-                              : Image.file(
-                            File(_firstPath),
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            errorBuilder: (context, error, stackTrace) =>
-                                _brokenMediaPlaceholder(messageWidth),
-                          ),
-                        ),
-                      ),
-                    if (widget.message.media.length == 1 && widget.message.media.first.isVideo)
-                      ClipRRect(
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                        // Sized to the video's own shape, so it fills the card
-                        // edge to edge (no bars beside a tall video).
-                        child: SizedBox(
-                          width: mediaSize.width,
-                          height: mediaSize.height,
-                          child: ColoredBox(
-                            color: Colors.black,
-                            // A shared clip's videoPath is a remote Firebase
-                            // Storage URL; a video recorded/picked directly in
-                            // the Daily is a local file path. Route each to
-                            // the player that can actually handle it.
-                            // Fills the box edge to edge (no black bars),
-                            // plays when on screen, ready ahead of time.
-                            child: InlineVideo(
-                              key: ValueKey(_firstPath),
-                              url: _firstPath,
-                              thumb: widget.message.media.first.thumb,
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (widget.message.media.length > 1)
-                      _DailyMessageMediaCarousel(
-                        media: widget.message.media,
+          GestureDetector(
+            onLongPress: _showMessageOptions,
+            child: Container(
+              width: messageWidth,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: kc.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: kc.adapt(const Color(0xFFE8EAED))),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Stack(
+                    children: [
+                      single
+                          ? singleMedia()
+                          : _DailyMessageMediaCarousel(
+                        media: media,
                         width: messageWidth,
                       ),
-                    if (widget.message.text != null && widget.message.text!.isNotEmpty)
-                      Padding(
-                        // Narrow card (tall video): slightly smaller text and
-                        // padding so lines don't wrap after two words.
-                        padding: compact
-                            ? const EdgeInsets.fromLTRB(12, 12, 12, 10)
-                            : const EdgeInsets.all(16),
-                        child: Text(
-                          widget.message.text!,
-                          style: TextStyle(
-                            fontSize: compact ? 14.5 : 16,
-                            color: Colors.black87,
-                            height: compact ? 1.35 : 1.4,
+                      // Edit / delete, or report / block (same as a
+                      // long-press).
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _showMessageOptions,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.35),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.more_horiz_rounded,
+                                size: 18, color: Colors.white),
                           ),
                         ),
                       ),
-
-                    if (widget.message.reactions.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        child: DailyMessageReactionsDisplay(
-                          reactions: widget.message.reactions,
-                          currentUserId: 'current_user',
-                          onReactionTap: (emoji) => _toggleReaction(emoji, widget.message.reactions),
+                    ],
+                  ),
+                  if (caption.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                      child: Text(
+                        caption,
+                        style: TextStyle(
+                          fontSize: compact ? 14.5 : 15,
+                          color: kc.text,
+                          height: 1.35,
                         ),
                       ),
-
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.cyan.withOpacity(0.04),
-                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
-                      ),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: _buildActions(),
+                    ),
+                  if (reactions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                      child: DailyMessageReactionsDisplay(
+                        reactions: reactions,
+                        currentUserId: 'current_user',
+                        onReactionTap: (emoji) =>
+                            _toggleReaction(emoji, reactions),
                       ),
                     ),
-                    if (_showComments)
-                      MessageCommentsSection(
-                        messageId: widget.message.messageId,
-                        onCommentsChanged: _loadCommentCount,
-                      ),
-                  ],
-                ),
-              ),
-
-              Positioned(
-                top: 8,
-                right: 8,
-                child: IconButton(
-                  icon: const CircleAvatar(
-                    backgroundColor: Colors.white,
-                    radius: 14,
-                    child: Icon(Icons.more_vert, size: 18, color: Colors.black54),
+                  // Posts always show their actions.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+                    child: _buildActions(),
                   ),
-                  onPressed: _toggleOptionsMenu,
-                ),
-              ),
-
-              if (_showOptionsMenu)
-                Positioned(
-                  top: 40,
-                  right: 8,
-                  child: Material(
-                    elevation: 4,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Column(
-                      children: [
-                        if (widget.isCurrentUser) ...[
-                          InkWell(
-                            onTap: () {
-                              setState(() => _showOptionsMenu = false);
-                              widget.onEdit?.call(widget.message.messageId);
-                            },
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              child: Text("Edit"),
-                            ),
-                          ),
-                          InkWell(
-                            onTap: () {
-                              setState(() => _showOptionsMenu = false);
-                              _confirmDelete();
-                            },
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              child: Text("Delete",
-                                  style: TextStyle(color: Colors.red)),
-                            ),
-                          ),
-                        ] else
-                          InkWell(
-                            onTap: () {
-                              setState(() => _showOptionsMenu = false);
-                              _openSafetyMenu();
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              child: Text(
-                                  widget.canModerate
-                                      ? "Moderate or report"
-                                      : "Report or block",
-                                  style: const TextStyle(color: Colors.red)),
-                            ),
-                          ),
-                      ],
+                  if (_showComments)
+                    MessageCommentsSection(
+                      dailyId: widget.message.dailyId,
+                      messageId: widget.message.messageId,
+                      onCommentsChanged: _loadCommentCount,
                     ),
-                  ),
-                ),
-            ],
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -1436,8 +1390,8 @@ class DailyMessageReactionsDisplay extends StatelessWidget {
     }
 
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 6,
+      runSpacing: 6,
       children: groupedReactions.entries.map((entry) {
         final emoji = entry.key;
         final reactionList = entry.value;
@@ -1447,31 +1401,30 @@ class DailyMessageReactionsDisplay extends StatelessWidget {
         return GestureDetector(
           onTap: onReactionTap != null ? () => onReactionTap!(emoji) : null,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: hasUserReacted
                   ? Colors.cyan.withOpacity(0.12)
-                  : Colors.grey[100],
-              borderRadius: BorderRadius.circular(20),
+                  : kc.surface,
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: hasUserReacted
-                    ? Colors.cyan
-                    : Colors.grey[300]!,
-                width: hasUserReacted ? 1.5 : 1,
+                    ? Colors.cyan.withOpacity(0.6)
+                    : kc.adapt(const Color(0xFFE2E5E9)),
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedReactionEmoji(emoji: emoji, size: 22),
+                AnimatedReactionEmoji(emoji: emoji, size: 16),
                 if (count > 1) ...[
                   const SizedBox(width: 4),
                   Text(
                     '$count',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: hasUserReacted ? Colors.cyan[700] : Colors.grey[700],
+                      color: hasUserReacted ? Colors.cyan[800] : kc.grey(700),
                     ),
                   ),
                 ],

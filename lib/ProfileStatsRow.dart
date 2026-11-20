@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'RankBadge.dart';
 
 /// The row under the avatar on Profile and on other people's profiles:
@@ -50,10 +51,10 @@ class ProfileStatsRow extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.bold,
-          color: Colors.black,
+          color: kc.text,
         ),
       ),
     );
@@ -97,7 +98,7 @@ class ProfileStatsRow extends StatelessWidget {
             size: 20,
             color: litToday
                 ? Colors.white
-                : (started ? Colors.amber[800] : Colors.grey[500]),
+                : (started ? Colors.amber[800] : kc.grey(500)),
           ),
         ),
         const SizedBox(width: 8),
@@ -107,10 +108,10 @@ class ProfileStatsRow extends StatelessWidget {
           children: [
             Text(
               _withCommas(days),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: Colors.black,
+                color: kc.text,
                 height: 1.1,
               ),
             ),
@@ -119,7 +120,7 @@ class ProfileStatsRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
-                color: Colors.grey[600],
+                color: kc.grey(600),
                 height: 1.1,
               ),
             ),
@@ -158,7 +159,7 @@ class ProfileStatsRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey[600],
+                  color: kc.grey(600),
                   height: 1.1,
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'FeedService.dart';
@@ -81,8 +82,8 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: kc.surface,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
@@ -97,7 +98,7 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: kc.grey(300),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -109,25 +110,25 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
             const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                const Text(
+                Text(
                   'Comments',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                    color: kc.text,
                   ),
                 ),
                 const Spacer(),
                 GestureDetector(
                   onTap: widget.onClose,
                   child: Icon(Icons.close,
-                      color: Colors.grey[600], size: 22),
+                      color: kc.grey(600), size: 22),
                 ),
               ],
             ),
           ),
 
-          const Divider(height: 1, color: Color(0xFFEEEEEE)),
+          Divider(height: 1, color: kc.adapt(const Color(0xFFEEEEEE))),
 
           // Comments list
           Expanded(
@@ -140,8 +141,8 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Colors.cyan),
+                  return Center(
+                    child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
                   );
                 }
 
@@ -160,15 +161,15 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.chat_bubble_outline,
-                            size: 48, color: Colors.grey[300]),
+                            size: 48, color: kc.grey(300)),
                         const SizedBox(height: 12),
                         Text('No comments yet',
                             style: TextStyle(
-                                fontSize: 15, color: Colors.grey[500])),
+                                fontSize: 15, color: kc.grey(500))),
                         const SizedBox(height: 4),
                         Text('Be the first to comment',
                             style: TextStyle(
-                                fontSize: 13, color: Colors.grey[400])),
+                                fontSize: 13, color: kc.grey(400))),
                       ],
                     ),
                   );
@@ -195,7 +196,7 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
           // Comment input
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: kc.surface,
               boxShadow: [
                 BoxShadow(
                   color: Colors.grey.withOpacity(0.15),
@@ -215,19 +216,19 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
+                      color: kc.grey(100),
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: TextField(
                       controller: _commentController,
                       focusNode: _focusNode,
                       maxLines: 1,
-                      style: const TextStyle(
-                          fontSize: 15, color: Colors.black87),
+                      style: TextStyle(
+                          fontSize: 15, color: kc.text),
                       decoration: InputDecoration(
                         hintText: 'Add a comment...',
                         hintStyle: TextStyle(
-                            color: Colors.grey[400], fontSize: 15),
+                            color: kc.grey(400), fontSize: 15),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 10),
@@ -240,11 +241,11 @@ class _ClipCommentSheetState extends State<ClipCommentSheet> {
                 GestureDetector(
                   onTap: _postComment,
                   child: _posting
-                      ? const SizedBox(
+                      ? SizedBox(
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.cyan),
+                        strokeWidth: 2, color: kc.adapt(const Color(0xFFB0B5BC))),
                   )
                       : const Icon(Icons.send_rounded,
                       color: Colors.cyan, size: 26),
@@ -449,17 +450,17 @@ class _CommentTileState extends State<_CommentTile> {
                 children: [
                   Text(
                     username,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: Colors.black87,
+                      color: kc.text,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     text,
-                    style: const TextStyle(
-                        fontSize: 14, color: Colors.black87),
+                    style: TextStyle(
+                        fontSize: 14, color: kc.text),
                   ),
                 ],
               ),
@@ -474,7 +475,7 @@ class _CommentTileState extends State<_CommentTile> {
                 children: [
                   Icon(
                     _liked ? Icons.favorite : Icons.favorite_border,
-                    color: _liked ? Colors.red : Colors.grey[400],
+                    color: _liked ? Colors.red : kc.grey(400),
                     size: 18,
                   ),
                   const SizedBox(height: 2),
@@ -482,7 +483,7 @@ class _CommentTileState extends State<_CommentTile> {
                     _formatCount(_likeCount),
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey[500],
+                      color: kc.grey(500),
                       fontWeight: FontWeight.w500,
                     ),
                   ),

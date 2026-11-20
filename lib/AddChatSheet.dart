@@ -53,10 +53,10 @@ Widget _tile(
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: context.colors.accent.withOpacity(0.15),
+        color: context.colors.surfaceMuted,
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: context.colors.accent),
+      child: Icon(icon, color: context.colors.text),
     ),
     title: Text(title,
         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),

@@ -152,9 +152,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final hasWallpaper = wallpaperUrl != null;
     final light = hasWallpaper && (settings?.wallpaperTopDark ?? false);
     // No wallpaper: plain title bar in the app's own text color.
+    // A wallpaper decides on its own (white over a dark top, black over a
+    // light one) in both light and dark mode; without one, the app's color.
     final barColor = light
         ? Colors.white
-        : (hasWallpaper ? context.colors.text : context.colors.text);
+        : (hasWallpaper ? Colors.black : context.colors.text);
     final lightBar = light || (!hasWallpaper && context.isDark);
     final topPad = MediaQuery.of(context).padding.top + kToolbarHeight;
 
@@ -167,7 +169,9 @@ class _ChatScreenState extends State<ChatScreen> {
         scrolledUnderElevation: 0,
         elevation: 0,
         systemOverlayStyle:
-        lightBar ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        lightBar
+            ? SystemUiOverlayStyle.light
+            : (hasWallpaper ? SystemUiOverlayStyle.dark : AppTheme.pageOverlay),
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _openManage,
@@ -241,7 +245,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Expanded(
                 child: _isLoading
                     ? Center(
-                    child: CircularProgressIndicator(color: context.colors.accent))
+                    child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))))
                     : StreamBuilder<List<Message>>(
                   stream:
                   _messageService.getChatMessages(widget.friendUserId),
@@ -354,7 +358,7 @@ class _ChatScreenState extends State<ChatScreen> {
       decoration: BoxDecoration(
         color: context.colors.surfaceMuted,
         borderRadius: BorderRadius.circular(12),
-        border: Border(left: BorderSide(color: context.colors.accent, width: 4)),
+        border: Border(left: BorderSide(color: context.colors.textFaint, width: 3)),
       ),
       child: Row(
         children: [

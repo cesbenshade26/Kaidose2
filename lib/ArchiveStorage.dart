@@ -1,191 +1,171 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'SavedItemStorage.dart';
 
+/// One Archives folder: users/{uid}/archives/{id} {name, description,
+/// createdAt}. Everyone has "Your Archives" ([ArchiveStorage.defaultId]),
+/// which can be renamed but not deleted.
 class ArchiveData {
   final String id;
   final String name;
   final String description;
-  final List<String> collaborators;
   final DateTime createdAt;
 
-  ArchiveData({
+  const ArchiveData({
     required this.id,
     required this.name,
-    required this.description,
-    required this.collaborators,
+    this.description = '',
     required this.createdAt,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'description': description,
-      'collaborators': collaborators,
-      'createdAt': createdAt.toIso8601String(),
-    };
-  }
+  bool get isDefault => id == ArchiveStorage.defaultId;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'description': description,
+    'createdAt': Timestamp.fromDate(createdAt),
+  };
 
   factory ArchiveData.fromJson(String id, Map<String, dynamic> json) {
+    final raw = json['createdAt'];
+    DateTime created = DateTime.now();
+    if (raw is Timestamp) created = raw.toDate();
+    if (raw is String) created = DateTime.tryParse(raw) ?? created; // older
     return ArchiveData(
       id: id,
-      name: json['name'] ?? '',
-      description: json['description'] ?? '',
-      collaborators: List<String>.from(json['collaborators'] ?? []),
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
-          : DateTime.now(),
+      name: (json['name'] as String?)?.trim().isNotEmpty == true
+          ? json['name']
+          : 'Folder',
+      description: json['description'] as String? ?? '',
+      createdAt: created,
     );
   }
 }
 
-/// Firestore-backed archive folders, one per user, at
-/// users/{uid}/archives/{archiveId}. Public API (archives getter,
-/// loadFromStorage, addArchive, etc.) is unchanged from the old
-/// SharedPreferences version, so ArchivesView/CreateArchiveScreen/
-/// SelectArchiveFolderScreen/InsideArchiveScreen don't need any changes —
-/// only what happens inside these methods.
+/// Your Archives folders, kept live while you're signed in (started in
+/// main.dart). What's inside each folder is in [SavedItems].
 class ArchiveStorage {
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static const String _defaultArchiveId = 'default_your_archives';
+  ArchiveStorage._();
 
-  static final List<ArchiveData> _archives = [];
-  static final List<VoidCallback> _listeners = [];
+  static const String defaultId = 'default_your_archives';
 
-  static List<ArchiveData> get archives => List.unmodifiable(_archives);
+  /// "Your Archives" first, then the rest oldest first.
+  static final ValueNotifier<List<ArchiveData>> folders =
+  ValueNotifier<List<ArchiveData>>(const []);
 
-  static String? get _uid => _auth.currentUser?.uid;
+  static List<ArchiveData> get archives => folders.value;
 
-  static CollectionReference<Map<String, dynamic>> get _archivesRef {
-    final uid = _uid;
-    if (uid == null) throw Exception('No signed-in user');
-    return _firestore.collection('users').doc(uid).collection('archives');
-  }
-
-  static void addListener(VoidCallback listener) {
-    _listeners.add(listener);
-  }
-
-  static void removeListener(VoidCallback listener) {
-    _listeners.remove(listener);
-  }
-
-  static void _notifyListeners() {
-    for (var listener in _listeners) {
-      listener();
+  static ArchiveData? byId(String id) {
+    for (final f in folders.value) {
+      if (f.id == id) return f;
     }
+    return null;
   }
 
-  /// Create default "Your Archives" folder
-  static ArchiveData _createDefaultArchive() {
-    return ArchiveData(
-      id: _defaultArchiveId,
-      name: 'Your Archives',
-      description: 'Saved messages, clips & more',
-      collaborators: [],
+  static FirebaseFirestore get _db => FirebaseFirestore.instance;
+  static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+
+  static CollectionReference<Map<String, dynamic>> _ref(String uid) =>
+      _db.collection('users').doc(uid).collection('archives');
+
+  static StreamSubscription<User?>? _auth;
+  static StreamSubscription? _sub;
+  static Completer<void> _ready = Completer<void>();
+
+  static void start() {
+    _auth ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      _sub?.cancel();
+      _sub = null;
+      folders.value = const [];
+      if (_ready.isCompleted) _ready = Completer<void>();
+      if (user == null) return;
+      _sub = _ref(user.uid).snapshots().listen((snap) async {
+        final list =
+        snap.docs.map((d) => ArchiveData.fromJson(d.id, d.data())).toList();
+        if (!list.any((f) => f.isDefault)) {
+          // First time: everyone gets "Your Archives".
+          final def = ArchiveData(
+            id: defaultId,
+            name: 'Your Archives',
+            createdAt: DateTime.now(),
+          );
+          list.add(def);
+          _ref(user.uid).doc(defaultId).set(def.toJson()).catchError((_) {});
+        }
+        list.sort((a, b) {
+          if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+          return a.createdAt.compareTo(b.createdAt);
+        });
+        folders.value = list;
+        if (!_ready.isCompleted) _ready.complete();
+      }, onError: (e) {
+        print('ArchiveStorage: $e');
+        if (!_ready.isCompleted) _ready.complete();
+      });
+    });
+  }
+
+  /// Waits (briefly) for the folder list.
+  static Future<void> loadFromStorage() async {
+    start();
+    if (_uid == null) return;
+    try {
+      await _ready.future.timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
+  static Future<ArchiveData?> create(String name, {String description = ''}) async {
+    final uid = _uid;
+    if (uid == null) return null;
+    final ref = _ref(uid).doc();
+    final folder = ArchiveData(
+      id: ref.id,
+      name: name.trim(),
+      description: description.trim(),
       createdAt: DateTime.now(),
     );
-  }
-
-  /// Add a new archive
-  static Future<void> addArchive(ArchiveData archive) async {
-    if (_uid == null) return;
     try {
-      await _archivesRef.doc(archive.id).set(archive.toJson());
-      _archives.add(archive);
-      _notifyListeners();
-      print('Archive added: ${archive.name}');
+      await ref.set(folder.toJson());
+      return folder;
     } catch (e) {
-      print('ArchiveStorage: addArchive error: $e');
+      print('ArchiveStorage.create: $e');
+      return null;
     }
   }
 
-  /// Remove an archive (cannot remove default archive)
-  static Future<void> removeArchive(String archiveId) async {
-    // Prevent deletion of default archive
-    if (archiveId == _defaultArchiveId) {
-      print('Cannot delete default "Your Archives" folder');
-      return;
-    }
-    if (_uid == null) return;
-
-    try {
-      await _archivesRef.doc(archiveId).delete();
-      _archives.removeWhere((archive) => archive.id == archiveId);
-      _notifyListeners();
-      print('Archive removed: $archiveId');
-    } catch (e) {
-      print('ArchiveStorage: removeArchive error: $e');
-    }
-  }
-
-  /// Update an archive
-  static Future<void> updateArchive(ArchiveData updatedArchive) async {
-    if (_uid == null) return;
-    try {
-      await _archivesRef
-          .doc(updatedArchive.id)
-          .set(updatedArchive.toJson(), SetOptions(merge: true));
-
-      final index = _archives.indexWhere((archive) => archive.id == updatedArchive.id);
-      if (index != -1) {
-        _archives[index] = updatedArchive;
-      }
-      _notifyListeners();
-      print('Archive updated: ${updatedArchive.name}');
-    } catch (e) {
-      print('ArchiveStorage: updateArchive error: $e');
-    }
-  }
-
-  /// Load archives from Firestore, ensuring the default "Your Archives"
-  /// folder exists.
-  static Future<void> loadFromStorage() async {
+  static Future<bool> rename(String id, String name, {String? description}) async {
     final uid = _uid;
-    if (uid == null) {
-      _archives.clear();
-      _notifyListeners();
-      return;
-    }
-
+    if (uid == null) return false;
     try {
-      final snapshot = await _archivesRef.get();
-      _archives.clear();
-      _archives.addAll(
-        snapshot.docs.map((doc) => ArchiveData.fromJson(doc.id, doc.data())),
-      );
-      print('Loaded ${_archives.length} archives from Firestore');
-
-      // Ensure default archive exists
-      final hasDefault = _archives.any((archive) => archive.id == _defaultArchiveId);
-      if (!hasDefault) {
-        print('Creating default "Your Archives" folder');
-        final defaultArchive = _createDefaultArchive();
-        await _archivesRef.doc(_defaultArchiveId).set(defaultArchive.toJson());
-        _archives.insert(0, defaultArchive);
-      }
-
-      _notifyListeners();
+      await _ref(uid).doc(id).set({
+        'name': name.trim(),
+        if (description != null) 'description': description.trim(),
+      }, SetOptions(merge: true));
+      return true;
     } catch (e) {
-      print('Error loading archives: $e');
+      print('ArchiveStorage.rename: $e');
+      return false;
     }
   }
 
-  /// Clear all archives (for testing/debugging)
-  static Future<void> clearAll() async {
-    if (_uid == null) return;
+  /// Deletes a folder (never "Your Archives"). What was in it stays saved
+  /// anywhere else it is; a clip that was only in this folder is unsaved.
+  static Future<bool> delete(String id) async {
+    final uid = _uid;
+    if (uid == null || id == defaultId) return false;
     try {
-      final snapshot = await _archivesRef.get();
-      final batch = _firestore.batch();
-      for (final doc in snapshot.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-      _archives.clear();
-      _notifyListeners();
+      await SavedItems.removeFolderEverywhere(id);
+      await _ref(uid).doc(id).delete();
+      return true;
     } catch (e) {
-      print('Error clearing archives: $e');
+      print('ArchiveStorage.delete: $e');
+      return false;
     }
   }
+
+  // Older screens listened this way.
+  static void addListener(VoidCallback l) => folders.addListener(l);
+  static void removeListener(VoidCallback l) => folders.removeListener(l);
 }

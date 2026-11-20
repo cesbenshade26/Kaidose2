@@ -1,246 +1,237 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'ArchiveStorage.dart';
-import 'SavedItemStorage.dart';
-import 'SendDailyMessage.dart';
+import 'CreateArchive.dart';
+import 'SettingsWidgets.dart';
 
-class SelectArchiveFolderScreen extends StatefulWidget {
-  final DailyMessage message;
-
-  /// Whether to show the "Save to Daily Only" shortcut at the top. That
-  /// option only makes sense for a message that's already part of a Daily
-  /// (Daily-saved status is set independently before this screen opens) —
-  /// hide it for things not tied to a Daily at all, like a Clip.
-  final bool showDailyOption;
-
-  const SelectArchiveFolderScreen({
-    Key? key,
-    required this.message,
-    this.showDailyOption = true,
-  }) : super(key: key);
-
-  @override
-  State<SelectArchiveFolderScreen> createState() => _SelectArchiveFolderScreenState();
+/// "Save to…": pick Archives folders (any number). For a Daily post in one
+/// of your Dailies, [allowDailyOnly] adds "Only in this Daily" (saved in
+/// the Daily's Saved, no folder). Returns the chosen folder ids (empty =
+/// only in the Daily), or null if they backed out.
+Future<List<String>?> showSaveToSheet(
+    BuildContext context, {
+      List<String> selected = const [],
+      bool allowDailyOnly = false,
+      bool alreadySaved = false,
+    }) {
+  return showModalBottomSheet<List<String>>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _SaveToSheet(
+      initial: selected,
+      allowDailyOnly: allowDailyOnly,
+      alreadySaved: alreadySaved,
+    ),
+  );
 }
 
-class _SelectArchiveFolderScreenState extends State<SelectArchiveFolderScreen> {
-  List<ArchiveData> _archives = [];
-  bool _isLoading = true;
+class _SaveToSheet extends StatefulWidget {
+  final List<String> initial;
+  final bool allowDailyOnly;
+  final bool alreadySaved;
+  const _SaveToSheet({
+    required this.initial,
+    required this.allowDailyOnly,
+    required this.alreadySaved,
+  });
+
+  @override
+  State<_SaveToSheet> createState() => _SaveToSheetState();
+}
+
+class _SaveToSheetState extends State<_SaveToSheet> {
+  late final Set<String> _picked = {...widget.initial};
 
   @override
   void initState() {
     super.initState();
-    _loadArchives();
+    ArchiveStorage.loadFromStorage().then((_) {
+      if (!mounted) return;
+      // Clips have to go somewhere: start with "Your Archives".
+      if (!widget.allowDailyOnly && _picked.isEmpty) {
+        setState(() => _picked.add(ArchiveStorage.defaultId));
+      }
+    });
   }
 
-  Future<void> _loadArchives() async {
-    await ArchiveStorage.loadFromStorage();
-    if (mounted) {
-      setState(() {
-        _archives = ArchiveStorage.archives;
-        _isLoading = false;
-      });
-    }
+  Future<void> _newFolder() async {
+    final f = await showFolderEditor(context);
+    if (f != null && mounted) setState(() => _picked.add(f.id));
   }
 
-  Future<void> _saveToArchive(ArchiveData archive) async {
-    // Save the message to the selected archive
-    await SavedItemStorage.saveItem(archive.id, widget.message);
+  bool get _canSave => widget.allowDailyOnly || _picked.isNotEmpty;
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Saved to ${archive.name}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
+  Widget _row({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required bool on,
+    required VoidCallback onTap,
+    bool radio = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: SettingsStyle.page,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 21, color: kc.adapt(const Color(0xFF55595F))),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w500,
+                          color: SettingsStyle.ink)),
+                  if (subtitle != null)
+                    Text(subtitle,
+                        style: TextStyle(
+                            fontSize: 12.5, color: SettingsStyle.subtle)),
+                ],
+              ),
+            ),
+            Icon(
+              on
+                  ? (radio
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.check_circle_rounded)
+                  : (radio
+                  ? Icons.radio_button_off_rounded
+                  : Icons.circle_outlined),
+              size: 24,
+              color: on ? Colors.cyan : kc.adapt(const Color(0xFFC4C7CC)),
+            ),
+          ],
         ),
-      );
-
-      Navigator.pop(context, true);
-    }
-  }
-
-  Future<void> _saveToDailyOnly() async {
-    // Message is already saved to daily's saved messages
-    // Just close the screen without saving to archive
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Saved to Daily only'),
-          backgroundColor: Colors.cyan,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      Navigator.pop(context);
-    }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black, size: 28),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-        title: const Text(
-          'Save to Archive',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        centerTitle: true,
+    return Container(
+      constraints:
+      BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+      decoration: BoxDecoration(
+        color: kc.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      body: _isLoading
-          ? const Center(
-        child: CircularProgressIndicator(
-          color: Colors.cyan,
-        ),
-      )
-          : Column(
-        children: [
-          // "Save to Daily Only" button at top — hidden entirely when
-          // this screen is used for something not tied to a Daily.
-          if (widget.showDailyOption)
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.all(16),
+              width: 36,
+              height: 4,
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.1),
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey[200]!),
-                ),
-              ),
-              child: GestureDetector(
-                onTap: _saveToDailyOnly,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.cyan,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.cyan.withOpacity(0.3),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.bookmark_border,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Save to Daily Only',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                color: kc.grey(300),
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-
-          // Archive list
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _archives.length,
-              itemBuilder: (context, index) {
-                final archive = _archives[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: GestureDetector(
-                    onTap: () => _saveToArchive(archive),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.cyan.withOpacity(0.3),
-                          width: 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.cyan.withOpacity(0.1),
-                            blurRadius: 8,
-                            spreadRadius: 1,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+            Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Save to',
+                    style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: SettingsStyle.ink)),
+              ),
+            ),
+            Flexible(
+              child: ValueListenableBuilder<List<ArchiveData>>(
+                valueListenable: ArchiveStorage.folders,
+                builder: (context, folders, _) => ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(bottom: 4),
+                  children: [
+                    if (widget.allowDailyOnly)
+                      _row(
+                        icon: Icons.wb_sunny_outlined,
+                        title: 'Only in this Daily',
+                        subtitle: 'Find it in the Daily\'s Saved',
+                        on: _picked.isEmpty,
+                        radio: true,
+                        onTap: () => setState(_picked.clear),
                       ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.cyan.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
+                    for (final f in folders)
+                      _row(
+                        icon: Icons.folder_outlined,
+                        title: f.name,
+                        subtitle: f.description.isEmpty ? null : f.description,
+                        on: _picked.contains(f.id),
+                        onTap: () => setState(() => _picked.contains(f.id)
+                            ? _picked.remove(f.id)
+                            : _picked.add(f.id)),
+                      ),
+                    InkWell(
+                      onTap: _newFolder,
+                      child: Padding(
+                        padding:
+                        EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 40,
+                              child: Icon(Icons.add_rounded,
+                                  size: 24, color: SettingsStyle.ink),
                             ),
-                            child: const Icon(
-                              Icons.folder,
-                              color: Colors.cyan,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  archive.name,
-                                  style: const TextStyle(
-                                    fontSize: 18,
+                            SizedBox(width: 14),
+                            Text('New folder',
+                                style: TextStyle(
+                                    fontSize: 15.5,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                if (archive.description.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    archive.description,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey[600],
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_ios,
-                            color: Colors.grey[400],
-                            size: 18,
-                          ),
-                        ],
+                                    color: SettingsStyle.ink)),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed:
+                  _canSave ? () => Navigator.pop(context, _picked.toList()) : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: kc.adapt(const Color(0xFFE6E7EA)),
+                    disabledForegroundColor: kc.adapt(const Color(0xFFA5AAB2)),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(widget.alreadySaved ? 'Done' : 'Save',
+                      style: const TextStyle(
+                          fontSize: 15.5, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

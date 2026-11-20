@@ -280,6 +280,34 @@ class FeedService {
   // with "Music" the tag.
 
   static const String _termPrefix = 't:';
+
+  /// Everyday words for each preset tag (the 16 Daily tags, which are also
+  /// the onboarding interests), written the way topic terms are stored
+  /// (lowercase, singular). Clips only have terms, never tags, so these let
+  /// "Gaming" Dailies and a "Gaming" interest lift gaming clips too. Kept in
+  /// sync with TAG_TERMS in functions/index.js.
+  static const Map<String, List<String>> tagTerms = {
+    'Sports': ['sport', 'basketball', 'football', 'soccer'],
+    'Music': ['music', 'song', 'concert'],
+    'Gaming': ['gaming', 'game', 'videogame'],
+    'Fitness': ['fitness', 'gym', 'workout'],
+    'Food': ['food', 'cooking', 'recipe'],
+    'Travel': ['travel', 'trip', 'vacation'],
+    'Art': ['art', 'drawing', 'painting'],
+    'Fashion': ['fashion', 'outfit', 'style'],
+    'Nature': ['nature', 'outdoor', 'hiking'],
+    'Tech': ['tech', 'technology', 'coding'],
+    'Movies / TV': ['movie', 'film', 'show'],
+    'Books': ['book', 'reading'],
+    'Health': ['health', 'wellness', 'yoga'],
+    'Finance': ['finance', 'money', 'investing'],
+    'Science': ['science', 'astronomy'],
+    'Comedy': ['comedy', 'funny', 'meme'],
+  };
+
+  /// Terms per tag added to a Daily's taste keys (kept small: each key is a
+  /// read in the taste update).
+  static const int _termsPerTag = 2;
   static const double _termWeightFactor = 0.8; // terms are noisier than tags
   static const int _maxTermsPerEvent = 8;
   static const int _maxTermsPerQuery = 10;
@@ -957,9 +985,16 @@ class FeedService {
     } catch (e) {
       print('FeedService: keys lookup error: $e');
     }
+    // The Daily's own words first, then everyday words for its tags, so a
+    // Daily tagged "Gaming" with a plain title still teaches "gaming" (what
+    // the Clips feed matches on).
+    final termSet = <String>{
+      ...terms.take(_maxTermsPerEvent),
+      for (final tag in tags) ...?tagTerms[tag]?.take(_termsPerTag),
+    };
     final keys = [
       ...tags,
-      ...terms.take(_maxTermsPerEvent).map((t) => '$_termPrefix$t'),
+      ...termSet.map((t) => '$_termPrefix$t'),
     ];
     if (keys.isNotEmpty) _keyCache[dailyId] = keys;
     return keys;
@@ -996,6 +1031,29 @@ class FeedService {
         });
       }
     });
+  }
+
+  /// How long you spent in a Daily (screen open, app in the foreground).
+  /// Lingering is a quiet signal of interest, on top of the "open" event:
+  /// it updates the same taste profile both For You and Clips read.
+  /// Under 15 seconds counts for nothing (a quick peek).
+  static Future<void> recordDailyTime(DailyData daily, Duration spent) async {
+    if (_uid == null || _isMine(daily.id)) return;
+    final secs = spent.inSeconds;
+    final double weight = secs >= 180
+        ? 3
+        : secs >= 60
+        ? 2
+        : secs >= 15
+        ? 1
+        : 0;
+    if (weight == 0) return;
+    try {
+      final keys = await _keysFor(daily.id, fallbackTags: daily.keywords);
+      if (keys.isNotEmpty) await _recordKeys(keys, weight);
+    } catch (e) {
+      print('FeedService: recordDailyTime error: $e');
+    }
   }
 
   /// Same as [recordEvent] for callers that only know the Daily's id (a

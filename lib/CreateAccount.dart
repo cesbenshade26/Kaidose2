@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'AppColors.dart';
 import 'auth_service.dart';
 import 'TermsAgreement.dart';
 import 'EmailVerificationScreen.dart';
@@ -224,12 +225,12 @@ class _CreateAccountState extends State<CreateAccount> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kc.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: kc.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: IconThemeData(color: kc.text),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -243,7 +244,7 @@ class _CreateAccountState extends State<CreateAccount> {
                 Text('Create your account', style: KaidoseBrand.display(30)),
                 const SizedBox(height: 6),
                 Text('Takes less than a minute.',
-                    style: TextStyle(fontSize: 15, color: Colors.grey[600])),
+                    style: TextStyle(fontSize: 15, color: kc.grey(600))),
                 const SizedBox(height: 28),
 
                 AuthField(
@@ -329,7 +330,7 @@ class _CreateAccountState extends State<CreateAccount> {
                     TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text('Used to confirm your age. It isn\'t shown on your profile.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+                    style: TextStyle(fontSize: 13, color: kc.grey(500))),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -385,7 +386,7 @@ class _CreateAccountState extends State<CreateAccount> {
                     _isPhone
                         ? 'We\'ll text you a code to confirm your number.'
                         : 'We\'ll email you a link to confirm your address.',
-                    style: TextStyle(fontSize: 12.5, color: Colors.grey[500]),
+                    style: TextStyle(fontSize: 12.5, color: kc.grey(500)),
                   ),
                 ),
               ],
@@ -408,9 +409,9 @@ class _CreateAccountState extends State<CreateAccount> {
     return DropdownButtonFormField<String>(
       value: value,
       isExpanded: true,
-      hint: Text(hint, style: TextStyle(color: Colors.grey[600], fontSize: 15)),
-      icon: Icon(Icons.keyboard_arrow_down, color: Colors.grey[500]),
-      dropdownColor: Colors.white,
+      hint: Text(hint, style: TextStyle(color: kc.grey(600), fontSize: 15)),
+      icon: Icon(Icons.keyboard_arrow_down, color: kc.grey(500)),
+      dropdownColor: kc.surface,
       borderRadius: BorderRadius.circular(14),
       style: const TextStyle(fontSize: 15, color: KaidoseBrand.ink),
       decoration: InputDecoration(

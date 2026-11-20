@@ -163,7 +163,7 @@ class _AddSheetState extends State<_AddSheet> {
                 color: context.colors.surfaceMuted,
                 shape: BoxShape.circle,
               ),
-              child: Icon(item.icon, color: context.colors.accent, size: 22),
+              child: Icon(item.icon, color: context.colors.text, size: 22),
             ),
             const SizedBox(width: 16),
             Expanded(

@@ -11,6 +11,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 ///    (and video still frames) start downloading (8 messages read).
 ///  * A finger touches the card -> its whole thread and its newest videos
 ///    start loading too, so they're there by the time the Daily opens.
+///  * The card shows a cover that will open the Daily at its post ->
+///    that post's video and the posts around it get ready as well.
 class DailyWarmup {
   DailyWarmup._();
 
@@ -19,7 +21,18 @@ class DailyWarmup {
   static const int _photos = 4; // newest photos / still frames
   static const int _videos = 2; // newest videos, on touch only
 
-  static Future<void> warm(String dailyId, {bool videos = false}) async {
+  static Future<void> warm(String dailyId,
+      {bool videos = false, String? aroundMessageId, String? coverVideoUrl}) async {
+    // Opening at the cover post: its video first (straight from the cover,
+    // no need to wait for the thread), then the posts around it.
+    if (coverVideoUrl != null && coverVideoUrl.startsWith('http')) {
+      DailyPostVideoCache.warm(coverVideoUrl);
+    }
+    if (aroundMessageId != null) {
+      MessageStorage.prefetch(dailyId);
+      _warmAround(dailyId, aroundMessageId);
+    }
+
     final key = '$dailyId|$videos';
     final last = _done[key];
     if (last != null && DateTime.now().difference(last) < _again) return;
@@ -67,6 +80,36 @@ class DailyWarmup {
           }
         }
         if (photos >= _photos && (!videos || vids >= _videos)) break;
+      }
+    } catch (_) {}
+  }
+
+  static final Map<String, DateTime> _aroundDone = {};
+
+  /// Photos, video still frames and sizes for the posts just above and
+  /// below [messageId], so the Daily opens there with nothing loading.
+  static Future<void> _warmAround(String dailyId, String messageId) async {
+    final key = '$dailyId|$messageId';
+    final last = _aroundDone[key];
+    if (last != null && DateTime.now().difference(last) < _again) return;
+    _aroundDone[key] = DateTime.now();
+    try {
+      final future = MessageStorage.peekPrefetched(dailyId) ??
+          MessageStorage.loadMessages(dailyId);
+      final messages = await future;
+      final i = messages.indexWhere((m) => m.messageId == messageId);
+      if (i < 0) return;
+      final from = (i - 6).clamp(0, messages.length);
+      final to = (i + 7).clamp(0, messages.length);
+      for (var j = from; j < to; j++) {
+        for (final item in messages[j].media.take(2)) {
+          if (!item.path.startsWith('http')) continue;
+          if (!item.isVideo || item.thumb != null) {
+            MediaAspect.of(item.path, isVideo: item.isVideo, thumb: item.thumb);
+          }
+          final picture = item.isVideo ? item.thumb : item.path;
+          if (picture != null) precacheNetworkImage(picture);
+        }
       }
     } catch (_) {}
   }

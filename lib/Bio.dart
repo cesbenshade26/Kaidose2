@@ -58,7 +58,7 @@ class _BioScreenState extends State<BioScreen> {
         centerTitle: true,
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: context.colors.accent))
+          ? Center(child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))))
           : Padding(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
         child: Column(

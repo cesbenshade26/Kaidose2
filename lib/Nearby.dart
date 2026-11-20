@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
@@ -54,28 +55,42 @@ class NearbyService {
   static Future<String?> turnOn() async {
     final ref = _me;
     if (ref == null) return 'Sign in first';
+    // Every step has a time limit: a location call that never answers used
+    // to leave the "Turn on" spinner going forever.
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
+      final servicesOn = await Geolocator.isLocationServiceEnabled()
+          .timeout(const Duration(seconds: 5), onTimeout: () => true);
+      if (!servicesOn) {
         return 'Turn on Location Services in your phone settings first';
       }
-      var perm = await Geolocator.checkPermission();
+      var perm = await Geolocator.checkPermission()
+          .timeout(const Duration(seconds: 5));
       if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
+        // The person is reading the Allow pop-up here, so give it time.
+        perm = await Geolocator.requestPermission()
+            .timeout(const Duration(seconds: 60));
       }
       if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
+          perm == LocationPermission.deniedForever ||
+          perm == LocationPermission.unableToDetermine) {
         return 'Allow location for Kaidose in Settings to use Near you';
       }
       final cell = await _currentCell();
-      if (cell == null) return "Couldn't get your location. Try again.";
+      if (cell == null) {
+        return "Couldn't find your location. Check that Location is on "
+            "and try again.";
+      }
       await ref.set({
         'nearbyVisible': true,
         'geoCell': cell,
         'geoUpdatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
       _cell = cell;
       _cellFor = ref.id;
       return null;
+    } on TimeoutException catch (e) {
+      print('NearbyService: turnOn timed out: $e');
+      return "That took too long. Check your connection and try again.";
     } catch (e) {
       print('NearbyService: turnOn failed: $e');
       return "Couldn't turn on Near you. Try again.";
@@ -113,16 +128,25 @@ class NearbyService {
   }
 
   static Future<String?> _currentCell() async {
+    // Only a city-sized area is kept, so a rough fix is plenty. The outer
+    // timeout matters: on some iPhones the built-in time limit is ignored
+    // and the call never returns.
     Position? pos;
     try {
       pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.low,
-          timeLimit: Duration(seconds: 12),
+          timeLimit: Duration(seconds: 8),
         ),
-      );
-    } catch (_) {
-      pos = await Geolocator.getLastKnownPosition();
+      ).timeout(const Duration(seconds: 10));
+    } catch (e) {
+      print('NearbyService: current position failed ($e), trying last known');
+      try {
+        pos = await Geolocator.getLastKnownPosition()
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {
+        pos = null;
+      }
     }
     if (pos == null) return null;
     return geohash(pos.latitude, pos.longitude, _precision);

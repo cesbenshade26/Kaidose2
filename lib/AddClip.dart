@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'Moderation.dart';
 import 'AppColors.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'ClipTracker.dart';
 import 'clip_service.dart';
@@ -15,11 +14,12 @@ import 'UnifiedMediaPicker.dart';
 import 'PhotoEditor.dart';
 import 'MusicSearch.dart';
 import 'ClipMusic.dart';
+import 'CameraCapture.dart';
 
 /// Create a Clip: one video (up to 60s) or up to 10 photos, plus a caption.
 ///
 /// Empty state offers Library (the inline picker, videos first with a small
-/// Videos | Photos switch) and Film (camera). Once something is chosen the
+/// Videos | Photos switch) and Camera (photo or video, via CameraCapture). Once something is chosen the
 /// preview takes over, with a caption bar and a single Post button.
 class AddClipScreen extends StatefulWidget {
   /// True when opened as its own screen from the Add sheet: shows a close
@@ -37,8 +37,6 @@ class _AddClipScreenState extends State<AddClipScreen> {
   static const double _pickerHeight = 330;
 
   final TextEditingController _captionController = TextEditingController();
-  final ImagePicker _picker = ImagePicker();
-
   static const int _maxPhotos = ClipService.maxPhotosPerClip;
 
   File? _file; // the video, when this is a video clip
@@ -319,14 +317,20 @@ class _AddClipScreenState extends State<AddClipScreen> {
     });
   }
 
-  Future<void> _film() async {
-    FocusScope.of(context).unfocus();
-    final XFile? video = await _picker.pickVideo(
-      source: ImageSource.camera,
-      maxDuration: _maxClipLength,
+  /// Camera: a photo or a video (up to 60s). It lands in the preview box,
+  /// ready to edit, exactly like something picked from the library.
+  Future<void> _openCamera() async {
+    if (_isPosting) return;
+    setState(() => _showPicker = false);
+    final shot = await CameraCapture.capture(
+      context,
+      maxVideoLength: _maxClipLength,
     );
-    if (video != null) {
-      await _setMedia(File(video.path), isVideo: true);
+    if (shot == null || !mounted) return;
+    if (shot.isVideo) {
+      await _setMedia(shot.file, isVideo: true);
+    } else {
+      await _addPhotos([shot.file]);
     }
   }
 
@@ -553,9 +557,9 @@ class _AddClipScreenState extends State<AddClipScreen> {
               ),
               const SizedBox(height: 10),
               _secondaryButton(
-                icon: Icons.videocam_outlined,
-                label: 'Film',
-                onTap: _film,
+                icon: Icons.camera_alt_outlined,
+                label: 'Camera',
+                onTap: _openCamera,
               ),
             ],
           ),
@@ -741,7 +745,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
     final c = _videoController;
     if (_isInitializing || c == null || !c.value.isInitialized) {
       return Center(
-        child: CircularProgressIndicator(color: context.colors.accent, strokeWidth: 2.5),
+        child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC)), strokeWidth: 2.5),
       );
     }
 
@@ -909,7 +913,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
           SizedBox(
             width: 14,
             height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: context.colors.accent),
+            child: CircularProgressIndicator(strokeWidth: 2, color: kc.adapt(const Color(0xFFB0B5BC))),
           ),
           const SizedBox(width: 8),
           Text('Writing captions...',
@@ -933,7 +937,7 @@ class _AddClipScreenState extends State<AddClipScreen> {
                   ),
                   labelStyle:
                   TextStyle(fontSize: 13, color: context.colors.text),
-                  backgroundColor: context.colors.accent.withOpacity(0.08),
+                  backgroundColor: context.colors.surfaceMuted,
                   side: BorderSide.none,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),

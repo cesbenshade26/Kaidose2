@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'AppColors.dart';
 import 'dart:io';
 import 'DailyPhotoManager.dart';
 import 'DailyPhotoTracker.dart';
@@ -15,40 +15,7 @@ import 'StoryPhotoFrame.dart';
 import 'MusicSearch.dart';
 import 'ClipMusic.dart';
 import 'StoryMusic.dart';
-
-class UseCam {
-  static final ImagePicker _picker = ImagePicker();
-
-  static Future<XFile?> openCamera(BuildContext context) async {
-    print("Camera button tapped!");
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1800,
-        maxHeight: 1800,
-        imageQuality: 80,
-        preferredCameraDevice: CameraDevice.rear,
-      );
-      if (image != null) {
-        print('Captured image path: ${image.path}');
-        return image;
-      } else {
-        print('No image captured - user cancelled');
-        return null;
-      }
-    } catch (e) {
-      print('Error accessing camera: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error accessing camera: $e'),
-          duration: const Duration(seconds: 3),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return null;
-    }
-  }
-}
+import 'CameraCapture.dart';
 
 // ─── Friend picker sheet (photo or video) ─────────────────────────────────────
 
@@ -117,8 +84,8 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: kc.surface,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(24),
           topRight: Radius.circular(24),
@@ -134,35 +101,35 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: kc.grey(300),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Share with Friends',
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Colors.black87),
+                  color: kc.text),
             ),
             const SizedBox(height: 4),
             Text(
               'Only the friends you pick will see this',
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 13, color: kc.grey(600)),
             ),
             const SizedBox(height: 12),
             if (_isLoading)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(color: Colors.cyan),
+                child: CircularProgressIndicator(color: kc.adapt(const Color(0xFFB0B5BC))),
               )
             else if (_friends.isEmpty)
               Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
                   'No friends yet — add friends first!',
-                  style: TextStyle(color: Colors.grey[600]),
+                  style: TextStyle(color: kc.grey(600)),
                 ),
               )
             else
@@ -188,7 +155,7 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: kc.grey(100),
                           shape: BoxShape.circle,
                         ),
                         child: Center(
@@ -199,7 +166,7 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
-                              color: Colors.grey[800],
+                              color: kc.grey(800),
                             ),
                           ),
                         ),
@@ -374,19 +341,27 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
     });
   }
 
+  /// Camera: a photo or a video (up to 2 minutes, same as the library). It
+  /// goes into the card, ready to edit and post.
   Future<void> _openCamera() async {
-    FocusScope.of(context).unfocus();
-    final XFile? pickedFile = await UseCam.openCamera(context);
-    if (pickedFile != null && mounted) {
-      setState(() {
-        _selectedPhoto = File(pickedFile.path);
+    if (_showPicker) setState(() => _showPicker = false);
+    final shot = await CameraCapture.capture(
+      context,
+      maxVideoLength: const Duration(minutes: 2),
+    );
+    if (shot == null || !mounted) return;
+    setState(() {
+      _currentPhotoIndex = -1;
+      _composited = false;
+      _dailyMusic = null;
+      if (shot.isVideo) {
+        _selectedVideo = shot.file;
+        _selectedPhoto = null;
+      } else {
+        _selectedPhoto = shot.file;
         _selectedVideo = null;
-        _composited = false;
-        _dailyMusic = null;
-        _currentPhotoIndex = -1;
-        _showPicker = false;
-      });
-    }
+      }
+    });
   }
 
   /// Opens the editor (crop, text, draw, music) on the chosen photo or
@@ -890,9 +865,9 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
   Widget _buildEmptyCard() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: kc.grey(50),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.grey[800]!, width: 1),
+        border: Border.all(color: kc.grey(800), width: 1),
       ),
       child: Center(
         child: SingleChildScrollView(
@@ -904,26 +879,26 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: kc.surface,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(color: kc.grey(300)),
                 ),
                 child: Icon(Icons.add_a_photo_outlined,
-                    size: 28, color: Colors.grey[800]),
+                    size: 28, color: kc.grey(800)),
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Your Daily',
                 style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87),
+                    color: kc.text),
               ),
               const SizedBox(height: 6),
               Text(
                 "Share a photo or video from today",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 14, color: kc.grey(600)),
               ),
               const SizedBox(height: 24),
               SizedBox(
@@ -957,8 +932,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
                       style:
                       TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.black87,
-                    side: BorderSide(color: Colors.grey[400]!),
+                    foregroundColor: kc.text,
+                    side: BorderSide(color: kc.grey(400)),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                   ),
@@ -982,8 +957,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
               child: OutlinedButton(
                 onPressed: _shareWithFriends,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.black87,
-                  side: BorderSide(color: Colors.grey[800]!),
+                  foregroundColor: kc.text,
+                  side: BorderSide(color: kc.grey(800)),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
                 ),
@@ -1029,8 +1004,8 @@ class _YourDailyWidgetState extends State<YourDailyWidget> {
           label: const Text('Add another',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
           style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.black87,
-            side: BorderSide(color: Colors.grey[800]!),
+            foregroundColor: kc.text,
+            side: BorderSide(color: kc.grey(800)),
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16)),
           ),
